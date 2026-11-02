@@ -1,0 +1,1667 @@
+#出血与自然凝血系统配置
+[bleeding]
+	#每秒失血换算系数（将 mL/min 出血速率转换为每秒实际扣除的失血量，默认 1/60 即约 0.01667）
+	#影响范围: 所有外出血扣减血容量
+	#推荐范围: [0.005, 0.1]
+	# Default: 0.016666666666666666
+	# Range: 0.0 ~ 1.0
+	bleedToBloodRatio = 0.016666666666666666
+	#自然止血最大外出血阈值 (mL/min)。低于或等于此数值的创口在未包扎状态下可随时间自然凝血止血
+	#推荐范围: [10, 100]
+	# Default: 50
+	# Range: 0 ~ 500
+	naturalClottingThreshold = 50
+	#轻微出血 (1 mL/min) 自然止血所需最短时间 (秒)
+	#推荐范围: [30, 300]
+	# Default: 60
+	# Range: 1 ~ 3600
+	naturalClottingMinTime = 60
+	#中度出血 (50 mL/min) 自然止血所需最长时间 (秒)
+	#推荐范围: [60, 600]
+	# Default: 300
+	# Range: 1 ~ 3600
+	naturalClottingMaxTime = 300
+
+#血容量自然回升系统配置（无活动性失血且饱食时缓慢恢复血容量）
+[blood_regen]
+	#是否启用血容量自然回升（关闭后完全禁用）
+	enableBloodVolumeRegen = true
+	#血容量每秒回升速率 (mL/s)
+	#影响范围: 满足条件时的血容量恢复速度
+	#推荐范围: [1, 20]
+	# Default: 5.0
+	# Range: 0.0 ~ 100.0
+	bloodRegenRate = 5.0
+	#触发回升所需的最低饱食度 (0~20)
+	#推荐范围: [6, 20]
+	# Default: 14
+	# Range: 0 ~ 20
+	bloodRegenFoodThreshold = 14
+
+#血氧动态衰减与代偿系统配置
+[blood_oxygen]
+	#心脏骤停发生时每秒硬性扣除的血氧百分比 (%)
+	#推荐范围: [10, 50]
+	# Default: 20
+	# Range: 0 ~ 100
+	cardiacArrestOxygenLoss = 20
+	#心室纤颤发生时每秒硬性扣除的血氧百分比 (%)
+	#推荐范围: [5, 30]
+	# Default: 10
+	# Range: 0 ~ 100
+	vfibOxygenLoss = 10
+	#血容量 > 70% 时的每秒基础血氧恢复率 (%/s)
+	#推荐范围: [0.1, 2.0]
+	# Default: 0.5
+	# Range: -10.0 ~ 10.0
+	oxygenChangeRatio70 = 0.5
+	#血容量在 50% ~ 70% 时的每秒基础血氧变化率 (%/s)
+	#推荐范围: [-1.0, 0.0]
+	# Default: -0.2
+	# Range: -10.0 ~ 10.0
+	oxygenChangeRatio50 = -0.2
+	#血容量在 30% ~ 50% 时的每秒基础血氧变化率 (%/s)
+	#推荐范围: [-2.0, 0.0]
+	# Default: -0.5
+	# Range: -10.0 ~ 10.0
+	oxygenChangeRatio30 = -0.5
+	#血容量在 10% ~ 30% 时的每秒基础血氧变化率 (%/s)
+	#推荐范围: [-5.0, 0.0]
+	# Default: -1.0
+	# Range: -10.0 ~ 10.0
+	oxygenChangeRatio10 = -1.0
+	#血容量 <= 10% 时的每秒基础血氧变化率 (%/s)
+	#推荐范围: [-10.0, 0.0]
+	# Default: -2.0
+	# Range: -10.0 ~ 10.0
+	oxygenChangeRatioLow = -2.0
+	#呼吸停止时血氧 > 70% 的每秒下降速率
+	# Default: 0.3
+	# Range: 0.0 ~ 10.0
+	oxygenLossRespStopHigh = 0.3
+	#呼吸停止时血氧 50~70% 的每秒下降速率
+	# Default: 0.6
+	# Range: 0.0 ~ 10.0
+	oxygenLossRespStopMid = 0.6
+	#呼吸停止时血氧 30~50% 的每秒下降速率
+	# Default: 1.0
+	# Range: 0.0 ~ 10.0
+	oxygenLossRespStopLow = 1.0
+	#呼吸停止时血氧 < 30% 的每秒下降速率
+	# Default: 1.5
+	# Range: 0.0 ~ 10.0
+	oxygenLossRespStopCritical = 1.5
+	#血容量 > 70% 时的每秒血氧恢复速率
+	# Default: 2.0
+	# Range: 0.0 ~ 10.0
+	oxygenRecoveryRateHigh = 2.0
+	#血容量 50~70% 时的每秒血氧恢复速率
+	# Default: 1.0
+	# Range: 0.0 ~ 10.0
+	oxygenRecoveryRateMid = 1.0
+	#血容量 30~50% 时的每秒血氧恢复速率
+	# Default: 0.5
+	# Range: 0.0 ~ 10.0
+	oxygenRecoveryRateLow = 0.5
+	#血容量 < 30% 时的每秒血氧恢复速率
+	# Default: 0.2
+	# Range: 0.0 ~ 10.0
+	oxygenRecoveryRateCrit = 0.2
+	#呼吸频率每偏离基准 1 次/分的血氧变化率
+	# Default: 0.3
+	# Range: 0.0 ~ 5.0
+	respirationEffectPerRate = 0.3
+	#呼吸频率的血氧平衡基准（呼吸 = 此值时血氧不变）
+	# Default: 10.0
+	# Range: 5.0 ~ 20.0
+	respirationBaseline = 10.0
+	#呼吸完全停止时每秒的血氧下降速率
+	# Default: -5.0
+	# Range: -20.0 ~ 0.0
+	respirationStopEffect = -5.0
+	#水下屏息缓冲时间 (秒，在此时间内肺部存氧可维持血氧，不发生剧烈缺氧)
+	# Default: 15
+	# Range: 0 ~ 60
+	underwaterBreathHoldTime = 15
+	#水下屏息期间每秒的血氧基础消耗率
+	# Default: 0.2
+	# Range: 0.0 ~ 2.0
+	breathHoldOxygenLoss = 0.2
+
+#脑健康度消耗与缓慢自愈机制
+[brain_health]
+	#心脏骤停发生时每秒扣除的脑健康点数 (%)
+	#推荐范围: [2, 20]
+	# Default: 5
+	# Range: 0 ~ 100
+	cardiacArrestBrainLoss = 5
+	#心室纤颤发生时每秒扣除的脑健康点数 (%)
+	#推荐范围: [1, 10]
+	# Default: 2
+	# Range: 0 ~ 100
+	vfibBrainLoss = 2
+	#脑健康无条件自然恢复的触发间隔周期 (秒，默认 60s 恢复 1 点)
+	#推荐范围: [10, 300]
+	# Default: 60
+	# Range: 1 ~ 3600
+	brainHealthRegenInterval = 60
+	#每次自然恢复触发时回复的脑健康数值 (%)
+	#推荐范围: [1, 5]
+	# Default: 1
+	# Range: 1 ~ 100
+	brainHealthRegenAmount = 1
+	#血氧 >= 90% 且供血充盈时的脑健康微量恢复速率 (%/s)
+	#推荐范围: [0.0, 1.0]
+	# Default: 0.1
+	# Range: -10.0 ~ 10.0
+	brainLossOxygen90 = 0.1
+	#血氧在 50% ~ 70% 时的脑健康每秒消耗速率 (%/s)
+	#推荐范围: [-1.0, 0.0]
+	# Default: -0.2
+	# Range: -10.0 ~ 10.0
+	brainLossOxygen50 = -0.2
+	#血氧在 30% ~ 50% 时的脑健康每秒消耗速率 (%/s)
+	#推荐范围: [-2.0, 0.0]
+	# Default: -0.5
+	# Range: -10.0 ~ 10.0
+	brainLossOxygen30 = -0.5
+	#血氧 < 30% 严重缺氧时的脑健康每秒消耗速率 (%/s)
+	#推荐范围: [-5.0, 0.0]
+	# Default: -1.0
+	# Range: -10.0 ~ 10.0
+	brainLossOxygenLow = -1.0
+
+#意识清醒度调控与呼吸/疼痛惩罚
+[consciousness]
+	#意识每秒自然恢复的基准量 (%)
+	#推荐范围: [0.5, 5.0]
+	# Default: 1.0
+	# Range: 0.0 ~ 10.0
+	consciousnessBaseRecovery = 1.0
+	#体感疼痛(0~55)换算为意识每秒惩罚的除数 (penalty = perceivedPain / divisor)
+	#推荐范围: [15.0, 50.0]
+	# Default: 25.0
+	# Range: 1.0 ~ 200.0
+	painPenaltyDivisor = 25.0
+	#血氧在 80% ~ 90% 区间时每秒扣除的意识点数 (%)
+	#推荐范围: [0.0, 2.0]
+	# Default: 0.0
+	# Range: 0.0 ~ 10.0
+	oxygenPenalty90 = 0.0
+	#血氧在 70% ~ 80% 区间时每秒扣除的意识点数 (%)
+	#推荐范围: [0.0, 3.0]
+	# Default: 0.0
+	# Range: 0.0 ~ 10.0
+	oxygenPenalty80 = 0.0
+	#血氧在 50% ~ 70% 区间时每秒扣除的意识点数 (%)
+	#推荐范围: [0.1, 2.0]
+	# Default: 0.5
+	# Range: 0.0 ~ 10.0
+	oxygenPenalty70 = 0.5
+	#血氧在 30% ~ 50% 区间时每秒扣除的意识点数 (%)
+	#推荐范围: [0.5, 3.0]
+	# Default: 1.5
+	# Range: 0.0 ~ 10.0
+	oxygenPenalty50 = 1.5
+	#血氧在 20% ~ 30% 区间时每秒扣除的意识点数 (%)
+	#推荐范围: [1.0, 5.0]
+	# Default: 3.0
+	# Range: 0.0 ~ 20.0
+	oxygenPenalty30 = 3.0
+	#血氧 < 20% 严重缺氧区间时每秒扣除的意识点数 (%)
+	#推荐范围: [3.0, 10.0]
+	# Default: 5.0
+	# Range: 0.0 ~ 50.0
+	oxygenPenaltyCritical = 5.0
+
+#心电动力学与窦性调节
+[heart_rate]
+	#健康人体基础静息心率 (bpm)
+	#推荐范围: [60, 90]
+	# Default: 75
+	# Range: 30 ~ 120
+	restingHeartRate = 75
+	#代偿性窦性心动过速的最大允许心率上限 (bpm)
+	#推荐范围: [180, 240]
+	# Default: 200
+	# Range: 150 ~ 300
+	maxHeartRate = 200
+	#全身疼痛等级对心率加速的加成系数 (bpm/级)
+	#推荐范围: [2.0, 8.0]
+	# Default: 4.0
+	# Range: 0.0 ~ 20.0
+	painHeartRateMultiplier = 4.0
+	#呼吸停止 (<=0) 时对心率的减慢修正值 (bpm)
+	#推荐范围: [-40.0, 0.0]
+	# Default: -20.0
+	# Range: -100.0 ~ 100.0
+	respModStop = -20.0
+	#呼吸过缓 (<8 次/分) 时对心率的减慢修正值 (bpm)
+	#推荐范围: [-20.0, 0.0]
+	# Default: -10.0
+	# Range: -100.0 ~ 100.0
+	respModSlow = -10.0
+
+#呼吸中枢与通气调节
+[respiration]
+	#静息基础呼吸频率 (次/分)
+	#推荐范围: [12, 18]
+	# Default: 14
+	# Range: 6 ~ 30
+	baseRespiration = 14
+	#连续奔跑运动带来的最大呼吸频率增益 (次/分)
+	#推荐范围: [15.0, 40.0]
+	# Default: 28.0
+	# Range: 0.0 ~ 60.0
+	maxRunningRespirationBonus = 28.0
+	#奔跑增益达到最大所需持续奔跑时间 (秒)
+	#推荐范围: [120, 600]
+	# Default: 300
+	# Range: 10 ~ 1200
+	runningBonusMaxTime = 300
+	#触发屏幕边缘全屏红框警告的呼吸过缓下限门槛 (次/分)
+	#推荐范围: [4, 8]
+	# Default: 6
+	# Range: 1 ~ 15
+	extremeRespLowThreshold = 6
+	#触发屏幕边缘全屏红框警告的过度换气上限门槛 (次/分)
+	#推荐范围: [35, 55]
+	# Default: 40
+	# Range: 25 ~ 80
+	extremeRespHighThreshold = 40
+	#呼吸频率绝对上限 (次/分)
+	#推荐范围: [40, 80]
+	# Default: 50
+	# Range: 20 ~ 120
+	maxRespiration = 50
+
+#心脏急症与濒危状态阈值
+[cardiac_arrest]
+	#触发 5 秒濒危倒计时的失血性休克血容量门槛 (mL，人体总量 5000 mL)
+	#推荐范围: [2000, 3500]
+	# Default: 3000
+	# Range: 500 ~ 4500
+	criticalBloodVolume = 3000
+	#濒危状态到心脏骤停的倒计时时长 (秒)
+	#推荐范围: [3, 10]
+	# Default: 5
+	# Range: 1 ~ 120
+	criticalTimerMax = 5
+	#触发心室纤颤倒计时的恶性心动过速心率阈值 (bpm)
+	#推荐范围: [180, 230]
+	# Default: 190
+	# Range: 150 ~ 240
+	vfibThreshold = 190
+	#维持恶性心动过速触发室颤所需的持续秒数 (秒)
+	#推荐范围: [15, 60]
+	# Default: 30
+	# Range: 5 ~ 120
+	vfibDuration = 30
+	#触发缺氧性室颤倒计时的血氧饱和度极限阈值 (%)
+	#推荐范围: [10, 30]
+	# Default: 20
+	# Range: 1 ~ 50
+	severeHypoxiaThreshold = 20
+	#血氧低于极限阈值持续该秒数后触发缺氧性室颤 (秒)
+	#推荐范围: [15, 60]
+	# Default: 30
+	# Range: 5 ~ 120
+	severeHypoxiaDuration = 30
+	#触发停搏倒计时的严重心动过缓心率阈值 (bpm)
+	#推荐范围: [20, 45]
+	# Default: 40
+	# Range: 10 ~ 60
+	bradyArrestThreshold = 40
+	#维持严重心动过缓触发心脏骤停所需的持续秒数 (秒)
+	#推荐范围: [15, 60]
+	# Default: 30
+	# Range: 5 ~ 120
+	bradyDuration = 30
+
+#运动强度计算与体力活动
+[exercise]
+	#疾跑冲刺时的目标运动强度 (0.0 ~ 1.0)
+	#推荐范围: [0.4, 0.8]
+	# Default: 0.6
+	# Range: 0.0 ~ 1.0
+	sprintExerciseIntensity = 0.6
+	#跳跃与滞空时的最低目标运动强度 (0.0 ~ 1.0)
+	#推荐范围: [0.1, 0.4]
+	# Default: 0.2
+	# Range: 0.0 ~ 1.0
+	jumpExerciseIntensity = 0.2
+	#挥击攻击/破坏方块后激发交感神经兴奋维持的时间 (秒)
+	#推荐范围: [5, 20]
+	# Default: 10
+	# Range: 1 ~ 60
+	attackTimerDuration = 10
+
+#疼痛感应与自然衰退
+[pain]
+	#各肢体疼痛等级自然衰退 1 级所需时间 (秒)
+	#推荐范围: [30, 180]
+	# Default: 60
+	# Range: 1 ~ 600
+	painDecayInterval = 60
+	#单肢体最高允许记录的疼痛等级上限
+	#推荐范围: [10, 20]
+	# Default: 10
+	# Range: 1 ~ 20
+	maxPainLevel = 10
+	#体感疼痛红晕血管搏动视觉层（频率绑定心率，痛越重心跳越快红晕搏动越急促）
+	# Default: true
+	painVignetteEnabled = true
+	#红晕开始出现的体感疼痛阈值（0~55，低于此值不渲染）
+	# Default: 10
+	# Range: 0 ~ 55
+	painVignetteStartThreshold = 10
+	#红晕达到最大强度的体感疼痛阈值（与起始阈值之间线性插值）
+	# Default: 45
+	# Range: 1 ~ 55
+	painVignetteFullThreshold = 45
+	#红晕最大不透明度 (0~1，建议 0.2~0.45 保持可玩性)
+	# Default: 0.35
+	# Range: 0.0 ~ 1.0
+	painVignetteMaxAlpha = 0.35
+	#灰蓝色罩（痛到发灰）开始的体感疼痛阈值（0~55）
+	# Default: 40
+	# Range: 0 ~ 55
+	painGrayWashThreshold = 40
+	#灰蓝色罩最大不透明度 (0~1，建议不超过 0.2 避免遮挡战场信息)
+	# Default: 0.12
+	# Range: 0.0 ~ 1.0
+	painGrayWashMaxAlpha = 0.12
+	#剧痛瞬发效果：体感疼痛骤升（如骨折/烧伤瞬间）触发白闪定格+画面抖动+淡出
+	# Default: true
+	painShockEnabled = true
+	#单次判定窗口内体感疼痛跳变量达到此值触发闪抖 (0~55)
+	# Default: 8
+	# Range: 1 ~ 55
+	painShockJumpThreshold = 8
+	#体感疼痛越过此绝对阈值时同样触发闪抖（0~55）
+	# Default: 45
+	# Range: 1 ~ 55
+	painShockSevereThreshold = 45
+	#闪抖触发冷却（tick，防止连续受伤刷屏；20 tick = 1 秒）
+	# Default: 100
+	# Range: 0 ~ 1200
+	painShockCooldownTicks = 100
+	#白闪最大不透明度 (0~1)
+	# Default: 0.65
+	# Range: 0.0 ~ 1.0
+	painShockWhiteFlashAlpha = 0.65
+	#画面抖动最大位移（像素，0 = 关闭抖动只保留白闪）
+	# Default: 6.0
+	# Range: 0.0 ~ 30.0
+	painShockMaxOffset = 6.0
+	#体感疼痛达到此值时触发心跳音效（与血容量/心率触发条件并联）
+	# Default: 30
+	# Range: 0 ~ 55
+	heartbeatTriggerPain = 30
+	#疼痛时心跳音量加成（随疼痛强度线性叠加 0~此值）
+	# Default: 0.3
+	# Range: 0.0 ~ 1.0
+	heartbeatPainVolumeBonus = 0.3
+
+#创伤与跌落机制
+[damage]
+	#安全坠落距离阈值 (格)。低于此值的坠落不产生骨折、出血或疼痛
+	#推荐范围: [3.0, 8.0]
+	# Default: 5.0
+	# Range: 0.0 ~ 20.0
+	safeFallDistance = 5.0
+	#头部遭受单次伤害触发脑损伤的最小伤害值
+	#推荐范围: [3.0, 10.0]
+	# Default: 5.0
+	# Range: 0.0 ~ 20.0
+	headBrainDamageThreshold = 5.0
+
+#客户端视觉与粒子呈现
+[effects]
+	#开始在玩家身周生成出血滴落粒子的全身出血速率门槛 (mL/min)
+	#推荐范围: [20, 100]
+	# Default: 50
+	# Range: 0 ~ 500
+	bleedParticleThreshold = 50
+	#客户端文本开始出现字形乱码与抖动错位的脑健康阈值 (%)
+	#推荐范围: [70, 95]
+	# Default: 90
+	# Range: 10 ~ 100
+	brainDamageFontThreshold = 90
+	#极端呼吸异常触发的全屏边缘警告框像素宽度
+	#推荐范围: [8, 32]
+	# Default: 16
+	# Range: 1 ~ 64
+	respBorderThickness = 16
+	#脑损伤突发效果触发的脑健康阈值 (%)
+	# Default: 90
+	# Range: 10 ~ 100
+	brainDamageTriggerThreshold = 90
+	#脑损伤突发效果检查间隔 (秒)
+	# Default: 30
+	# Range: 1 ~ 300
+	brainDamageTriggerInterval = 30
+	#脑损伤突发效果每次检查的触发概率 (0.0~1.0)
+	# Default: 0.2
+	# Range: 0.0 ~ 1.0
+	brainDamageTriggerChance = 0.2
+	#脑损伤突发效果触发后的冷却时间 (秒)
+	# Default: 30
+	# Range: 1 ~ 300
+	brainDamageTriggerCooldown = 30
+	#突发效果中冲击定格的相对权重/概率
+	# Default: 0.5
+	# Range: 0.0 ~ 1.0
+	brainDamageShockChance = 0.5
+	#突发效果中按键颠倒的相对权重/概率
+	# Default: 0.25
+	# Range: 0.0 ~ 1.0
+	brainDamageInputInvertChance = 0.25
+	#突发效果中视角颠倒的相对权重/概率
+	# Default: 0.25
+	# Range: 0.0 ~ 1.0
+	brainDamageViewInvertChance = 0.25
+	#按键/视角颠倒持续时间下限 (秒)
+	# Default: 3
+	# Range: 1 ~ 30
+	brainDamageInvertDurationMin = 3
+	#按键/视角颠倒持续时间上限 (秒)
+	# Default: 5
+	# Range: 1 ~ 30
+	brainDamageInvertDurationMax = 5
+
+#客户端危机音效系统
+[sound]
+	#是否启用危机分层动态音效（包含心跳、监护仪不规则警报、喘息、骤停重音等）
+	enableCrisisSound = true
+	#心跳音效全局音量加成倍数
+	#推荐范围: [0.5, 1.5]
+	# Default: 1.0
+	# Range: 0.0 ~ 2.0
+	crisisHeartbeatVolume = 1.0
+	#心跳音效触发的血容量上限阈值（低于此值触发）
+	# Default: 3500
+	# Range: 0 ~ 5000
+	heartbeatTriggerBloodVolume = 3500
+	#心跳音效触发的高心率上限阈值（高于此值且非运动诱导时触发）
+	# Default: 150
+	# Range: 60 ~ 300
+	heartbeatTriggerMaxHeartRate = 150
+	#心跳音效触发的低心率下限阈值（低于此值触发严重过缓心跳）
+	# Default: 45
+	# Range: 10 ~ 100
+	heartbeatTriggerMinHeartRate = 45
+
+#内出血系统
+[internal_bleeding]
+	#触发内出血的最低伤害量
+	# Default: 8
+	# Range: 1 ~ 100
+	triggerDamageThreshold = 8
+	#每点伤害对应的内出血速率 (mL/min)
+	# Default: 5.0
+	# Range: 0.1 ~ 50.0
+	ratePerDamage = 5.0
+	#内出血速率上限 (mL/min)
+	# Default: 80
+	# Range: 1 ~ 500
+	maxInternalRate = 80
+	#四肢内出血的自愈阈值 (mL/min)，低于此值可自愈
+	# Default: 5
+	# Range: 0 ~ 100
+	selfHealThreshold = 5
+	#自愈间隔 (秒)，每N秒衰减1点速率
+	# Default: 60
+	# Range: 1 ~ 600
+	selfHealInterval = 60
+	#胸部受击触发内出血的概率
+	# Default: 0.5
+	# Range: 0.0 ~ 1.0
+	chestTriggerChance = 0.5
+	#四肢受击触发内出血的概率
+	# Default: 0.15
+	# Range: 0.0 ~ 1.0
+	limbTriggerChance = 0.15
+	#坠落冲击触发内出血的概率
+	# Default: 0.4
+	# Range: 0.0 ~ 1.0
+	fallTriggerChance = 0.4
+	#四肢内出血速率的倍率（相对于胸部）
+	# Default: 0.5
+	# Range: 0.0 ~ 1.0
+	limbRateMultiplier = 0.5
+
+#头部和胸部的内出血不会自愈
+#血胸系统
+[hemothorax]
+	#胸部内出血累积到胸腔的比例 (0~1)
+	# Default: 0.7
+	# Range: 0.0 ~ 1.0
+	accumulationRatio = 0.7
+	#胸腔积血上限 (mL)
+	# Default: 2000
+	# Range: 100 ~ 5000
+	maxChestAccumulation = 2000
+	#血胸等级1阈值 (mL)
+	# Default: 500
+	# Range: 0 ~ 2000
+	level1Threshold = 500
+	#血胸等级2阈值 (mL)
+	# Default: 1000
+	# Range: 0 ~ 2000
+	level2Threshold = 1000
+	#血胸等级3阈值 (mL)
+	# Default: 1500
+	# Range: 0 ~ 2000
+	level3Threshold = 1500
+	#血胸等级4阈值 (mL)
+	# Default: 1800
+	# Range: 0 ~ 2000
+	level4Threshold = 1800
+	#自动吐血间隔 (秒)
+	# Default: 15
+	# Range: 1 ~ 600
+	autoVomitInterval = 30
+	#每次吐血减少的胸腔积血量 (mL)
+	# Default: 300
+	# Range: 10 ~ 1000
+	vomitAmount = 300
+	#血胸等级1的呼吸频率倍率
+	# Default: 0.9
+	# Range: 0.0 ~ 1.0
+	level1RespirationMultiplier = 0.9
+	#血胸等级2的呼吸频率倍率
+	# Default: 0.75
+	# Range: 0.0 ~ 1.0
+	level2RespirationMultiplier = 0.75
+	#血胸等级3的呼吸频率倍率
+	# Default: 0.5
+	# Range: 0.0 ~ 1.0
+	level3RespirationMultiplier = 0.5
+	#血胸等级4的呼吸频率倍率
+	# Default: 0.3
+	# Range: 0.0 ~ 1.0
+	level4RespirationMultiplier = 0.3
+	#胸部内出血转化为肺挫伤的比例
+	# Default: 0.3
+	# Range: 0.0 ~ 1.0
+	lungContusionRatio = 0.3
+	#触发咯血的最低血胸等级
+	# Default: 1
+	# Range: 0 ~ 4
+	minVomitLevel = 1
+	#血胸1级每次咯血量 (mL)
+	# Default: 100
+	# Range: 10 ~ 1000
+	level1VomitAmount = 100
+	#血胸2级每次咯血量 (mL)
+	# Default: 200
+	# Range: 10 ~ 1000
+	level2VomitAmount = 200
+	#血胸3级每次咯血量 (mL)
+	# Default: 300
+	# Range: 10 ~ 1000
+	level3VomitAmount = 300
+	#血胸4级每次咯血量 (mL)
+	# Default: 400
+	# Range: 10 ~ 1000
+	level4VomitAmount = 400
+	#血胸1级对外周阻力TPR的修正系数
+	# Default: 0.95
+	# Range: 0.0 ~ 2.0
+	level1BloodPressureModifier = 0.95
+	#血胸2级对外周阻力TPR的修正系数
+	# Default: 0.85
+	# Range: 0.0 ~ 2.0
+	level2BloodPressureModifier = 0.85
+	#血胸3级对外周阻力TPR的修正系数
+	# Default: 0.7
+	# Range: 0.0 ~ 2.0
+	level3BloodPressureModifier = 0.7
+	#血胸4级对外周阻力TPR的修正系数
+	# Default: 0.5
+	# Range: 0.0 ~ 2.0
+	level4BloodPressureModifier = 0.5
+	#血胸1级对心率的加成 (bpm)
+	# Default: 5.0
+	# Range: 0.0 ~ 50.0
+	level1HeartRateBonus = 5.0
+	#血胸2级对心率的加成 (bpm)
+	# Default: 10.0
+	# Range: 0.0 ~ 50.0
+	level2HeartRateBonus = 10.0
+	#血胸3级对心率的加成 (bpm)
+	# Default: 15.0
+	# Range: 0.0 ~ 50.0
+	level3HeartRateBonus = 15.0
+	#血胸4级对心率的加成 (bpm)
+	# Default: 20.0
+	# Range: 0.0 ~ 50.0
+	level4HeartRateBonus = 20.0
+	#血胸1级对意识的每秒惩罚
+	# Default: 0.0
+	# Range: 0.0 ~ 10.0
+	level1ConsciousnessPenalty = 0.0
+	#血胸2级对意识的每秒惩罚
+	# Default: 0.2
+	# Range: 0.0 ~ 10.0
+	level2ConsciousnessPenalty = 0.2
+	#血胸3级对意识的每秒惩罚
+	# Default: 0.5
+	# Range: 0.0 ~ 10.0
+	level3ConsciousnessPenalty = 0.5
+	#血胸4级对意识的每秒惩罚
+	# Default: 1.5
+	# Range: 0.0 ~ 10.0
+	level4ConsciousnessPenalty = 1.5
+
+#颅内出血系统
+[intracranial_hemorrhage]
+	#伤害10~12时的触发概率
+	# Default: 0.1
+	# Range: 0.0 ~ 1.0
+	triggerChanceAt10 = 0.1
+	#伤害13~15时的触发概率
+	# Default: 0.25
+	# Range: 0.0 ~ 1.0
+	triggerChanceAt13 = 0.25
+	#伤害16~18时的触发概率
+	# Default: 0.5
+	# Range: 0.0 ~ 1.0
+	triggerChanceAt16 = 0.5
+	#伤害19~20时的触发概率
+	# Default: 0.8
+	# Range: 0.0 ~ 1.0
+	triggerChanceAt19 = 0.8
+	#伤害>20时的触发概率
+	# Default: 1.0
+	# Range: 0.0 ~ 1.0
+	triggerChanceAt20Plus = 1.0
+	#已有脑损伤(<70)时的额外触发概率加成
+	# Default: 0.2
+	# Range: 0.0 ~ 1.0
+	priorDamageBonus = 0.2
+	#每点伤害对应的颅内出血速率 (mL/min)
+	# Default: 1.5
+	# Range: 0.1 ~ 10.0
+	ratePerDamage = 1.5
+	#颅内出血速率上限 (mL/min)
+	# Default: 30
+	# Range: 1 ~ 100
+	maxRate = 30
+	#清醒期时长 (秒)，期间症状隐蔽
+	# Default: 30
+	# Range: 0 ~ 300
+	onsetDelay = 30
+	#颅内出血等级1阈值 (mL)
+	# Default: 20
+	# Range: 0 ~ 150
+	level1Threshold = 20
+	#颅内出血等级2阈值 (mL)
+	# Default: 40
+	# Range: 0 ~ 150
+	level2Threshold = 40
+	#颅内出血等级3阈值 (mL)
+	# Default: 60
+	# Range: 0 ~ 150
+	level3Threshold = 60
+	#颅内出血等级4阈值 (mL)
+	# Default: 80
+	# Range: 0 ~ 150
+	level4Threshold = 80
+	#颅内积血上限 (mL)
+	# Default: 150
+	# Range: 50 ~ 500
+	maxAccumulation = 150
+	#颅内出血等级4时每秒脑健康损失
+	# Default: 5.0
+	# Range: 0.1 ~ 20.0
+	level4BrainDamage = 5.0
+
+#血压系统
+[blood_pressure]
+	#正常收缩压 (mmHg)
+	# Default: 120
+	# Range: 60 ~ 200
+	normalSBP = 120
+	#正常舒张压 (mmHg)
+	# Default: 80
+	# Range: 30 ~ 130
+	normalDBP = 80
+	#正常平均动脉压 (mmHg)
+	# Default: 93.0
+	# Range: 40.0 ~ 150.0
+	normalMAP = 93.0
+	#正常心输出量 (L/min)
+	# Default: 5.25
+	# Range: 1.0 ~ 15.0
+	normalCO = 5.25
+	#血压每秒逼近目标值的速度 (0~1)
+	# Default: 0.05
+	# Range: 0.001 ~ 1.0
+	mapApproachSpeed = 0.05
+	#正常外周阻力系数
+	# Default: 1.0
+	# Range: 0.1 ~ 3.0
+	tprNormal = 1.0
+	#失血代偿期的外周阻力峰值（血液重新分配，血管收缩）
+	# Default: 1.1
+	# Range: 0.5 ~ 2.0
+	tprCompensated = 1.6
+	#失血失代偿期的外周阻力最低值（血管麻痹）
+	# Default: 0.4
+	# Range: 0.1 ~ 2.0
+	tprDecompensated = 0.8
+	#低血压阈值 MAP (mmHg)
+	# Default: 65.0
+	# Range: 30.0 ~ 100.0
+	mapHypotension = 65.0
+	#严重低血压阈值 MAP (mmHg)
+	# Default: 50.0
+	# Range: 20.0 ~ 80.0
+	mapSevereHypotension = 50.0
+	#高血压危象阈值 SBP (mmHg)
+	# Default: 180
+	# Range: 140 ~ 250
+	sbpHypertensiveCrisis = 180
+	#MAP <40 时的出血速率修正系数
+	# Default: 0.3
+	# Range: 0.0 ~ 3.0
+	bleedMultiplierMapBelow40 = 0.3
+	#MAP 40~55 时的出血速率修正系数
+	# Default: 0.5
+	# Range: 0.0 ~ 3.0
+	bleedMultiplierMap40to55 = 0.5
+	#MAP 55~70 时的出血速率修正系数
+	# Default: 0.7
+	# Range: 0.0 ~ 3.0
+	bleedMultiplierMap55to70 = 0.7
+	#MAP 70~85 时的出血速率修正系数
+	# Default: 0.9
+	# Range: 0.0 ~ 3.0
+	bleedMultiplierMap70to85 = 0.9
+	#MAP 85~105 时的出血速率修正系数（正常）
+	# Default: 1.0
+	# Range: 0.0 ~ 3.0
+	bleedMultiplierMap85to105 = 1.0
+	#MAP 105~125 时的出血速率修正系数
+	# Default: 1.2
+	# Range: 0.0 ~ 3.0
+	bleedMultiplierMap105to125 = 1.2
+	#MAP 125~145 时的出血速率修正系数
+	# Default: 1.4
+	# Range: 0.0 ~ 3.0
+	bleedMultiplierMap125to145 = 1.4
+	#MAP 145~165 时的出血速率修正系数
+	# Default: 1.6
+	# Range: 0.0 ~ 3.0
+	bleedMultiplierMap145to165 = 1.6
+	#MAP ≥165 时的出血速率修正系数
+	# Default: 1.8
+	# Range: 0.0 ~ 3.0
+	bleedMultiplierMapAbove165 = 1.8
+	#外出血（四肢/头部）的部位系数
+	# Default: 1.0
+	# Range: 0.0 ~ 2.0
+	externalMultiplier = 1.0
+	#外出血（胸部）的部位系数
+	# Default: 0.8
+	# Range: 0.0 ~ 2.0
+	chestExternalMultiplier = 0.8
+	#内出血（非胸腔）的部位系数
+	# Default: 0.7
+	# Range: 0.0 ~ 2.0
+	internalMultiplier = 0.7
+	#内出血（胸腔/血胸）的部位系数
+	# Default: 0.5
+	# Range: 0.0 ~ 2.0
+	hemothoraxMultiplier = 0.5
+	#颅内出血的部位系数
+	# Default: 0.3
+	# Range: 0.0 ~ 2.0
+	intracranialMultiplier = 0.3
+	#MAP 60~70 时每秒意识惩罚
+	# Default: 0.1
+	# Range: 0.0 ~ 10.0
+	consPenaltyMap60 = 0.1
+	#MAP 50~60 时每秒意识惩罚
+	# Default: 0.3
+	# Range: 0.0 ~ 10.0
+	consPenaltyMap50 = 0.3
+	#MAP 40~50 时每秒意识惩罚
+	# Default: 0.8
+	# Range: 0.0 ~ 10.0
+	consPenaltyMap40 = 0.8
+	#MAP <40 时每秒意识惩罚
+	# Default: 2.0
+	# Range: 0.0 ~ 20.0
+	consPenaltyMapBelow40 = 2.0
+	#SBP 180~200 时每秒意识惩罚
+	# Default: 0.5
+	# Range: 0.0 ~ 10.0
+	consPenaltySbp180 = 0.5
+	#SBP 200~220 时每秒意识惩罚
+	# Default: 1.5
+	# Range: 0.0 ~ 10.0
+	consPenaltySbp200 = 1.5
+	#SBP >220 时每秒意识惩罚
+	# Default: 3.0
+	# Range: 0.0 ~ 20.0
+	consPenaltySbp220 = 3.0
+	#MAP <50 时每秒脑健康损失系数
+	# Default: 0.5
+	# Range: 0.0 ~ 5.0
+	brainPenaltyMapBelow50 = 0.5
+	#SBP >200 时每秒脑健康损失系数
+	# Default: 0.3
+	# Range: 0.0 ~ 5.0
+	brainPenaltySbpAbove200 = 0.3
+
+#感染系统
+[infection]
+	#未包扎伤口的每秒感染增长
+	# Default: 0.12
+	# Range: 0.0 ~ 2.0
+	baseInfectionRate = 0.1
+	#包扎后保留的感染增长率比例（0.3 = 降低70%）
+	# Default: 0.3
+	# Range: 0.0 ~ 1.0
+	bandageReduction = 0.3
+	#潮湿环境的感染加成
+	# Default: 0.3
+	# Range: 0.0 ~ 2.0
+	wetBonus = 0.3
+	#骨折伤口感染加成
+	# Default: 0.5
+	# Range: 0.0 ~ 2.0
+	fractureBonus = 0.5
+	#受伤后前 N 秒不产生感染（窗口期）
+	# Default: 30
+	# Range: 0 ~ 300
+	windowPeriod = 30
+	#触发全身扩散的局部感染值阈值
+	# Default: 80
+	# Range: 20 ~ 100
+	systemicThreshold = 80
+
+#SIRS 全身炎症反应
+[sirs]
+	#SIRS 触发的最高肢体感染值阈值
+	# Default: 40
+	# Range: 10 ~ 100
+	limbThreshold = 40
+	#SIRS 触发的全身感染总值阈值
+	# Default: 60
+	# Range: 10 ~ 300
+	totalThreshold = 60
+	#SIRS 晋级间隔（秒），按环境倍率调整
+	# Default: 180
+	# Range: 30 ~ 600
+	progressionInterval = 180
+	#水下环境对 SIRS 晋级的倍率（倍率越小，SIRS 晋级越快）
+	# Default: 0.7
+	# Range: 0.1 ~ 2.0
+	envWater = 0.7
+	#洞穴深处环境对 SIRS 晋级的倍率（倍率越小，SIRS 晋级越快）
+	# Default: 0.85
+	# Range: 0.1 ~ 2.0
+	envCave = 0.85
+	#下界/末地环境对 SIRS 晋级的倍率（倍率越小，SIRS 晋级越快）
+	# Default: 0.9
+	# Range: 0.1 ~ 2.0
+	envNether = 0.9
+	#淋雨环境对 SIRS 晋级的倍率（倍率越小，SIRS 晋级越快）
+	# Default: 0.8
+	# Range: 0.1 ~ 2.0
+	envRain = 0.8
+	#室内环境对 SIRS 晋级的倍率（倍率越小，SIRS 晋级越快）
+	# Default: 1.2
+	# Range: 0.5 ~ 3.0
+	envIndoor = 1.2
+	#正常户外环境对 SIRS 晋级的倍率（倍率越小，SIRS 晋级越快）
+	# Default: 1.0
+	# Range: 0.5 ~ 3.0
+	envNormal = 1.0
+	#SIRS 每级对心率的加成 (bpm)
+	# Default: 15
+	# Range: 0 ~ 50
+	heartBonusPerLevel = 15
+	#SIRS 每级对呼吸的加成 (次/分)
+	# Default: 4
+	# Range: 0 ~ 20
+	respBonusPerLevel = 4
+	#SIRS 每级对血氧的每秒惩罚
+	# Default: 0.1
+	# Range: 0.0 ~ 5.0
+	oxygenPenaltyPerLevel = 0.1
+	#SIRS 2 级每秒血容量损失 (mL)
+	# Default: 0.1
+	# Range: 0.0 ~ 10.0
+	bloodLossL2 = 1.0
+	#SIRS 3 级每秒血容量损失 (mL)
+	# Default: 0.2
+	# Range: 0.0 ~ 10.0
+	bloodLossL3 = 1.5
+	#SIRS 4 级每秒血容量损失 (mL)
+	# Default: 0.3
+	# Range: 0.0 ~ 10.0
+	bloodLossL4 = 2.0
+	#SIRS 1 级的外周阻力倍率
+	# Default: 0.95
+	# Range: 0.1 ~ 1.5
+	sirsTprModifierL1 = 0.95
+	#SIRS 2 级的外周阻力倍率
+	# Default: 0.85
+	# Range: 0.1 ~ 1.5
+	sirsTprModifierL2 = 0.85
+	#SIRS 3 级的外周阻力倍率
+	# Default: 0.7
+	# Range: 0.1 ~ 1.5
+	sirsTprModifierL3 = 0.7
+	#SIRS 4 级的外周阻力倍率
+	# Default: 0.5
+	# Range: 0.1 ~ 1.5
+	sirsTprModifierL4 = 0.5
+	#SIRS 开始降级的最高肢体感染值门槛（必须低于此值才开始降级）
+	# Default: 20
+	# Range: 0 ~ 100
+	recoveryLimbThreshold = 20
+	#SIRS 开始降级的全身感染总值门槛
+	# Default: 30
+	# Range: 0 ~ 300
+	recoveryTotalThreshold = 30
+	#SIRS 4 级降为 3 级所需时间（秒）
+	# Default: 300
+	# Range: 30 ~ 3600
+	recoveryIntervalL4toL3 = 300
+	#SIRS 3 级降为 2 级所需时间（秒）
+	# Default: 240
+	# Range: 30 ~ 3600
+	recoveryIntervalL3toL2 = 240
+	#SIRS 2 级降为 1 级所需时间（秒）
+	# Default: 180
+	# Range: 30 ~ 3600
+	recoveryIntervalL2toL1 = 180
+	#SIRS 1 级降为 0 级所需时间（秒）
+	# Default: 120
+	# Range: 30 ~ 3600
+	recoveryIntervalL1toL0 = 120
+
+#伤害类型细化配置
+[damage_type]
+	#穿刺伤外出血比例
+	# Default: 0.8
+	# Range: 0.0 ~ 1.0
+	piercingExternalRatio = 0.8
+	#穿刺伤内出血比例
+	# Default: 0.2
+	# Range: 0.0 ~ 1.0
+	piercingInternalRatio = 0.2
+	#穿刺伤引发开放性骨折概率
+	# Default: 1.0
+	# Range: 0.0 ~ 1.0
+	piercingFractureOpenChance = 1.0
+	#斩击伤外出血比例
+	# Default: 0.95
+	# Range: 0.0 ~ 1.0
+	slashingExternalRatio = 0.95
+	#斩击伤内出血比例
+	# Default: 0.05
+	# Range: 0.0 ~ 1.0
+	slashingInternalRatio = 0.05
+	#斩击伤引发开放性骨折概率
+	# Default: 0.8
+	# Range: 0.0 ~ 1.0
+	slashingFractureOpenChance = 0.8
+	#钝击伤外出血比例
+	# Default: 0.8
+	# Range: 0.0 ~ 1.0
+	bluntExternalRatio = 0.2
+	#钝击伤内出血比例
+	# Default: 0.2
+	# Range: 0.0 ~ 1.0
+	bluntInternalRatio = 0.8
+	#钝击伤引发开放性骨折概率
+	# Default: 0.0
+	# Range: 0.0 ~ 1.0
+	bluntFractureOpenChance = 0.0
+	#混合伤外出血比例
+	# Default: 0.7
+	# Range: 0.0 ~ 1.0
+	mixedExternalRatio = 0.5
+	#混合伤内出血比例
+	# Default: 0.3
+	# Range: 0.0 ~ 1.0
+	mixedInternalRatio = 0.5
+	#混合伤引发开放性骨折概率
+	# Default: 0.5
+	# Range: 0.0 ~ 1.0
+	mixedFractureOpenChance = 0.5
+	#爆炸伤外出血比例
+	# Default: 0.3
+	# Range: 0.0 ~ 1.0
+	explosionExternalRatio = 0.3
+	#爆炸伤内出血比例
+	# Default: 0.7
+	# Range: 0.0 ~ 1.0
+	explosionInternalRatio = 0.7
+	#爆炸伤分配到头部的比例
+	# Default: 0.15
+	# Range: 0.0 ~ 1.0
+	explosionHeadRatio = 0.15
+	#爆炸伤分配到胸部的比例
+	# Default: 0.35
+	# Range: 0.0 ~ 1.0
+	explosionChestRatio = 0.35
+	#爆炸伤分配到单侧手臂的比例（每只手分别分配）
+	# Default: 0.13
+	# Range: 0.0 ~ 1.0
+	explosionArmRatio = 0.13
+	#爆炸伤分配到单侧腿部的比例（每条腿分别分配）
+	# Default: 0.12
+	# Range: 0.0 ~ 1.0
+	explosionLegRatio = 0.12
+
+#骨折系统配置
+[fracture]
+	#骨折判定最低伤害
+	# Default: 8
+	# Range: 1 ~ 100
+	minDamageForFracture = 8
+	#基础骨折概率
+	# Default: 0.2
+	# Range: 0.0 ~ 1.0
+	baseFractureChance = 0.2
+	#高伤害骨折阈值
+	# Default: 12
+	# Range: 1 ~ 100
+	highDamageThreshold = 12
+	#高伤害骨折概率
+	# Default: 0.4
+	# Range: 0.0 ~ 1.0
+	highDamageFractureChance = 0.4
+	#坠落骨折最低格数
+	# Default: 5
+	# Range: 1 ~ 100
+	fallMinHeightForFracture = 5
+	#坠落每格增加骨折概率
+	# Default: 0.05
+	# Range: 0.0 ~ 1.0
+	fallFractureChancePerBlock = 0.05
+	#爆炸骨折概率
+	# Default: 0.5
+	# Range: 0.0 ~ 1.0
+	explosionFractureChance = 0.5
+	#夹板愈合时间（秒）
+	# Default: 600
+	# Range: 1 ~ 7200
+	splintHealTime = 600
+	#骨折瞬间疼痛等级
+	# Default: 7
+	# Range: 0 ~ 10
+	fracturePainLevel = 7
+	#夹板后疼痛衰减间隔（秒/级）
+	# Default: 30
+	# Range: 1 ~ 3600
+	splintPainDecayInterval = 30
+	#未夹板疼痛衰减间隔（秒/级）
+	# Default: 60
+	# Range: 1 ~ 3600
+	noSplintPainDecayInterval = 60
+	#开放性骨折每秒额外感染值
+	# Default: 0.05
+	# Range: 0.0 ~ 10.0
+	openFractureInfectionRate = 0.05
+	#二次创伤触发间隔（秒）
+	# Default: 5
+	# Range: 1 ~ 300
+	secondaryTraumaInterval = 5
+	#二次创伤内出血增量 (mL/min)
+	# Default: 10
+	# Range: 0 ~ 500
+	secondaryTraumaInternalBleed = 10
+	#二次创伤外出血增量 (mL/min)
+	# Default: 5
+	# Range: 0 ~ 500
+	secondaryTraumaExternalBleed = 5
+	#二次创伤疼痛增量
+	# Default: 1
+	# Range: 0 ~ 10
+	secondaryTraumaPainIncrease = 1
+	#二次创伤愈合倒退时间（秒）
+	# Default: 30
+	# Range: 0 ~ 600
+	secondaryTraumaHealTimePenalty = 30
+	#腿部未夹板移动速度倍率
+	# Default: 0.2
+	# Range: 0.0 ~ 1.0
+	legFractureNoSplintSpeedMultiplier = 0.2
+	#腿部已夹板移动速度倍率
+	# Default: 0.5
+	# Range: 0.0 ~ 1.0
+	legFractureSplintSpeedMultiplier = 0.5
+	#腿部骨折是否允许跳跃
+	legFractureJumpAllowed = false
+	#手臂未夹板挖掘速度倍率
+	# Default: 0.3
+	# Range: 0.0 ~ 1.0
+	armFractureNoSplintMiningMultiplier = 0.3
+	#手臂未夹板攻击力倍率
+	# Default: 0.3
+	# Range: 0.0 ~ 1.0
+	armFractureNoSplintAttackMultiplier = 0.3
+	#手臂已夹板挖掘速度倍率
+	# Default: 0.7
+	# Range: 0.0 ~ 1.0
+	armFractureSplintMiningMultiplier = 0.7
+	#手臂已夹板攻击力倍率
+	# Default: 0.7
+	# Range: 0.0 ~ 1.0
+	armFractureSplintAttackMultiplier = 0.7
+	#骨折时每点伤害对应的内出血速率 (mL/min)
+	# Default: 5.0
+	# Range: 0.5 ~ 50.0
+	fractureBleedPerDamage = 5.0
+	#骨折内出血速率上限 (mL/min)
+	# Default: 200.0
+	# Range: 10.0 ~ 500.0
+	fractureBleedMax = 200.0
+	#四肢骨折的内出血倍率
+	# Default: 1.0
+	# Range: 0.0 ~ 3.0
+	fractureLimbMultiplier = 1.0
+	#胸部骨折的内出血倍率
+	# Default: 0.5
+	# Range: 0.0 ~ 3.0
+	fractureChestMultiplier = 0.5
+	#二次创伤导致的肢体内出血上限 (mL/min)，模拟肌筋膜间隙内骨折血肿压迫自限止血机制
+	# Default: 80
+	# Range: 0 ~ 1000
+	secondaryTraumaMaxInternalBleed = 80
+	#二次创伤导致的开放性骨折外出血上限 (mL/min)
+	# Default: 60
+	# Range: 0 ~ 1000
+	secondaryTraumaMaxExternalBleed = 60
+
+#肺挫伤系统
+
+#断肢系统配置：四肢受极大伤害按概率截断，头/躯干永不截肢
+[amputation]
+	#断肢系统总开关
+	# Default: true
+	amputationEnabled = true
+	#断肢判定最低单次伤害（该部位受到的伤害值）
+	# Default: 15
+	# Range: 1 ~ 100
+	amputationDamageThreshold = 15
+	#达标后基础断肢概率
+	# Default: 0.1
+	# Range: 0.0 ~ 1.0
+	amputationChance = 0.1
+	#断肢概率是否随超出阈值的伤害线性提升
+	# Default: true
+	amputationScalesWithDamage = true
+	#阈值之上每点额外伤害增加的断肢概率
+	# Default: 0.01
+	# Range: 0.0 ~ 1.0
+	amputationChancePerDamage = 0.01
+	#断肢概率上限
+	# Default: 0.6
+	# Range: 0.0 ~ 1.0
+	amputationChanceCap = 0.6
+	#断口瞬间外出血量 (mL，直接加入断肢部位出血池)
+	# Default: 800
+	# Range: 0 ~ 5000
+	amputationBleeding = 800
+	#相邻部位承受的剧痛增量
+	# Default: 8
+	# Range: 0 ~ 10
+	amputationAdjacentPain = 8
+	#相邻部位瞬间外出血增量 (mL)
+	# Default: 200
+	# Range: 0 ~ 5000
+	amputationAdjacentBleeding = 200
+	#相邻部位内出血速率增量 (mL/min)
+	# Default: 100
+	# Range: 0 ~ 1000
+	amputationAdjacentInternalBleeding = 100
+	#单腿截肢移动速度倍率
+	# Default: 0.15
+	# Range: 0.0 ~ 1.0
+	amputationLegSpeedMultiplier = 0.15
+	#双腿截肢移动速度倍率（保留微小挪动）
+	# Default: 0.03
+	# Range: 0.0 ~ 1.0
+	amputationDoubleLegSpeedMultiplier = 0.03
+	#腿部截肢后是否允许跳跃
+	# Default: false
+	amputationLegJumpAllowed = false
+	#双腿截肢后是否强制卧倒姿态（防止躯干悬浮）
+	# Default: true
+	amputationDoubleLegProne = true
+	#手臂截肢后挖掘速度倍率
+	# Default: 0.0
+	# Range: 0.0 ~ 1.0
+	amputationArmMiningMultiplier = 0.0
+	#手臂截肢后攻击力倍率
+	# Default: 0.0
+	# Range: 0.0 ~ 1.0
+	amputationArmAttackMultiplier = 0.0
+	#手臂截肢后是否允许另一条手交互/使用物品（false=双手都断时禁止交互）
+	# Default: true
+	amputationArmInteractionAllowed = true
+[lung_contusion]
+	#肺挫伤 (0~20%] 时的呼吸倍率
+	# Default: 0.95
+	# Range: 0.0 ~ 1.0
+	contusion20RespirationMult = 0.95
+	#肺挫伤 (20~40%] 时的呼吸倍率
+	# Default: 0.85
+	# Range: 0.0 ~ 1.0
+	contusion40RespirationMult = 0.85
+	#肺挫伤 (40~60%] 时的呼吸倍率
+	# Default: 0.7
+	# Range: 0.0 ~ 1.0
+	contusion60RespirationMult = 0.7
+	#肺挫伤 (60~80%] 时的呼吸倍率
+	# Default: 0.5
+	# Range: 0.0 ~ 1.0
+	contusion80RespirationMult = 0.5
+	#肺挫伤 (80~100%] 时的呼吸倍率
+	# Default: 0.3
+	# Range: 0.0 ~ 1.0
+	contusion100RespirationMult = 0.3
+	#肺挫伤血氧每秒基础惩罚系数
+	# Default: 0.05
+	# Range: 0.0 ~ 2.0
+	contusionOxygenPenalty = 0.05
+
+#免疫治疗系统
+[immunity]
+	#基础免疫治疗速率（每秒降低的感染值）
+	#100 点感染值从满到 0 需要约 1/0.10 = 1000 秒 ≈ 17 分钟
+	# Default: 0.1
+	# Range: 0.0 ~ 5.0
+	immuneBaseRate = 0.1
+	#饱食度 ≥ 18（饱腹）时的免疫治疗倍率
+	# Default: 2.5
+	# Range: 0.0 ~ 10.0
+	immuneHungerHighMult = 2.5
+	#饱食度 14~17 时的免疫治疗倍率
+	# Default: 1.5
+	# Range: 0.0 ~ 10.0
+	immuneHungerMidMult = 1.5
+	#饱食度 8~13（正常）时的免疫治疗倍率
+	# Default: 1.0
+	# Range: 0.0 ~ 10.0
+	immuneHungerLowMult = 1.0
+	#饱食度 3~7（饥饿）时的免疫治疗倍率
+	# Default: 0.5
+	# Range: 0.0 ~ 10.0
+	immuneHungerCritMult = 0.5
+	#饱食度 < 3（濒饿）时的免疫治疗倍率
+	# Default: 0.2
+	# Range: 0.0 ~ 10.0
+	immuneHungerStarveMult = 0.2
+	#消毒剂效果持续秒数
+	# Default: 60
+	# Range: 1 ~ 600
+	disinfectantDuration = 60
+	#消毒剂生效期间的免疫治疗加速倍率
+	# Default: 2.0
+	# Range: 1.0 ~ 10.0
+	disinfectantImmuneMult = 2.0
+	#消毒剂生效期间是否完全阻止感染值增长
+	disinfectantBlocksGrowth = true
+
+#连续仲裁 buff 系统：伤情→能力倍率连续插值，属性仲裁与感知药水统一配置
+[arbitrated_buffs]
+	#属性仲裁器每维度倍率下限（防归零保护）
+	# Default: 0.05
+	# Range: 0.0 ~ 1.0
+	arbiterMinMultiplier = 0.05
+	#感知药水等级切换的滞回缓冲（tick），防边界抖动
+	# Default: 40
+	# Range: 0 ~ 200
+	potionHysteresisTicks = 40
+	#腿部疼痛每级对移速的线性斜率（1 - slope*p，p 为体感疼痛 0~55）
+	# Default: 0.006
+	# Range: 0.0 ~ 1.0
+	painLegSpeedSlope = 0.006
+	#手臂疼痛每级对攻击力的线性斜率
+	# Default: 0.008
+	# Range: 0.0 ~ 1.0
+	painArmAttackSlope = 0.008
+	#手臂疼痛每级对攻速的线性斜率
+	# Default: 0.006
+	# Range: 0.0 ~ 1.0
+	painArmSpeedSlope = 0.006
+	#头部疼痛每级对失明药水等级的插值斜率（按 0~10 疼痛线性）
+	# Default: 0.15
+	# Range: 0.0 ~ 1.0
+	painHeadBlindnessSlope = 0.15
+	#胸部疼痛每级对反胃药水等级的插值斜率
+	# Default: 0.15
+	# Range: 0.0 ~ 1.0
+	painChestNauseaSlope = 0.15
+	#失血每 1% 对移速的线性斜率（b 为失血百分比 0~100）
+	# Default: 0.5
+	# Range: 0.0 ~ 1.0
+	bloodLossSpeedSlope = 0.5
+	#失血每 1% 对攻击力的线性斜率
+	# Default: 0.5
+	# Range: 0.0 ~ 1.0
+	bloodLossAttackSlope = 0.5
+	#失血每 1% 对挖掘（DIG_SLOWDOWN 插值）的线性斜率
+	# Default: 0.4
+	# Range: 0.0 ~ 1.0
+	bloodLossDigSlope = 0.4
+	#低血氧乏力开始阈值（SpO2 低于此值开始惩罚）
+	# Default: 90
+	# Range: 50 ~ 100
+	hypoxiaOnsetSpo2 = 90
+	#SpO2 到 0 时的最大能力衰减比例（0.7 = 倍率压到 0.3）
+	# Default: 0.7
+	# Range: 0.0 ~ 1.0
+	hypoxiaMaxPenalty = 0.7
+	#SIRS 每级的疲劳衰减比例（倍率 = 1 - 系数*等级/4，脓毒症休克另有下限）
+	# Default: 0.08
+	# Range: 0.0 ~ 0.25
+	sirsFatiguePerLevel = 0.08
+	#脓毒症（SIRS L4）全身倍率下限
+	# Default: 0.3
+	# Range: 0.0 ~ 1.0
+	sepsisMinMultiplier = 0.3
+	#意识对攻击/挖掘能力的影响系数（倍率 = 1 - factor*(1 - c/100)）
+	# Default: 0.8
+	# Range: 0.0 ~ 1.0
+	conscImpactFactor = 0.8
+	#意识为 0（昏迷）时的能力倍率，替代旧 weakness 255 硬压制
+	# Default: 0.05
+	# Range: 0.0 ~ 1.0
+	conscImpactUnconscious = 0.05
+	#血胸 L3 移速倍率
+	# Default: 0.5
+	# Range: 0.0 ~ 1.0
+	hemothoraxL3SpeedMultiplier = 0.5
+	#血胸 L4 移速倍率
+	# Default: 0.05
+	# Range: 0.0 ~ 1.0
+	hemothoraxL4SpeedMultiplier = 0.05
+	#肺挫伤每 1% 对移速/攻速的疲劳斜率
+	# Default: 0.4
+	# Range: 0.0 ~ 1.0
+	contusionFatigueSlope = 0.4
+	#颅内出血 L3 失明药水等级
+	# Default: 1
+	# Range: 0 ~ 5
+	icBlindnessL3 = 1
+	#颅内出血 L4 失明药水等级
+	# Default: 2
+	# Range: 0 ~ 5
+	icBlindnessL4 = 2
+	#体感疼痛触发失明插值的阈值（体感疼痛 0~55）
+	# Default: 40
+	# Range: 0 ~ 55
+	perceivedPainBlindnessThreshold = 40
+	#体感疼痛触发反胃插值的阈值
+	# Default: 35
+	# Range: 0 ~ 55
+	perceivedPainNauseaThreshold = 35
+	#臂骨折（未夹板）对应的挖掘迟缓药水最大等级（插值：夹板状态按倍率比例折算）
+	# Default: 3
+	# Range: 0 ~ 10
+	digSlowdownFractureMaxLevel = 3
+
+#中毒系统：poison 伤害转毒素条（0~100），全身性生理影响（呼吸/血氧/意识/血压/凝血/感染/心律）
+[toxin]
+	#每次 poison 伤害事件转毒素条的累加系数（毒素 += 伤害量 × 系数）
+	#原版 Poison I 每 1.25s 扣 1 点伤害，Poison II 0.6s 扣 1 点
+	#系数 6 时 Poison I 约 8 分钟充满，Poison II 约 4 分钟充满
+	# Default: 6.0
+	# Range: 0.0 ~ 100.0
+	accumulationRate = 6.0
+	#毒素自然代谢速率（每秒循环扣减，默认 0.25 = 15点/分钟）
+	# Default: 0.25
+	# Range: 0.0 ~ 10.0
+	decayRate = 0.25
+	#饱食度≥18 时的代谢加成倍率（免疫健康态代谢更快）
+	# Default: 2.0
+	# Range: 0.1 ~ 10.0
+	immuneDecayMult = 2.0
+	#轻度中毒阈值：达到后反胃/腹痛（nausea 插值）
+	# Default: 20.0
+	# Range: 0.0 ~ 100.0
+	mildThreshold = 20.0
+	#中度中毒阈值：达到后呼吸抑制、血氧下降、意识下降、血压下降（分布性休克）
+	# Default: 40.0
+	# Range: 0.0 ~ 100.0
+	midThreshold = 40.0
+	#重度中毒阈值：达到后感染值抬升（→SIRS 链）、凝血障碍
+	# Default: 70.0
+	# Range: 0.0 ~ 100.0
+	severeThreshold = 70.0
+	#濒死中毒阈值：达到后室颤概率加倍
+	# Default: 90.0
+	# Range: 0.0 ~ 100.0
+	criticalThreshold = 90.0
+	#轻度反胃药水插值斜率（每点毒素升的等级数，毒素100时约4级）
+	# Default: 0.05
+	# Range: 0.0 ~ 1.0
+	nauseaSlope = 0.05
+	#毒素呼吸频率上抬斜率（浅快呼吸，每点毒素 +N 次/分，毒素100时 +6）
+	# Default: 0.1
+	# Range: 0.0 ~ 5.0
+	respRateSlope = 0.1
+	#毒素换气效率折减斜率（呼吸肌抑制，每点毒素乘 1-slope×超阈量）
+	# Default: 0.003
+	# Range: 0.0 ~ 0.1
+	respSuppressionSlope = 0.003
+	#毒素直接意识惩罚斜率（每点毒素每秒扣意识，毒素100时 3.0/s；血氧传导惩罚另计）
+	# Default: 0.05
+	# Range: 0.0 ~ 1.0
+	consciousnessSlope = 0.05
+	#毒素血管扩张 TPR 斜率（分布性休克，每点毒素乘 1-slope×超阈量，毒素100时 ×0.76）
+	# Default: 0.004
+	# Range: 0.0 ~ 0.1
+	tprSlope = 0.004
+	#毒素心肌抑制每搏输出量斜率（每点毒素乘 1-slope×超阈量）
+	# Default: 0.004
+	# Range: 0.0 ~ 0.1
+	strokeVolumeSlope = 0.004
+	#重度中毒时每秒抬升的感染累加值（分摊到全部肢体，走现有感染→SIRS 自动晋级链）
+	# Default: 0.5
+	# Range: 0.0 ~ 10.0
+	infectionRate = 0.5
+	#重度中毒每秒触发毒素性室颤的基础概率（濒死阈值以上加倍）
+	# Default: 0.005
+	# Range: 0.0 ~ 1.0
+	vfibChance = 0.005
+	#重度中毒时自然凝血时间倍率（毒素诱发消耗性凝血病）
+	# Default: 1.5
+	# Range: 0.1 ~ 10.0
+	clottingTimeMult = 1.5
+
+#烧伤系统：火伤负荷累加→深度定型（I/浅II/深II/III度），TBSA 驱动渗漏休克/感染/凝血/代谢
+[burn]
+	#每次火伤事件的烧伤负荷累加系数（负荷 += 伤害量 × 系数；盔甲部位减半）
+	#原版着火 2伤/s、岩浆 8伤/s：系数1时烧10s≈III度、岩浆2.5s≈III度
+	# Default: 1.0
+	# Range: 0.0 ~ 10.0
+	loadPerDamage = 1.0
+	#热力期负荷缓冲转正速率（每秒转正的负荷点数，模拟余热持续损伤）
+	# Default: 1.0
+	# Range: 0.1 ~ 20.0
+	conversionRate = 1.0
+	#每次火伤事件的面积累加率（面积 += 伤害量 × 系数，封顶1.0）
+	# Default: 0.03
+	# Range: 0.0 ~ 1.0
+	areaPerDamage = 0.03
+	#热力期时长（秒）：窗口内浸水/雨可冲刷未转正负荷，阻止烧伤加深
+	# Default: 15
+	# Range: 1 ~ 600
+	heatWindow = 15
+	#浸水/雨冲刷未转正负荷的速率（每秒冲刷掉的负荷点数）
+	# Default: 3.0
+	# Range: 0.1 ~ 50.0
+	irrigationRate = 3.0
+	#I度烧伤定型阈值（转正负荷达到即升级，不可逆）
+	# Default: 2.0
+	# Range: 0.1 ~ 100.0
+	degreeI = 2.0
+	#浅II度定型阈值
+	# Default: 6.0
+	# Range: 0.1 ~ 100.0
+	degreeShallowII = 6.0
+	#深II度定型阈值
+	# Default: 12.0
+	# Range: 0.1 ~ 100.0
+	degreeDeepII = 12.0
+	#III度定型阈值
+	# Default: 20.0
+	# Range: 0.1 ~ 100.0
+	degreeIII = 20.0
+	#头颈部 TBSA 权重（九分法：头9%）
+	# Default: 0.09
+	# Range: 0.0 ~ 1.0
+	tbsaWeightHead = 0.09
+	#躯干 TBSA 权重（九分法：36%，躯干含盆会阴并入胸段）
+	# Default: 0.37
+	# Range: 0.0 ~ 1.0
+	tbsaWeightChest = 0.37
+	#单臂 TBSA 权重（九分法：双上肢18%，每臂9%）
+	# Default: 0.09
+	# Range: 0.0 ~ 1.0
+	tbsaWeightArm = 0.09
+	#单腿 TBSA 权重（九分法：双下肢36%，每腿18%）
+	# Default: 0.18
+	# Range: 0.0 ~ 1.0
+	tbsaWeightLeg = 0.18
+	#火伤部位随机分配权重：头
+	# Default: 0.05
+	# Range: 0.0 ~ 1.0
+	placementHead = 0.05
+	#火伤部位随机分配权重：躯干
+	# Default: 0.3
+	# Range: 0.0 ~ 1.0
+	placementChest = 0.3
+	#火伤部位随机分配权重：单臂
+	# Default: 0.15
+	# Range: 0.0 ~ 1.0
+	placementArm = 0.15
+	#火伤部位随机分配权重：单腿
+	# Default: 0.2
+	# Range: 0.0 ~ 1.0
+	placementLeg = 0.2
+	#粘滞率：火伤命中已烧伤肢体的概率（同次着火集中烧同一区域）
+	# Default: 0.75
+	# Range: 0.0 ~ 1.0
+	stickiness = 0.75
+	#TBSA 疼痛危象阈值：超过后全身体感疼痛显著上抬
+	# Default: 0.1
+	# Range: 0.0 ~ 1.0
+	tbsaPainThreshold = 0.1
+	#TBSA 休克阈值：超过后渗漏休克启动（>15% 真实医学值）
+	# Default: 0.15
+	# Range: 0.0 ~ 1.0
+	tbsaShockThreshold = 0.15
+	#TBSA 凝血紊乱阈值：超过后凝血时间延长+SIRS自动晋级+高代谢（>30% 真实医学值）
+	# Default: 0.3
+	# Range: 0.0 ~ 1.0
+	tbsaCoagulopathyThreshold = 0.3
+	#渗漏基础速率（mL/s = TBSA × 基率 × 深度系数；浅II=1.0/深II=1.2/III=0.8焦痂护壳）
+	# Default: 1.2
+	# Range: 0.0 ~ 50.0
+	leakBase = 1.2
+	#渗漏峰值时刻（秒，伤后；渗漏曲线 shape：0→峰→0，全程20min）
+	# Default: 480
+	# Range: 10 ~ 86400
+	leakPeakTime = 480
+	#渗漏总时长（秒；默认1200=20分钟休克期）
+	# Default: 1200
+	# Range: 60 ~ 86400
+	leakDuration = 1200
+	#回吸收期起点（秒，伤后；水肿开始回流入血并释放烧伤毒素）
+	# Default: 1500
+	# Range: 60 ~ 86400
+	edemaReturnStart = 1500
+	#回吸收期终点（秒，伤后）
+	# Default: 2100
+	# Range: 60 ~ 86400
+	edemaReturnEnd = 2100
+	#回吸收期释放的烧伤毒素总量（TBSA × 该值，分摊在回吸收窗口进入中毒条）
+	# Default: 80.0
+	# Range: 0.0 ~ 500.0
+	toxinRelease = 80.0
+	#I度烧伤基础疼痛输出（每秒，乘 0.3+0.7×面积；深II迟钝、III度神经毁损近无痛）
+	# Default: 1.0
+	# Range: 0.0 ~ 20.0
+	painI = 1.0
+	#浅II度基础疼痛输出（每秒）——最痛的烧伤
+	# Default: 1.3
+	# Range: 0.0 ~ 20.0
+	painShallowII = 1.3
+	#深II度基础疼痛输出（每秒，痛觉迟钝）
+	# Default: 0.5
+	# Range: 0.0 ~ 20.0
+	painDeepII = 0.5
+	#III度基础疼痛输出（每秒，神经已毁损）
+	# Default: 0.1
+	# Range: 0.0 ~ 20.0
+	painIII = 0.1
+	#创面感染压力基础速率（每肢体每秒累加 = (深度-1)×面积×该值×焦痂期3×包扎0.3）
+	# Default: 0.05
+	# Range: 0.0 ~ 5.0
+	infectionRate = 0.05
+	#焦痂溶解期起点（秒，伤后；感染压力×3——稳定期与爆发期的戏剧性）
+	# Default: 2400
+	# Range: 60 ~ 86400
+	escharPhaseStart = 2400
+	#焦痂溶解期终点（秒，伤后；默认第2-3MC日）
+	# Default: 3600
+	# Range: 60 ~ 172800
+	escharPhaseEnd = 3600
+	#I度自愈时长（秒）
+	# Default: 90
+	# Range: 1 ~ 86400
+	healTimeI = 90
+	#浅II度自愈时长（秒）
+	# Default: 300
+	# Range: 1 ~ 86400
+	healTimeShallowII = 300
+	#深II度自愈时长（秒，需扛过感染检查）
+	# Default: 600
+	# Range: 1 ~ 86400
+	healTimeDeepII = 600
+	#包扎对愈合速度的倍率（敷料防护）
+	# Default: 2.0
+	# Range: 0.1 ~ 10.0
+	healMultBandaged = 2.0
+	#包扎对疼痛输出的倍率
+	# Default: 0.5
+	# Range: 0.0 ~ 1.0
+	painMultBandaged = 0.5
+	#包扎对感染压力的倍率
+	# Default: 0.3
+	# Range: 0.0 ~ 1.0
+	infectionMultBandaged = 0.3
+	#吸入性损伤增长速率：头II度+着火暴露时每秒增长量（0-1封顶）
+	# Default: 0.02
+	# Range: 0.0 ~ 1.0
+	inhalationRate = 0.02
+	#吸入性损伤消退速率（每秒，脱离火源且伤龄超过热力期后）
+	# Default: 0.005
+	# Range: 0.0 ~ 1.0
+	inhalationDecay = 0.005
+	#吸入性损伤换气效率折减系数（效率 ×(1-该值×严重度)，0.3=重度时效率×0.7）
+	# Default: 0.3
+	# Range: 0.0 ~ 1.0
+	inhalationVentMult = 0.3
+	#高代谢饥饿额外消耗斜率（倍率 = 1 + TBSA×该值；30%时×1.6 真实高代谢）
+	# Default: 2.0
+	# Range: 0.0 ~ 10.0
+	metabolismSlope = 2.0
+	#凝血紊乱斜率（TBSA>30%时凝血时间倍率 = 1+(TBSA-0.3)×该值）
+	# Default: 2.0
+	# Range: 0.0 ~ 10.0
+	clottingSlope = 2.0

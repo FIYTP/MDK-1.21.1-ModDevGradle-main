@@ -1,0 +1,212 @@
+package com.FIYTP.realmedicalmod.capability;
+
+import java.util.Map;
+
+public interface MedicalData {
+
+    // ====== 全局生理数据 ======
+    int getBloodVolume();
+    void setBloodVolume(int value);
+    int getMaxBloodVolume();
+    float getBloodLossAccumulator();
+    void setBloodLossAccumulator(float value);
+    float getBloodRegenAccumulator();
+    void setBloodRegenAccumulator(float value);
+
+    int getBloodOxygen();
+    void setBloodOxygen(int value);
+    float getBloodOxygenFloat();
+    void setBloodOxygenFloat(float value);
+
+    int getBrainHealth();
+    void setBrainHealth(int value);
+    float getBrainHealthFloat();
+    void setBrainHealthFloat(float value);
+    int getBrainHealthRegenTimer();
+    void setBrainHealthRegenTimer(int seconds);
+
+    int getConsciousness();
+    void setConsciousness(int value);
+    float getConsciousnessFloat();
+    void setConsciousnessFloat(float value);
+
+    int getHeartRate();
+    void setHeartRate(int value);
+
+    int getRespirationRate();
+    void setRespirationRate(int value);
+
+    boolean isUnderwater();
+    void setUnderwater(boolean underwater);
+    int getUnderwaterTimer();
+    void setUnderwaterTimer(int seconds);
+
+    // ====== 心血管状态 ======
+    boolean isInVFib();
+    void setVFib(boolean vfib);
+    boolean isCardiacArrest();
+    void setCardiacArrest(boolean arrest);
+
+    // ====== 心脏计时器 ======
+    int getVfibTimer();
+    void setVfibTimer(int seconds);
+    int getBradyTimer();
+    void setBradyTimer(int seconds);
+    int getHypoxiaTimer();
+    void setHypoxiaTimer(int seconds);
+
+    // ====== 疼痛 ======
+    int getTotalPainLevel();
+    int getPerceivedPain();  // ★ 体感疼痛（0~55）
+
+    // ====== 疼痛衰减计时器 ======
+    int getPainDecayTimer();
+    void setPainDecayTimer(int seconds);
+
+    // ====== 运动相关 ======
+    float getExerciseIntensity();
+    void setExerciseIntensity(float intensity);
+    float getExerciseContribution();
+    void setExerciseContribution(float contribution);
+    int getRunningTimer();
+    void setRunningTimer(int seconds);
+    int getAttackTimer();
+    void setAttackTimer(int seconds);
+
+    // ====== 心脏效果状态 ======
+    int getHeartEffectTimer();
+    void setHeartEffectTimer(int seconds);
+    boolean isHeartEffectSevere();
+    void setHeartEffectSevere(boolean severe);
+    boolean isBradycardiaActive();
+    void setBradycardiaActive(boolean active);
+    boolean isBradycardiaSevere();
+    void setBradycardiaSevere(boolean severe);
+
+    // ====== 阿片类药物（预留） ======
+    int getOpioidConcentration();
+    void setOpioidConcentration(int value);
+    int getAddictionLevel();
+    void setAddictionLevel(int value);
+
+    // ====== 濒危状态（5秒倒计时） ======
+    boolean isInCriticalState();
+    void setInCriticalState(boolean critical);
+    int getCriticalTimer();
+    void setCriticalTimer(int seconds);
+
+    // ====== 内出血与积血系统 ======
+    float getChestBloodAccumulation();
+    void setChestBloodAccumulation(float mL);
+    int getHemothoraxLevel();
+    void setHemothoraxLevel(int level);
+    int getHemothoraxVomitTimer();
+    void setHemothoraxVomitTimer(int seconds);
+
+    float getLungContusion();
+    void setLungContusion(float value);
+    int getFractureTraumaTimer();
+    void setFractureTraumaTimer(int seconds);
+
+    int getIntracranialBleedRate();
+    void setIntracranialBleedRate(int rate);
+    float getIntracranialAccumulation();
+    void setIntracranialAccumulation(float mL);
+    int getIntracranialLevel();
+    void setIntracranialLevel(int level);
+    int getIntracranialOnsetTimer();
+    void setIntracranialOnsetTimer(int seconds);
+
+    // ====== 血压与血流动力学 ======
+    int getSystolicBP();
+    void setSystolicBP(int sbp);
+    int getDiastolicBP();
+    void setDiastolicBP(int dbp);
+    float getMeanArterialPressure();
+    void setMeanArterialPressure(float map);
+    float getPeripheralResistance();
+    void setPeripheralResistance(float tpr);
+    float getCardiacOutput();
+    void setCardiacOutput(float co);
+
+    // ====== 感染与 SIRS 系统 ======
+    int getSirsLevel();
+    void setSirsLevel(int level);
+    int getSirsProgressionTimer();
+    void setSirsProgressionTimer(int timer);
+    int getSirsRecoveryTimer();
+    void setSirsRecoveryTimer(int timer);
+    boolean isSirsActive();
+    void setSirsActive(boolean active);
+
+    // ====== 中毒系统 ======
+    float getToxinValue();
+    void setToxinValue(float value);
+    void addToxinValue(float amount);
+
+    // ====== 脑损伤突发触发系统 ======
+    int getBrainDamageTriggerTimer();
+    void setBrainDamageTriggerTimer(int seconds);
+    int getBrainDamageTriggerCooldown();
+    void setBrainDamageTriggerCooldown(int seconds);
+    boolean hasForcedTrigger90();
+    void setForcedTrigger90(boolean value);
+    boolean hasForcedTrigger60();
+    void setForcedTrigger60(boolean value);
+    boolean hasForcedTrigger30();
+    void setForcedTrigger30(boolean value);
+
+    // ====== 肢体枚举 ======
+    enum Limb {
+        HEAD, CHEST, LEFT_ARM, RIGHT_ARM, LEFT_LEG, RIGHT_LEG
+    }
+
+    // ====== 肢体数据接口 ======
+    interface LimbData {
+        int getBleeding();
+        void setBleeding(int mL);
+        int getPainLevel();
+        void setPainLevel(int level);
+        boolean isBandaged();
+        void setBandaged(boolean bandaged);
+        boolean isTourniqueted();
+        void setTourniqueted(boolean tourniqueted);
+        int getInfection();
+        void setInfection(int infection);
+        int getInfectionAgeTimer();
+        void setInfectionAgeTimer(int timer);
+        boolean hasOpenWound();
+        void setOpenWound(boolean open);
+        int getInternalBleedingRate();
+        void setInternalBleedingRate(int rate);
+        boolean hasFracture();
+        void setFracture(boolean fractured);
+        int getFractureTimer();
+        void setFractureTimer(int seconds);
+        boolean isOpenFracture();
+        void setOpenFracture(boolean open);
+        boolean hasSplint();
+        void setSplint(boolean splinted);
+        boolean hasDislocation();
+        void setDislocation(boolean dislocated);
+        boolean hasPerforation();
+        void setPerforation(boolean perforated);
+        int getNaturalClottingTimer();
+        void setNaturalClottingTimer(int seconds);
+        int getClottingStartRate();
+        void setClottingStartRate(int mLPerMin);
+        int getInternalHealingTimer();
+        void setInternalHealingTimer(int seconds);
+        int getDisinfectantTimer();
+        void setDisinfectantTimer(int seconds);
+        float getInfectionAccumulator();
+        void setInfectionAccumulator(float value);
+        int getColor();
+    }
+
+    LimbData getLimb(Limb limb);
+    Map<Limb, LimbData> getAllLimbs();
+
+    // ====== 数据复制 ======
+    void copyFrom(MedicalData other);
+}

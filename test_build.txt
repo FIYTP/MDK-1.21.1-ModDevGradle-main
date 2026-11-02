@@ -1,0 +1,15 @@
+Reusing configuration cache.
+> Task :check UP-TO-DATE
+> Task :jarJar NO-SOURCE
+> Task :generateModMetadata UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :createMinecraftArtifacts UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :classes UP-TO-DATE
+> Task :jar
+> Task :assemble
+> Task :build
+
+BUILD SUCCESSFUL in 737ms
+5 actionable tasks: 1 executed, 4 up-to-date
+Configuration cache entry reused.

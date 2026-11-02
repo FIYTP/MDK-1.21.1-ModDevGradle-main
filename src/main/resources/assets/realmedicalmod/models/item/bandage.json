@@ -1,0 +1,72 @@
+{
+  "texture_size": [64, 64],
+  "textures": {
+    "0": "realmedicalmod:item/bandage",
+    "particle": "realmedicalmod:item/bandage"
+  },
+  "elements": [
+    {
+      "name": "roll_body",
+      "from": [4, 6, 3],
+      "to": [12, 14, 13],
+      "faces": {
+        "north": {"uv": [0, 8, 8, 16], "texture": "#0"},
+        "south": {"uv": [8, 8, 16, 16], "texture": "#0"},
+        "east": {"uv": [0, 0, 10, 8], "texture": "#0"},
+        "west": {"uv": [0, 0, 10, 8], "texture": "#0"},
+        "up": {"uv": [0, 0, 8, 10], "texture": "#0"},
+        "down": {"uv": [8, 0, 16, 10], "texture": "#0"}
+      }
+    },
+    {
+      "name": "inner_core",
+      "from": [6, 8, 2],
+      "to": [10, 12, 4],
+      "faces": {
+        "north": {"uv": [16, 0, 20, 4], "texture": "#0"},
+        "south": {"uv": [20, 0, 24, 4], "texture": "#0"},
+        "east": {"uv": [16, 4, 18, 8], "texture": "#0"},
+        "west": {"uv": [16, 4, 18, 8], "texture": "#0"},
+        "up": {"uv": [16, 8, 20, 10], "texture": "#0"},
+        "down": {"uv": [20, 8, 24, 10], "texture": "#0"}
+      }
+    },
+    {
+      "name": "hanging_tail",
+      "from": [10, 1, 9],
+      "to": [13, 7, 11],
+      "rotation": {"angle": 22.5, "axis": "z", "origin": [11, 7, 10]},
+      "faces": {
+        "north": {"uv": [24, 0, 27, 6], "texture": "#0"},
+        "south": {"uv": [27, 0, 30, 6], "texture": "#0"},
+        "east": {"uv": [24, 6, 26, 12], "texture": "#0"},
+        "west": {"uv": [24, 6, 26, 12], "texture": "#0"},
+        "up": {"uv": [24, 12, 27, 14], "texture": "#0"},
+        "down": {"uv": [27, 12, 30, 14], "texture": "#0"}
+      }
+    },
+    {
+      "name": "clip_pin",
+      "from": [5, 13, 7],
+      "to": [11, 15, 9],
+      "faces": {
+        "north": {"uv": [30, 0, 36, 2], "texture": "#0"},
+        "south": {"uv": [30, 2, 36, 4], "texture": "#0"},
+        "east": {"uv": [30, 4, 32, 6], "texture": "#0"},
+        "west": {"uv": [30, 4, 32, 6], "texture": "#0"},
+        "up": {"uv": [30, 6, 36, 8], "texture": "#0"},
+        "down": {"uv": [30, 8, 36, 10], "texture": "#0"}
+      }
+    }
+  ],
+  "display": {
+    "thirdperson_righthand": {"rotation": [80, 0, 10], "translation": [0, 2, 1], "scale": [0.55, 0.55, 0.55]},
+    "thirdperson_lefthand": {"rotation": [80, 0, -10], "translation": [0, 2, 1], "scale": [0.55, 0.55, 0.55]},
+    "firstperson_righthand": {"rotation": [0, 45, 0], "translation": [1.5, 2, 0], "scale": [0.7, 0.7, 0.7]},
+    "firstperson_lefthand": {"rotation": [0, -45, 0], "translation": [-1.5, 2, 0], "scale": [0.7, 0.7, 0.7]},
+    "ground": {"rotation": [0, 0, 0], "translation": [0, 1, 0], "scale": [0.5, 0.5, 0.5]},
+    "gui": {"rotation": [25, 225, 0], "translation": [0, 0, 0], "scale": [0.85, 0.85, 0.85]},
+    "head": {"rotation": [0, 0, 0], "translation": [0, 14, 0], "scale": [1, 1, 1]},
+    "fixed": {"rotation": [0, 180, 0], "translation": [0, 0, 0], "scale": [1, 1, 1]}
+  }
+}

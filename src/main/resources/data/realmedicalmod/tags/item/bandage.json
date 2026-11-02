@@ -1,0 +1,9 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:paper",
+    "minecraft:white_wool",
+    "realmedicalmod:bandage",
+    "realmedicalmod:pressure_bandage"
+  ]
+}

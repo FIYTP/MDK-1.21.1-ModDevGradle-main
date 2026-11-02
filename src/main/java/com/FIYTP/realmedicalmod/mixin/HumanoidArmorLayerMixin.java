@@ -1,0 +1,69 @@
+package com.FIYTP.realmedicalmod.mixin;
+
+import com.FIYTP.realmedicalmod.capability.MedicalData;
+import com.FIYTP.realmedicalmod.capability.MedicalDataCapability;
+import com.FIYTP.realmedicalmod.client.AmputationArmorRenderContext;
+import com.FIYTP.realmedicalmod.config.MedicalConfig;
+import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.client.model.HumanoidModel;
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.entity.layers.HumanoidArmorLayer;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+/**
+ * 断肢：隐藏盔甲层中已截肢部位的盔甲模型部件（肩甲/腿甲/靴子）。
+ * 原版 setPartVisibility 按槽位重置可见性后，在 RETURN 处把断肢部件关掉，
+ * 避免"漂浮盔甲"。实体引用经 render HEAD 存入 ThreadLocal 传递。
+ */
+@Mixin(value = HumanoidArmorLayer.class, priority = 1100)
+public abstract class HumanoidArmorLayerMixin {
+
+    @Inject(method = "render", at = @At("HEAD"), require = 0)
+    private void realmedicalmod$beginArmor(PoseStack poseStack, MultiBufferSource buffer,
+                                           int packedLight, LivingEntity entity,
+                                           float limbSwing, float limbSwingAmount,
+                                           float partialTicks, float ageInTicks,
+                                           float netHeadYaw, float headPitch,
+                                           CallbackInfo ci) {
+        AmputationArmorRenderContext.set(entity);
+    }
+
+    @Inject(method = "setPartVisibility", at = @At("RETURN"), require = 0)
+    private void realmedicalmod$hideAmputatedArmor(HumanoidModel<?> model, EquipmentSlot slot, CallbackInfo ci) {
+        if (!MedicalConfig.AMPUTATION_ENABLED.get()) return;
+        if (model == null) return;
+
+        LivingEntity entity = AmputationArmorRenderContext.getEntity();
+        if (!(entity instanceof Player player)) return;
+
+        MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
+        if (data.getLimb(MedicalData.Limb.RIGHT_ARM).isAmputated()) {
+            model.rightArm.visible = false;
+        }
+        if (data.getLimb(MedicalData.Limb.LEFT_ARM).isAmputated()) {
+            model.leftArm.visible = false;
+        }
+        if (data.getLimb(MedicalData.Limb.RIGHT_LEG).isAmputated()) {
+            model.rightLeg.visible = false;
+        }
+        if (data.getLimb(MedicalData.Limb.LEFT_LEG).isAmputated()) {
+            model.leftLeg.visible = false;
+        }
+    }
+
+    @Inject(method = "render", at = @At("RETURN"), require = 0)
+    private void realmedicalmod$endArmor(PoseStack poseStack, MultiBufferSource buffer,
+                                         int packedLight, LivingEntity entity,
+                                         float limbSwing, float limbSwingAmount,
+                                         float partialTicks, float ageInTicks,
+                                         float netHeadYaw, float headPitch,
+                                         CallbackInfo ci) {
+        AmputationArmorRenderContext.clear();
+    }
+}

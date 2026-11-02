@@ -1,0 +1,93 @@
+package com.FIYTP.realmedicalmod.hitbox;
+
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.tags.TagKey;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+
+public class DamageTypeHelper {
+
+    private static final TagKey<Item> PIERCING_TAG =
+        ItemTags.create(ResourceLocation.fromNamespaceAndPath("realmedicalmod", "piercing"));
+    private static final TagKey<Item> SLASHING_TAG =
+        ItemTags.create(ResourceLocation.fromNamespaceAndPath("realmedicalmod", "slashing"));
+    private static final TagKey<Item> BLUNT_TAG =
+        ItemTags.create(ResourceLocation.fromNamespaceAndPath("realmedicalmod", "blunt"));
+
+    /**
+     * 判定伤害类型
+     * @return null 表示本系统不处理（火焰类，留给烧伤系统）
+     */
+    public static DamageCategory categorize(DamageSource source) {
+        String msgId = source.getMsgId();
+
+        // 火焰类 → null，留给烧伤系统
+        if ("on_fire".equals(msgId) || "in_fire".equals(msgId)
+            || "lava".equals(msgId) || "hot_floor".equals(msgId)) {
+            return null;
+        }
+
+        // 毒素类 → TOXIN，伤害清零转中毒条累加
+        if ("poison".equals(msgId)) {
+            return DamageCategory.TOXIN;
+        }
+
+        // 箭/三叉戟 → PIERCING
+        if ("arrow".equals(msgId) || "trident".equals(msgId)) {
+            return DamageCategory.PIERCING;
+        }
+
+        // 摔落 → BLUNT
+        if ("fall".equals(msgId)) {
+            return DamageCategory.BLUNT;
+        }
+
+        // 爆炸 → EXPLOSION
+        if ("explosion".equals(msgId) || "explosion.player".equals(msgId)) {
+            return DamageCategory.EXPLOSION;
+        }
+
+        // 魔法 → MIXED
+        if ("magic".equals(msgId) || "indirectMagic".equals(msgId)) {
+            return DamageCategory.MIXED;
+        }
+
+        // 检查攻击者手持武器
+        if (source.getEntity() instanceof LivingEntity attacker) {
+            ItemStack weapon = attacker.getMainHandItem();
+            if (!weapon.isEmpty()) {
+                if (weapon.is(PIERCING_TAG)) return DamageCategory.PIERCING;
+                if (weapon.is(SLASHING_TAG)) return DamageCategory.SLASHING;
+                if (weapon.is(BLUNT_TAG)) return DamageCategory.BLUNT;
+            }
+            // 空手 → BLUNT
+            if (weapon.isEmpty() && "player_attack".equals(msgId)) {
+                return DamageCategory.BLUNT;
+            }
+        }
+
+        // 钝击类环境伤害
+        if ("anvil".equals(msgId) || "fallingBlock".equals(msgId)) {
+            return DamageCategory.BLUNT;
+        }
+
+        // 穿透类环境伤害
+        if ("cactus".equals(msgId)
+            || "sweetBerryBush".equals(msgId)
+            || "stalagmite".equals(msgId)) {
+            return DamageCategory.PIERCING;
+        }
+
+        // 混合类（震荡/魔法）
+        if ("sonic_boom".equals(msgId)
+            || "wither".equals(msgId)) {
+            return DamageCategory.MIXED;
+        }
+
+        // 兜底 → MIXED
+        return DamageCategory.MIXED;
+    }
+}

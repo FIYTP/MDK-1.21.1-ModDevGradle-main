@@ -1,0 +1,5 @@
+package com.FIYTP.realmedicalmod.hitbox;
+
+public enum DamageCategory {
+    PIERCING, SLASHING, BLUNT, MIXED, EXPLOSION, TOXIN, FIRE
+}

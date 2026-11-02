@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "mcdev": {
+      "command": "D:\\npm-global\\mcdev-mcp.cmd",
+      "args": [ "serve" ]
+    },
+    "jcodemunch": {
+      "command": "D:\\Anaconda\\Scripts\\jcodemunch-mcp.exe",
+      "args": [ "serve" ]
+    }
+  }
+}

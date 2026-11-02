@@ -1,0 +1,7 @@
+{
+  "parent": "realmedicalmod:item/bandage",
+  "textures": {
+    "0": "realmedicalmod:item/pressure_bandage",
+    "particle": "realmedicalmod:item/pressure_bandage"
+  }
+}

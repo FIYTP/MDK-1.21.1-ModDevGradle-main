@@ -1,0 +1,29 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "All Rights Reserved"
+
+[[mods]]
+modId = "realmedicalmod"
+version = "1.0.0"
+displayName = "真实医疗系统"
+logoFile = "logo.png"
+credits = ""
+authors = "FIYTP"
+description = "模拟真实受伤、出血、感染、急救的生存模组"
+
+[[dependencies.realmedicalmod]]
+modId = "neoforge"
+mandatory = true
+versionRange = "[20.4,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.realmedicalmod]]
+modId = "minecraft"
+mandatory = true
+versionRange = "[1.21.1,1.21.2)"
+ordering = "NONE"
+side = "BOTH"
+
+[[mixins]]
+config = "realmedicalmod.mixins.json"
