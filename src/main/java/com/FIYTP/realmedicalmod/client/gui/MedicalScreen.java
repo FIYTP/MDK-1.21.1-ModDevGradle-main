@@ -3,2682 +3,170 @@ package com.FIYTP.realmedicalmod.client.gui;
 import com.FIYTP.realmedicalmod.capability.MedicalData;
 import com.FIYTP.realmedicalmod.capability.MedicalDataCapability;
 import com.FIYTP.realmedicalmod.client.sound.MedicalSoundHelper;
-import com.FIYTP.realmedicalmod.config.MedicalConfig;
+import com.mojang.blaze3d.platform.GlStateManager;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.BufferUploader;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.MeshData;
+import com.mojang.blaze3d.vertex.Tesselator;
+import com.mojang.blaze3d.vertex.VertexFormat;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.player.Player;
+import org.joml.Matrix4f;
+import org.lwjgl.glfw.GLFW;
 
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 医疗面板 UI —— 3A 科技风全息 HUD 终端 (终极完整满血版)
- * 注：六边形处置矩阵 (Hex Intervention Matrix) 已移除。
+ * 医疗面板 UI —— 3A 科技风全息生物遥测终端 (全量升级版 v2.0)
+ *
+ * 本次重大升级：
+ * 1. 总体疼痛 (Perceived Pain 0~55) 全局动态主题染色系统：
+ *    面板主色调、背景网格、扫描激光线、卡片边框与呼吸角标随总体疼痛值 (0 -> 55) 从冷静霓虹青平滑过渡至
+ *    预警琥珀黄 (12~24)、重度灼热橙红 (25~39) 与极度剧痛深渊猩红 (40~55)，并在高痛感下伴随心搏同频边框呼吸与微颤。
+ * 2. 3A 全息动态痛觉表情遥测仪 (Holographic Pain Expression Avatar, 0~55 从笑脸到痛苦脸)：
+ *    基于 OpenGL 矢量连续形变算法绘制高精全息人脸，随总体疼痛值 (0~55) 实时连续改变眉毛倾角、眼睑开合/眨眼/紧闭(`> <`)、
+ *    嘴部微笑弧线 -> 拧眉咬牙 -> 剧痛哀嚎及太阳穴青筋电弧，搭配 6 级 Wong-Baker 痛觉色阶尺。
+ * 3. 高精度解剖级 4 层 DICOM 微观断层 CT 扫描仪 (High-Precision Anatomical CT Tomography)：
+ *    彻底摒弃原有的粗糙菱形占位图，采用 OpenGL 多环极坐标与解剖组织建模绘制：
+ *    - LAYER 01 (表皮与真皮层)：角质层/表皮/真皮乳头波浪环/皮下脂肪网 + 开放创口撕裂缺口与喷射血滴 + 烧伤热力弧 + 绿色无菌敷料编织环
+ *    - LAYER 02 (肌肉血管灌注层)：四大肌群室与筋膜隔 + 搏动主干动脉与伴行静脉 + 放射状毛细血管床 + 组织间隙内出血紫红血肿池 + 止血带环压
+ *    - LAYER 03 (骨骼与骨髓腔层)：部位专属骨骼截面（颅骨穹窿/胸廓双肺与肋骨/四肢双骨皮质环）+ 骨小梁蜂窝网 + 粉碎性骨折裂隙与钛合金外固定支架
+ *    - LAYER 04 (细胞炎症与痛觉神经层)：高倍神经束髓鞘轴突截面 + 痛觉神经放电脉冲环 + 细菌感染菌落群与生物靶向锁定框
  */
 public class MedicalScreen extends Screen {
 
+    private static int getHealthColor(float pct) {
+        pct = Mth.clamp(pct, 0.0f, 1.0f);
+        if (pct > 0.5f) {
+            return lerpColor(C_WARN_YELLOW, C_SAFE_GREEN, (pct - 0.5f) * 2.0f);
+        } else {
+            return lerpColor(C_ALERT_RED, C_WARN_YELLOW, pct * 2.0f);
+        }
+    }
+
+    private static int lerpColor(int c1, int c2, float t) {
+        t = Mth.clamp(t, 0.0f, 1.0f);
+        int r1 = (c1 >> 16) & 0xFF, g1 = (c1 >> 8) & 0xFF, b1 = c1 & 0xFF;
+        int r2 = (c2 >> 16) & 0xFF, g2 = (c2 >> 8) & 0xFF, b2 = c2 & 0xFF;
+        int r = (int) (r1 + (r2 - r1) * t);
+        int g = (int) (g1 + (g2 - g1) * t);
+        int b = (int) (b1 + (b2 - b1) * t);
+        return 0xFF000000 | (r << 16) | (g << 8) | b;
+    }
+
+    private static int withAlpha(int rgb, float alpha) {
+        int a = Mth.clamp((int) (alpha * 255.0f), 0, 255);
+        return (a << 24) | (rgb & 0x00FFFFFF);
+    }
+
+    // 基础语义常量
+    private static final int C_NEON_CYAN = 0xFF00F0FF;
+    private static final int C_ALERT_RED = 0xFFFF2040;
+    private static final int C_WARN_YELLOW = 0xFFFFD000;
+    private static final int C_SAFE_GREEN = 0xFF00FF80;
+    private static final int C_VITAL_BP = 0xFFFF9900;
+    private static final int C_VITAL_PAIN = 0xFFFF0055;
+    private static final int C_VITAL_OXYGEN = 0xFF00D2FF;
+    private static final int C_VITAL_HEART = 0xFFFF2A55;
+    private static final int C_TEXT_LABEL = 0xFF00D2FF;
+
+    private static final int LIMB_HEALTHY = 0xFF00FF80;
+    private static final int LIMB_MINOR = 0xFFFFD000;
+    private static final int LIMB_MODERATE = 0xFFFF8000;
+    private static final int LIMB_CRITICAL = 0xFFFF1030;
+    private static final int LIMB_AMPUTATED = 0xFF303030;
+
     private static final Map<String, String> I18N_CACHE = new HashMap<>();
 
-    // ============================================================
-    // 一、界面状态与动画系统
-    // ============================================================
     public enum ScreenState {
         OPENING, OPEN, CLOSING, CLOSED
     }
 
-    private ScreenState state = ScreenState.OPENING;
-    private long openStartTime;
-    private long closeStartTime;
-    private static final long OPEN_DURATION_MS = 480;
-    private static final long CLOSE_DURATION_MS = 300;
+    private static final long OPEN_ANIM_DURATION_MS = 420L;
+    private static final long CLOSE_ANIM_DURATION_MS = 260L;
+    private static final int HUD_BAR_H = 38;
+    private static final int LEFT_PANEL_X = 16;
+    private static final int LEFT_PANEL_W = 236;
+
+    private static final String[] DICOM_LAYER_NAMES = new String[]{
+            "LAYER 01 // EPIDERMIS & DERMIS (表皮与真皮创面层)",
+            "LAYER 02 // VASCULAR & PERFUSION (肌肉筋膜与血管灌注层)",
+            "LAYER 03 // SKELETAL & PERIOSTEUM (骨骼皮质与骨髓腔层)",
+            "LAYER 04 // CELLULAR & PATHOGEN (细胞炎症与痛觉神经层)"
+    };
 
     private final BrainScan3DRenderer brainScanRenderer = new BrainScan3DRenderer();
+    private final EmbeddedDetailPanelRenderer detailPanelRenderer = new EmbeddedDetailPanelRenderer();
     private final ClickRippleManager rippleManager = new ClickRippleManager();
+
+    private ScreenState state = ScreenState.OPENING;
+    private long stateStartTimeMs = 0L;
+    private long lastRenderTimeMs = 0L;
+    private boolean openPulseTriggered = false;
 
     private MedicalData.Limb selectedLimb = null;
     private MedicalData.Limb hoveredLimb = null;
     private MedicalData.Limb lastHoveredLimb = null;
+    private final Map<MedicalData.Limb, Float> limbHoverProgress = new EnumMap<>(MedicalData.Limb.class);
+    private final Map<MedicalData.Limb, int[]> limbScreenBounds = new EnumMap<>(MedicalData.Limb.class);
 
-    // 3A 核心动效与微观断层探查系统
+    // DICOM 微观 CT 断层探查状态
     private MedicalData.Limb microTomographyLimb = null;
     private float microTomographyAnim = 0.0f;
-    private long lastLimbClickTime = 0L;
-    private MedicalData.Limb lastClickedLimb = null;
-    // ===== 按需全扫协议 (On-Demand Full-Body Sweep) =====
-    private float sweepScanAnim = 0.0f;
-    private boolean sweepScanRevealed = false;
-    private long sweepScanStampTime = 0L;
-    // ===== DICOM 滚轮分层刮擦 (Dicom Layer Scrub) =====
-    private int dcmLayer = 3;
-    private long dcmWipeStart = 0L;
-    private static final long DICOM_WIPE_MS = 320L;
-    private static final String[] DICOM_LAYER_NAMES = {"SKIN", "VASCULAR", "SOFT TISSUE", "BONE"};
+    private int dcmLayer = 0;
+    private long dcmWipeStartMs = 0L;
+    private int ctBtnX, ctBtnY, ctBtnW, ctBtnH;
+    private int layerBtnPrevX, layerBtnNextX, layerBtnY, layerBtnW, layerBtnH;
 
-    // 2.5D 视差平滑追踪
-    private float smoothTiltX = 0.0f;
-    private float smoothTiltY = 0.0f;
+    // 双通道临床示波器环形缓冲区
+    private static final int OSC_SAMPLES = 160;
+    private final float[] ecgBuffer = new float[OSC_SAMPLES];
+    private final float[] plethBuffer = new float[OSC_SAMPLES];
+    private int oscWriteHead = 0;
+    private float oscSweepAccumulator = 0.0f;
+    private float ecgPhase = 0.0f;
+    private float rPeakFlashAlpha = 0.0f;
 
-    // ============================================================
-    // 二、3A 弹簧物理数值插值器 (Damped Spring System)
-    // ============================================================
-    private static class SpringVal {
-        float val;
-        float vel;
+    // 数码管与总体疼痛 (0~55) 平滑插值状态
+    private float smoothHrDisplay = 75.0f;
+    private float smoothBloodDisplay = 5000.0f;
+    private float smoothSpo2Display = 98.0f;
+    private float smoothPerceivedPain = 0.0f;
 
-        SpringVal(float init) {
-            this.val = init;
-            this.vel = 0.0f;
-        }
-
-        void update(float target, float dt, float stiffness, float damping) {
-            float force = -stiffness * (val - target) - damping * vel;
-            vel += force * dt;
-            val += vel * dt;
-        }
-    }
-
-    private final SpringVal sprHeartRate = new SpringVal(75.0f);
-    private final SpringVal sprSystolic = new SpringVal(120.0f);
-    private final SpringVal sprDiastolic = new SpringVal(80.0f);
-    private final SpringVal sprOxygen = new SpringVal(98.0f);
-    private final SpringVal sprRespiration = new SpringVal(16.0f);
-    private final SpringVal sprBloodLoss = new SpringVal(0.0f);
-    private final SpringVal sprConsciousness = new SpringVal(100.0f);
-    private final SpringVal sprBrainHealth = new SpringVal(100.0f);
-    private final SpringVal sprBloodVolume = new SpringVal(5000.0f);
-    private final SpringVal sprCardiacOutput = new SpringVal(5.0f);
-
-    private final float[] limbHoverProgress = new float[MedicalData.Limb.values().length];
-    private float selectedPulsePhase = 0.0f;
-    private float scanBeamY = 0.0f;
-    private float globalPulse = 0.0f;
-    private float cardiacPulse = 0.0f;
-
-    // 心电图与 PPG 容积波缓冲区
-    private static final int BUFFER_SIZE = 300;
-    private final float[] historyY = new float[BUFFER_SIZE];
-    private final float[] historyPPG = new float[BUFFER_SIZE];
-    private final boolean[] historyValid = new boolean[BUFFER_SIZE];
-    private int sweepIndex = 0;
-    private float sweepAccumulator = 0.0f;
-    private float cardiacCycleTime = 0.0f;
-    private float vfibPhase = 0.0f;
-    private float rPeakFlash = 0.0f;
-
-    // 环境粒子系统
-    private static final int MAX_PARTICLES = 60;
-    private final float[] particleX = new float[MAX_PARTICLES];
-    private final float[] particleY = new float[MAX_PARTICLES];
-    private final float[] particleVX = new float[MAX_PARTICLES];
-    private final float[] particleVY = new float[MAX_PARTICLES];
-    private final float[] particleLife = new float[MAX_PARTICLES];
-    private final float[] particleMaxLife = new float[MAX_PARTICLES];
-    private final int[] particleColor = new int[MAX_PARTICLES];
-    private boolean particlesInitialized = false;
-
-    // 连接线动画
-    private float connectionLineProgress = 0.0f;
-    private MedicalData.Limb connectionLineLimb = null;
-
-    // ============================================================
-    // 三、人体模型尺寸常量
-    // ============================================================
-    private static final int HEAD_SIZE = 36;
-    private static final int BODY_W = 46;
-    private static final int BODY_H = 68;
-    private static final int ARM_W = 18;
-    private static final int ARM_H = 64;
-    private static final int LEG_W = 20;
-    private static final int LEG_H = 78;
-
-    private static final int TOTAL_W = ARM_W * 2 + BODY_W + 18;
-    private static final int TOTAL_H = HEAD_SIZE + BODY_H + LEG_H + 12;
-
-    private static final int HEAD_OFFSET_X = ARM_W + 9 + (BODY_W - HEAD_SIZE) / 2;
-    private static final int HEAD_OFFSET_Y = 0;
-    private static final int BODY_OFFSET_X = ARM_W + 9;
-    private static final int BODY_OFFSET_Y = HEAD_SIZE + 4;
-    private static final int LEFT_ARM_OFFSET_X = 0;
-    private static final int LEFT_ARM_OFFSET_Y = HEAD_SIZE + 4;
-    private static final int RIGHT_ARM_OFFSET_X = ARM_W + BODY_W + 18;
-    private static final int RIGHT_ARM_OFFSET_Y = HEAD_SIZE + 4;
-    private static final int LEFT_LEG_OFFSET_X = ARM_W + 9 + 1;
-    private static final int LEFT_LEG_OFFSET_Y = HEAD_SIZE + BODY_H + 8;
-    private static final int RIGHT_LEG_OFFSET_X = ARM_W + 9 + BODY_W - LEG_W - 1;
-    private static final int RIGHT_LEG_OFFSET_Y = HEAD_SIZE + BODY_H + 8;
-
-    private static final int VIZ_PROGRESS = 0;
-    private static final int VIZ_SEGMENT = 1;
-    private static final int VIZ_FLOW = 2;
-
-    private static final int HUD_BAR_H = 48;
+    // 当前帧由总体疼痛 (0~55) 动态计算出的全局主题色
+    private int themePrimaryColor = C_NEON_CYAN;
+    private int themeSecondaryColor = 0xFF00A0FF;
+    private int themeCardBgColor = 0xDF060E18;
 
     public MedicalScreen() {
-        super(Component.translatable("medical.gui.title"));
-        for (int i = 0; i < BUFFER_SIZE; i++) {
-            historyY[i] = 0.5f;
-            historyPPG[i] = 0.5f;
-            historyValid[i] = false;
+        super(Component.translatable("medical.panel.title"));
+        for (MedicalData.Limb limb : MedicalData.Limb.values()) {
+            limbHoverProgress.put(limb, 0.0f);
+            limbScreenBounds.put(limb, new int[]{0, 0, 0, 0});
         }
     }
 
     @Override
     protected void init() {
         super.init();
-        openStartTime = System.currentTimeMillis();
-        state = ScreenState.OPENING;
-        particlesInitialized = false;
-        MedicalSoundHelper.playOpenSound();
-    }
-
-    @Override
-    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-    }
-
-    private MedicalData getMedicalData() {
-        if (this.minecraft == null || this.minecraft.player == null) return null;
-        return this.minecraft.player.getData(MedicalDataCapability.MEDICAL_DATA);
-    }
-
-    // ============================================================
-    // 四、红血球漂流场 (Erythrocyte Drift Field)
-    // ============================================================
-    private void initParticles() {
-        for (int i = 0; i < MAX_PARTICLES; i++) {
-            respawnParticle(i);
-        }
-        particlesInitialized = true;
-    }
-
-    private void respawnParticle(int i) {
-        particleX[i] = (float) (Math.random() * (this.width + 40) - 20);
-        particleY[i] = (float) (Math.random() * (this.height + 40) - 20);
-        particleVX[i] = ((float) Math.random() - 0.5f) * 12.0f;
-        particleVY[i] = -((float) Math.random() * 8.0f + 3.0f);
-        particleMaxLife[i] = (float) Math.random() * 4.0f + 2.0f;
-        particleLife[i] = (float) (Math.random() * particleMaxLife[i]);
-        int[] tints = {0xFF6A3C, 0xE53935, 0xC62828, 0xD84315, 0xB71C1C};
-        particleColor[i] = tints[(int) (Math.random() * tints.length)];
-    }
-
-    private void updateAndRenderParticles(GuiGraphics g, float dt) {
-        if (!particlesInitialized) initParticles();
-
-        MedicalData data = getMedicalData();
-        float volRatio = 1.0f;
-        float spo2N = 1.0f;
-        float hrScale = 1.0f;
-        if (data != null) {
-            volRatio = Math.max(0.15f, Math.min(1.0f,
-                    (float) data.getBloodVolume() / Math.max(1, data.getMaxBloodVolume())));
-            float spo2 = data.getBloodOxygenFloat();
-            spo2N = Math.max(0.0f, Math.min(1.0f, (spo2 - 20.0f) / 55.0f));
-            hrScale = Math.max(0.5f, Math.min(2.2f, data.getHeartRate() / 72.0f));
-        }
-
-        int aliveCount = (int) (MAX_PARTICLES * (0.35f + 0.65f * volRatio));
-
-        for (int i = 0; i < MAX_PARTICLES; i++) {
-            if (i >= aliveCount) {
-                particleLife[i] += dt;
-                if (particleLife[i] >= particleMaxLife[i]) {
-                    respawnParticle(i);
-                    particleLife[i] = 0;
-                }
-                continue;
-            }
-            particleLife[i] += dt;
-            if (particleLife[i] >= particleMaxLife[i]) {
-                respawnParticle(i);
-                particleLife[i] = 0;
-            }
-            particleX[i] += particleVX[i] * dt * hrScale;
-            particleY[i] += particleVY[i] * dt * hrScale;
-
-            float lifeFrac = particleLife[i] / particleMaxLife[i];
-            float alpha = (float) Math.sin(lifeFrac * Math.PI) * 0.35f;
-
-            int baseCol = particleColor[i];
-            int r = (baseCol >> 16) & 0xFF;
-            int gg = (baseCol >> 8) & 0xFF;
-            int b = baseCol & 0xFF;
-            int rr = (int) (r * (0.45f + 0.55f * spo2N));
-            int g2 = (int) (gg * (0.55f + 0.45f * spo2N));
-            int bb = (int) Math.min(255, b + (1.0f - spo2N) * 120);
-            int col = (rr << 16) | (g2 << 8) | bb;
-
-            int a = (int) (alpha * 255) & 0xFF;
-            int finalCol = (a << 24) | (col & 0x00FFFFFF);
-
-            float size = 1.6f + (float) Math.sin(lifeFrac * Math.PI) * 1.6f;
-            int px = (int) particleX[i];
-            int py = (int) particleY[i];
-            int s = (int) size;
-
-            g.fill(px - s - 1, py - s - 1, px + s + 2, py + s + 2,
-                    (Math.max(0, a / 4) << 24) | (col & 0x00FFFFFF));
-            g.fill(px - s, py - s, px + s + 1, py + s + 1, finalCol);
-            if (s >= 2) {
-                g.fill(px - s / 3, py - s / 3, px + s / 3 + 1, py + s / 3 + 1,
-                        ((int) (a * 0.45f) << 24) | (col & 0x00FFFFFF));
-            }
-        }
-    }
-
-    // ============================================================
-    // 五、全局主渲染循环 (2.5D 视差 + 物理驱动)
-    // ============================================================
-    @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         long now = System.currentTimeMillis();
-        float deltaSeconds = 0.016f;
-
-        globalPulse += deltaSeconds;
-        selectedPulsePhase += deltaSeconds * 3.5f;
-        scanBeamY += deltaSeconds * 45.0f;
-
-        float targetTiltX = ((mouseX - (this.width / 2.0f)) / (this.width / 2.0f)) * 4.5f;
-        float targetTiltY = ((mouseY - (this.height / 2.0f)) / (this.height / 2.0f)) * 3.0f;
-        smoothTiltX += (targetTiltX - smoothTiltX) * 0.12f;
-        smoothTiltY += (targetTiltY - smoothTiltY) * 0.12f;
-
-        float globalScale = 1.0f;
-        float globalAlpha = 1.0f;
-
-        if (state == ScreenState.OPENING) {
-            long elapsed = now - openStartTime;
-            float progress = Mth.clamp((float) elapsed / OPEN_DURATION_MS, 0.0f, 1.0f);
-            globalScale = EasingFunctions.easeOutBack(progress);
-            globalAlpha = EasingFunctions.easeOutCubic(progress);
-            if (progress >= 1.0f) {
-                state = ScreenState.OPEN;
-                globalScale = 1.0f;
-                globalAlpha = 1.0f;
-            }
-        } else if (state == ScreenState.CLOSING) {
-            long elapsed = now - closeStartTime;
-            float progress = Mth.clamp((float) elapsed / CLOSE_DURATION_MS, 0.0f, 1.0f);
-            globalScale = 1.0f - EasingFunctions.easeInBack(progress) * 0.15f;
-            globalAlpha = 1.0f - EasingFunctions.easeInCubic(progress);
-            if (progress >= 1.0f) {
-                state = ScreenState.CLOSED;
-                super.onClose();
-                return;
-            }
-        }
-
-        HudRenderHelper.drawBackgroundGridAndScanline(graphics, this.width, this.height, now);
-        HudRenderHelper.drawAmbientPhotonDust(graphics, this.width, this.height, now);
-        drawCinematicVignette(graphics);
-        updateAndRenderParticles(graphics, deltaSeconds);
-
-        MedicalData data = getMedicalData();
-        if (data == null) {
-            drawCyberCard(graphics, 20, 20, this.width - 40, this.height - 40, "INITIALIZING NEURAL TELEMETRY...", 0xFF00E5FF);
-            drawLoadingAnimation(graphics, this.width / 2, this.height / 2 + 30, now);
-            super.render(graphics, mouseX, mouseY, partialTick);
-            return;
-        }
-
-        boolean isCardiacDeath = data.isCardiacArrest();
-        boolean isNeuralCrisis = !isCardiacDeath && (sprBrainHealth.val < 30.0f || sprConsciousness.val < 25.0f);
-        if (isCardiacDeath) {
-            drawAsystoleTakeover(graphics, now);
-        } else if (isNeuralCrisis) {
-            drawNeuralInterference(graphics, now);
-        }
-
-        updateSpringVitals(data, deltaSeconds);
-        generatePhysiologyWaves(data, deltaSeconds);
-        updateHoverState(mouseX, mouseY, deltaSeconds);
-        updateConnectionLine(deltaSeconds);
-
-        float hrNormalized = Mth.clamp(sprHeartRate.val / 60.0f, 0.6f, 3.2f);
-        cardiacPulse = (float) Math.sin(globalPulse * hrNormalized * Math.PI);
-
-        graphics.pose().pushPose();
-        float centerX = this.width / 2.0f;
-        float centerY = this.height / 2.0f;
-        graphics.pose().translate(centerX + smoothTiltX * 1.5f, centerY + smoothTiltY * 1.5f, 0.0f);
-        graphics.pose().scale(globalScale, globalScale, 1.0f);
-        graphics.pose().translate(-centerX, -centerY, 0.0f);
-
-        float topBarP = 1f, bodyP = 1f, detailP = 1f, footerP = 1f;
-        if (state == ScreenState.OPENING) {
-            long elapsed = now - openStartTime;
-            topBarP = EasingFunctions.easeOutCubic(Mth.clamp((elapsed - 40) / 200f, 0f, 1f));
-            bodyP   = EasingFunctions.easeOutCubic(Mth.clamp((elapsed - 100) / 220f, 0f, 1f));
-            detailP = EasingFunctions.easeOutCubic(Mth.clamp((elapsed - 160) / 240f, 0f, 1f));
-            footerP = EasingFunctions.easeOutCubic(Mth.clamp((elapsed - 240) / 180f, 0f, 1f));
-        }
-
-        float asmTop = topBarP, asmBody = bodyP, asmDetail = detailP, asmFooter = footerP;
-        drawAssemblyTrail(graphics, this.width / 2.0f, 26f, asmTop, now, 0);
-        drawAssemblyTrail(graphics, 140f, this.height / 2.0f, asmBody, now, 1);
-        drawAssemblyTrail(graphics, this.width - 150f, this.height / 2.0f, asmDetail, now, 2);
-        drawAssemblyTrail(graphics, this.width / 2.0f, this.height - 18f, asmFooter, now, 3);
-        drawAssemblyReticle(graphics, Math.min(Math.min(asmTop, asmBody), Math.min(asmDetail, asmFooter)), now);
-
-        graphics.pose().pushPose();
-        float zTop = 1.0f - 0.55f * (1.0f - topBarP);
-        graphics.pose().translate(this.width / 2.0f, 26f, 0f);
-        graphics.pose().scale(zTop, zTop, 1.0f);
-        graphics.pose().translate(-this.width / 2.0f, -26f, 0f);
-        graphics.pose().translate(0f, -42f * (1f - topBarP), 0f);
-        drawHudHeader(graphics, data, now);
-        graphics.pose().popPose();
-
-        graphics.pose().pushPose();
-        float zBody = 1.0f - 0.40f * (1.0f - bodyP);
-        graphics.pose().translate(140f, this.height / 2.0f, 0f);
-        graphics.pose().scale(zBody, zBody, 1.0f);
-        graphics.pose().translate(-140f, -this.height / 2.0f, 0f);
-        graphics.pose().translate(-90f * (1f - bodyP), -16f * (1f - bodyP), 0f);
-        drawBodyModelCard(graphics, data, mouseX, mouseY, deltaSeconds, now);
-        graphics.pose().popPose();
-
-        if (selectedLimb != null && connectionLineProgress > 0.01f) {
-            drawConnectionLine(graphics, data, now);
-        }
-
-        graphics.pose().pushPose();
-        float zDetail = 1.0f - 0.40f * (1.0f - detailP);
-        graphics.pose().translate(this.width - 150f, this.height / 2.0f, 0f);
-        graphics.pose().scale(zDetail, zDetail, 1.0f);
-        graphics.pose().translate(-(this.width - 150f), -this.height / 2.0f, 0f);
-        graphics.pose().translate(90f * (1f - detailP), 16f * (1f - detailP), 0f);
-        drawDetailPanel(graphics, data, mouseX, mouseY, deltaSeconds, now);
-        graphics.pose().popPose();
-
-        rippleManager.updateAndRender(graphics, deltaSeconds);
-
-        graphics.pose().pushPose();
-        float zFooter = 1.0f - 0.30f * (1.0f - footerP);
-        graphics.pose().translate(this.width / 2.0f, this.height - 18f, 0f);
-        graphics.pose().scale(zFooter, zFooter, 1.0f);
-        graphics.pose().translate(-this.width / 2.0f, -(this.height - 18f), 0f);
-        graphics.pose().translate(0f, 26f * (1f - footerP), 0f);
-        drawHelpText(graphics, now);
-        graphics.pose().popPose();
-
-        graphics.pose().popPose();
-
-        drawFloatingTriageCard(graphics, mouseX, mouseY, data);
-        drawMicroTomographyHUD(graphics, data, now);
-        drawCyberCursor(graphics, mouseX, mouseY, now);
-
-        lastMouseX = mouseX;
-        lastMouseY = mouseY;
-        int chipCx = this.width - 26;
-        int chipCy = this.height - 18;
-        boolean hoveringChip = mouseX > chipCx - 14 && mouseX < chipCx + 14
-                && mouseY > chipCy - 14 && mouseY < chipCy + 14;
-        float legendTarget = hoveringChip ? 1f : 0f;
-        legendExpand += (legendTarget - legendExpand) * Math.min(1f, deltaSeconds * 10f);
-        if (legendExpand < 0.005f) legendExpand = 0f;
-
-        super.render(graphics, mouseX, mouseY, partialTick);
-    }
-
-    // ============================================================
-    // 六、数值与生理信号驱动
-    // ============================================================
-    private void updateSpringVitals(MedicalData data, float dt) {
-        sprHeartRate.update(data.getHeartRate(), dt, 150.0f, 16.0f);
-        sprSystolic.update(data.getSystolicBP(), dt, 130.0f, 15.0f);
-        sprDiastolic.update(data.getDiastolicBP(), dt, 130.0f, 15.0f);
-        sprOxygen.update(data.getBloodOxygen(), dt, 90.0f, 14.0f);
-        sprRespiration.update(data.getRespirationRate(), dt, 90.0f, 14.0f);
-        sprBloodLoss.update(data.getBloodLossAccumulator(), dt, 100.0f, 15.0f);
-        sprConsciousness.update(data.getConsciousness(), dt, 100.0f, 15.0f);
-        sprBrainHealth.update(data.getBrainHealth(), dt, 100.0f, 15.0f);
-        sprBloodVolume.update(data.getBloodVolume(), dt, 80.0f, 14.0f);
-        sprCardiacOutput.update(data.getCardiacOutput(), dt, 110.0f, 15.0f);
-
-        if (sweepScanAnim > 0.0f) {
-            sweepScanAnim += dt / 3.0f;
-            if (sweepScanAnim >= 2.0f) {
-                sweepScanAnim = 0.0f;
-                sweepScanRevealed = false;
-            }
-            if (!sweepScanRevealed && sweepScanAnim >= 1.0f) {
-                sweepScanRevealed = true;
-                sweepScanStampTime = System.currentTimeMillis();
-            }
-        }
-
-        if (microTomographyLimb != null) {
-            microTomographyAnim = Math.min(1.0f, microTomographyAnim + dt * 5.0f);
-        } else {
-            microTomographyAnim = Math.max(0.0f, microTomographyAnim - dt * 5.0f);
-        }
-    }
-
-    private void generatePhysiologyWaves(MedicalData data, float dt) {
-        if (dt <= 0.0f) return;
-        final float sweepSpeed = 75.0f;
-        sweepAccumulator += dt * sweepSpeed;
-
-        int steps = (int) sweepAccumulator;
-        if (steps <= 0) return;
-        sweepAccumulator -= steps;
-        if (steps > 30) steps = 30;
-
-        int heartRate = data.getHeartRate();
-        boolean cardiacArrest = data.isCardiacArrest();
-        boolean inVFib = data.isInVFib();
-        float effectiveDt = dt / Math.max(1, steps);
-
-        for (int s = 0; s < steps; s++) {
-            float ecgVal = 0.5f;
-            float ppgVal = 0.5f;
-
-            if (cardiacArrest) {
-                cardiacCycleTime = 0.0f;
-                float drift = (float) Math.sin(System.currentTimeMillis() * 0.0005) * 0.008f;
-                float noise = ((float) Math.random() - 0.5f) * 0.012f;
-                ecgVal = 0.5f + drift + noise;
-                ppgVal = 0.5f;
-            } else if (inVFib) {
-                cardiacCycleTime = 0.0f;
-                vfibPhase += effectiveDt * 35.0f;
-                float f1 = (float) Math.sin(vfibPhase * 1.0f) * 0.22f;
-                float f2 = (float) Math.sin(vfibPhase * 2.37f + 1.2f) * 0.15f;
-                float f3 = (float) Math.sin(vfibPhase * 0.43f + 2.7f) * 0.09f;
-                float f4 = (float) Math.sin(vfibPhase * 5.11f) * 0.05f;
-                float noise = ((float) Math.random() - 0.5f) * 0.04f;
-                ecgVal = 0.5f + f1 + f2 + f3 + f4 + noise;
-                ppgVal = 0.5f + (float) Math.sin(vfibPhase * 0.4f) * 0.06f;
-            } else if (heartRate > 0) {
-                float rrInterval = 60.0f / (float) heartRate;
-                cardiacCycleTime += effectiveDt;
-                if (cardiacCycleTime >= rrInterval) {
-                    cardiacCycleTime -= rrInterval;
-                    rPeakFlash = 1.0f;
-                }
-                float t = cardiacCycleTime;
-                ecgVal = evaluateLeadIIECG(t, rrInterval) + ((float) Math.random() - 0.5f) * 0.006f;
-
-                float tNorm = t / rrInterval;
-                if (tNorm < 0.28f) {
-                    ppgVal = 0.5f - (float) Math.sin((tNorm / 0.28f) * Math.PI) * 0.36f;
-                } else if (tNorm < 0.42f) {
-                    ppgVal = 0.5f - 0.12f * (float) Math.sin(((tNorm - 0.28f) / 0.14f) * Math.PI);
-                } else {
-                    ppgVal = 0.5f + (0.5f - ppgVal) * 0.08f;
-                }
-            }
-
-            historyY[sweepIndex] = Mth.clamp(ecgVal, 0.02f, 0.98f);
-            historyPPG[sweepIndex] = Mth.clamp(ppgVal, 0.04f, 0.96f);
-            historyValid[sweepIndex] = true;
-            sweepIndex = (sweepIndex + 1) % BUFFER_SIZE;
-
-            for (int k = 0; k < 5; k++) {
-                int eraseIdx = (sweepIndex + k) % BUFFER_SIZE;
-                historyValid[eraseIdx] = false;
-            }
-        }
-
-        if (rPeakFlash > 0.0f) {
-            rPeakFlash = Math.max(0.0f, rPeakFlash - dt * 3.0f);
-        }
-    }
-
-    private float evaluateLeadIIECG(float t, float rrInterval) {
-        float baseline = 0.5f;
-        float pStart = 0.00f;
-        float pDur = 0.09f;
-        if (t >= pStart && t < pStart + pDur) {
-            float phase = (t - pStart) / pDur;
-            return baseline - (float) Math.sin(phase * Math.PI) * 0.055f;
-        }
-
-        float prSegEnd = 0.16f;
-        if (t < prSegEnd) return baseline;
-
-        float qrsStart = 0.16f;
-        float qDur = 0.025f;
-        if (t >= qrsStart && t < qrsStart + qDur) {
-            float phase = (t - qrsStart) / qDur;
-            return baseline + (float) Math.sin(phase * Math.PI) * 0.04f;
-        }
-
-        float rStart = qrsStart + qDur;
-        float rDur = 0.040f;
-        if (t >= rStart && t < rStart + rDur) {
-            float phase = (t - rStart) / rDur;
-            return baseline - (float) Math.sin(phase * Math.PI) * 0.42f;
-        }
-
-        float sStart = rStart + rDur;
-        float sDur = 0.030f;
-        if (t >= sStart && t < sStart + sDur) {
-            float phase = (t - sStart) / sDur;
-            return baseline + (float) Math.sin(phase * Math.PI) * 0.09f;
-        }
-
-        float stSegEnd = 0.32f;
-        if (t < stSegEnd) return baseline;
-
-        float tStart = 0.32f;
-        float tDur = 0.18f;
-        if (t >= tStart && t < tStart + tDur) {
-            float phase = (t - tStart) / tDur;
-            return baseline - (float) Math.sin(phase * Math.PI) * 0.10f;
-        }
-
-        return baseline;
-    }
-
-    // ============================================================
-    // 七、顶部科技 HUD 标题栏
-    // ============================================================
-    private void drawHudHeader(GuiGraphics graphics, MedicalData data, long now) {
-        int barX = 12;
-        int barY = 6;
-        int barW = this.width - 24;
-        int barH = HUD_BAR_H;
-
-        boolean critical = data.isCardiacArrest() || data.isInVFib();
-        int themeCol = critical ? HudColors.DANGER : HudColors.CYAN;
-
-        drawCyberCard(graphics, barX, barY, barW, barH, "", themeCol);
-
-        float pulse = 0.5f + 0.5f * (float) Math.sin(now / 180.0);
-        int dx = barX + 14;
-        int dy = barY + barH / 2 - 3;
-
-        graphics.fill(dx - 4, dy - 4, dx + 9, dy + 9, HudColors.withAlpha(themeCol, 0.12f + 0.18f * pulse));
-        graphics.fill(dx, dy, dx + 5, dy + 5, themeCol);
-        graphics.fill(dx + 1, dy + 1, dx + 4, dy + 4, 0xFFFFFFFF);
-        graphics.renderOutline(dx - 4, dy - 4, 13, 13, 0x4400E5FF);
-
-        HudRenderHelper.drawGlowingString(graphics, this.font, "TRAUMA MONITOR", dx + 18, barY + 10, 0xFFE6F7FF, themeCol);
-        boolean liveVisible = (now / 500) % 2 == 0;
-        if (liveVisible) {
-            int liveX = dx + 18 + this.font.width("TRAUMA MONITOR") + 8;
-            graphics.fill(liveX, barY + 11, liveX + 4, barY + 15, 0xFFFF1744);
-            graphics.drawString(this.font, "LIVE", liveX + 6, barY + 10, 0xFFFF1744, false);
-        }
-        graphics.drawString(this.font, "// 生物遥测神经终端 v2.5", dx + 18, barY + 24, 0xFF546E7A, false);
-
-        int seconds = (int) ((now / 1000) % 60);
-        int minutes = (int) ((now / 60000) % 60);
-        String clock = String.format("%02d:%02d", minutes, seconds);
-        graphics.drawString(this.font, clock, dx + 18 + this.font.width("// 生物遥测神经终端 v2.5") + 14,
-                barY + 24, 0xFF37474F, false);
-
-        if (this.width < 820) {
-            int rx = barX + barW - 14;
-            String txt = (int) sprHeartRate.val + " BPM  " +
-                    (int) sprSystolic.val + "/" + (int) sprDiastolic.val + "  " +
-                    (int) sprOxygen.val + "%";
-            int tw = this.font.width(txt);
-            graphics.drawString(this.font, txt, rx - tw, barY + barH / 2 - 4, HudColors.TEXT_PRIMARY, false);
-            return;
-        }
-
-        int rightEdge = barX + barW - 16;
-        int gcy = barY + barH / 2;
-
-        int spo2Cx = rightEdge - 20;
-        int spo2Val = (int) sprOxygen.val;
-        int spo2Col = getOxygenColor(spo2Val);
-        drawOrganRingGauge(graphics, spo2Cx, gcy - 2, 14, sprOxygen.val / 100f, spo2Col,
-                spo2Val + "%", spo2Val < 90, OrganType.LUNG, now);
-
-        int hrCx = spo2Cx - 80;
-        int hrVal = (int) sprHeartRate.val;
-        int hrCol = getHeartRateColor(hrVal);
-        boolean hrAlert = hrVal <= 0 || hrVal > 140;
-        drawOrganRingGauge(graphics, hrCx, gcy - 2, 14, sprHeartRate.val / 200f, hrCol,
-                String.valueOf(hrVal), hrAlert, OrganType.HEART, now);
-
-        if (rPeakFlash > 0.1f) {
-            int flashA = (int) (rPeakFlash * 180);
-            graphics.fill(hrCx - 2, gcy - 20, hrCx + 3, gcy - 17,
-                    (flashA << 24) | (hrCol & 0x00FFFFFF));
-        }
-
-        int bpW = 120;
-        int bpH = barH - 16;
-        int bpX = hrCx - 80 - bpW;
-        int bpY = barY + 8;
-        drawBPCapsule(graphics, bpX, bpY, bpW, bpH, data);
-        graphics.fill(bpX - 8, barY + 8, bpX - 7, barY + barH - 8, 0x3300E5FF);
-    }
-
-    /** 器官剪影类型 (微像素代码绘制, 无贴图) */
-    private enum OrganType { HEART, LUNG }
-
-    /**
-     * 器官剪影仪表 (Organ-Silhouette Gauge) — 取代抽象环形仪表
-     */
-    private void drawOrganRingGauge(GuiGraphics g, int cx, int cy, int radius,
-                                    float value01, int color, String valueText,
-                                    boolean alert, OrganType organ, long now) {
-        final float startDeg = 135f;
-        final float sweepDeg = 270f;
-        final int segments = 18;
-        final float segArc = sweepDeg / segments;
-        float clamped = Mth.clamp(value01, 0f, 1f);
-
-        drawSmoothArc(g, cx, cy, radius + 3, startDeg, startDeg + sweepDeg, 0x1800E5FF, 1);
-        drawSmoothArc(g, cx, cy, radius, startDeg, startDeg + sweepDeg, 0xFF0A1820, 3);
-        for (int i = 0; i < segments; i++) {
-            float segMidT = (i + 0.5f) / segments;
-            if (segMidT > clamped) break;
-            float a0 = startDeg + i * segArc + 1.0f;
-            float a1 = startDeg + (i + 1) * segArc - 1.0f;
-            int col = color;
-            if (alert) {
-                float p = 0.45f + 0.55f * (float) Math.sin(now / 140.0);
-                col = HudColors.withAlpha(col, p);
-            }
-            drawSmoothArc(g, cx, cy, radius, a0, a1, col, 3);
-        }
-        if (clamped > 0.01f) {
-            float endDeg = startDeg + sweepDeg * clamped;
-            double rad = Math.toRadians(endDeg);
-            int ex = cx + (int) Math.round(Math.cos(rad) * radius);
-            int ey = cy + (int) Math.round(Math.sin(rad) * radius);
-            g.fill(ex - 1, ey - 1, ex + 2, ey + 2, 0xCCFFFFFF);
-        }
-
-        g.pose().pushPose();
-        g.pose().translate(cx, cy - 2, 0);
-        drawOrganSilhouette(g, organ, now, color, value01);
-        g.pose().popPose();
-
-        g.pose().pushPose();
-        g.pose().translate(cx, cy + radius + 3, 0);
-        g.pose().scale(0.8f, 0.8f, 1f);
-        int tw = this.font.width(valueText);
-        g.drawString(this.font, valueText, -tw / 2, 0, 0xFFFFFFFF, false);
-        g.pose().popPose();
-    }
-
-    private void drawOrganSilhouette(GuiGraphics g, OrganType organ, long now, int color, float value01) {
-        int bodyCol = (0xFF << 24) | (color & 0x00FFFFFF);
-        int dimCol = 0x6600B8D4;
-
-        if (organ == OrganType.HEART) {
-            float beat = cardiacPulse;
-            float scale = 1.0f + beat * 0.35f;
-            boolean dead = value01 <= 0.005f;
-            boolean fibrillating = dead || (value01 > 1.0f - 0.001f && beat < 0.01f && (now / 80) % 2 == 0);
-
-            g.pose().pushPose();
-            if (fibrillating) {
-                int jx = (int) ((now / 30) % 3) - 1;
-                int jy = (int) ((now / 47) % 3) - 1;
-                g.pose().translate(jx, jy, 0);
-            }
-            g.pose().scale(scale, scale, 1f);
-
-            g.fill(-3, -4, -1, -2, bodyCol);
-            g.fill(1, -4, 3, -2, bodyCol);
-            g.fill(-4, -2, 4, 0, bodyCol);
-            g.fill(-3, 0, 3, 2, bodyCol);
-            g.fill(-1, 2, 1, 3, bodyCol);
-            g.fill(-3, -3, -2, -2, 0xCCFFFFFF);
-            if (fibrillating) {
-                int fl = (int) ((now / 90) % 4);
-                g.fill(-2 + fl, 1, -1 + fl, 2, 0xFFFF1744);
-            }
-            if (dead) {
-                g.fill(-3, -1, 3, 1, 0xFF37474F);
-            }
-            g.pose().popPose();
-        } else if (organ == OrganType.LUNG) {
-            float respRate = Math.max(4.0f, sprRespiration != null ? sprRespiration.val : 16.0f);
-            float respCycle = (float) ((now / 1000.0) * (respRate / 12.0) * Math.PI * 2.0);
-            float breathe = 0.5f + 0.5f * (float) Math.sin(respCycle);
-            int inhale = (int) (breathe * 2);
-
-            for (int lobe = 0; lobe < 2; lobe++) {
-                int ox = lobe == 0 ? -5 : 1;
-                g.fill(ox, -4, ox + 4, -2, bodyCol);
-                g.fill(ox, -2, ox + 4, 2 + inhale, bodyCol);
-                g.fill(ox + 1, -3, ox + 2, 0, dimCol);
-                g.fill(ox + 2, 1, ox + 3, 1 + inhale, dimCol);
-            }
-            g.fill(-1, -5, 1, -1, 0xFFB0BEC5);
-            g.fill(-4, -1, -3, 0, 0xFFB0BEC5);
-            g.fill(3, -1, 4, 0, 0xFFB0BEC5);
-            if (value01 < 0.6f) {
-                int purpleA = (int) ((0.6f - value01) * 200);
-                g.fill(-5, -5, 5, 4, (purpleA << 24) | 0x006A1B9A);
-            }
-        }
-    }
-
-    private void drawRingGauge(GuiGraphics g, int cx, int cy, int radius,
-                               float value01, int color, String valueText, boolean alert) {
-        final float startDeg = 135f;
-        final float sweepDeg = 270f;
-        final int segments = 18;
-        final float segArc = sweepDeg / segments;
-
-        float clamped = Mth.clamp(value01, 0f, 1f);
-        long now = System.currentTimeMillis();
-
-        drawSmoothArc(g, cx, cy, radius + 3, startDeg, startDeg + sweepDeg, 0x1800E5FF, 1);
-        drawSmoothArc(g, cx, cy, radius, startDeg, startDeg + sweepDeg, 0xFF0A1820, 3);
-
-        for (int i = 0; i < segments; i++) {
-            float segMidT = (i + 0.5f) / segments;
-            if (segMidT > clamped) break;
-            float a0 = startDeg + i * segArc + 1.0f;
-            float a1 = startDeg + (i + 1) * segArc - 1.0f;
-
-            int col = color;
-            if (alert) {
-                float p = 0.45f + 0.55f * (float) Math.sin(now / 140.0);
-                col = HudColors.withAlpha(col, p);
-            }
-            drawSmoothArc(g, cx, cy, radius, a0, a1, col, 3);
-        }
-
-        if (clamped > 0.01f) {
-            float endDeg = startDeg + sweepDeg * clamped;
-            double rad = Math.toRadians(endDeg);
-            int ex = cx + (int) Math.round(Math.cos(rad) * radius);
-            int ey = cy + (int) Math.round(Math.sin(rad) * radius);
-            g.fill(ex - 1, ey - 1, ex + 2, ey + 2, 0xCCFFFFFF);
-        }
-
-        g.pose().pushPose();
-        g.pose().translate(cx, cy - 1, 0);
-        g.pose().scale(0.8f, 0.8f, 1f);
-        try {
-            float num = Float.parseFloat(valueText);
-            int len = valueText.length();
-            int totalW = len * 7;
-            HudRenderHelper.drawRollingNumber(g, this.font, num, -totalW / 2, -4, 0xFFFFFFFF);
-        } catch (Exception ignored) {
-            int tw = this.font.width(valueText);
-            g.drawString(this.font, valueText, -tw / 2, -4, 0xFFFFFFFF, false);
-        }
-        g.pose().popPose();
-    }
-
-    private void drawBigRingGauge(GuiGraphics g, int cx, int cy, int radius,
-                                  float value01, int color, String value,
-                                  String unit, String label) {
-        final float startDeg = 135f;
-        final float sweepDeg = 270f;
-        float clamped = Mth.clamp(value01, 0f, 1f);
-
-        drawSmoothArc(g, cx, cy, radius + 6, startDeg, startDeg + sweepDeg, 0x0C00E5FF, 1);
-        drawSmoothArc(g, cx, cy, radius + 3, startDeg, startDeg + sweepDeg, 0x2200E5FF, 1);
-        drawSmoothArc(g, cx, cy, radius, startDeg, startDeg + sweepDeg, 0xFF0A1820, 5);
-
-        if (clamped > 0f) {
-            float endDeg = startDeg + sweepDeg * clamped;
-            drawSmoothArc(g, cx, cy, radius, startDeg, endDeg, color, 5);
-            drawSmoothArc(g, cx, cy, radius + 2, startDeg, endDeg, HudColors.withAlpha(color, 0.25f), 1);
-
-            double rad = Math.toRadians(endDeg);
-            int ex = cx + (int) Math.round(Math.cos(rad) * radius);
-            int ey = cy + (int) Math.round(Math.sin(rad) * radius);
-            g.fill(ex - 3, ey - 3, ex + 4, ey + 4, HudColors.withAlpha(color, 0.4f));
-            g.fill(ex - 1, ey - 1, ex + 2, ey + 2, 0xFFFFFFFF);
-        }
-
-        float[] tickPositions = {0f, 0.25f, 0.5f, 0.75f, 1.0f};
-        for (float tp : tickPositions) {
-            float tickDeg = startDeg + sweepDeg * tp;
-            double rad = Math.toRadians(tickDeg);
-            int tx1 = cx + (int) Math.round(Math.cos(rad) * (radius - 4));
-            int ty1 = cy + (int) Math.round(Math.sin(rad) * (radius - 4));
-            int tx2 = cx + (int) Math.round(Math.cos(rad) * (radius + 5));
-            int ty2 = cy + (int) Math.round(Math.sin(rad) * (radius + 5));
-            g.fill(Math.min(tx1, tx2), Math.min(ty1, ty2),
-                    Math.max(tx1, tx2) + 1, Math.max(ty1, ty2) + 1, 0x4400E5FF);
-        }
-
-        g.pose().pushPose();
-        g.pose().translate(cx, cy - 7, 0);
-        g.pose().scale(1.7f, 1.7f, 1f);
-        int vw = this.font.width(value);
-        g.drawString(this.font, value, -vw / 2, 0, 0xFFFFFFFF, false);
-        g.pose().popPose();
-
-        int uw = this.font.width(unit);
-        g.drawString(this.font, unit, cx - uw / 2, cy + 10, HudColors.TEXT_SECONDARY, false);
-
-        int lw = this.font.width(label);
-        g.drawString(this.font, label, cx - lw / 2, cy + radius + 8, 0xFFB0BEC5, false);
-    }
-
-    private void drawBPCapsule(GuiGraphics g, int x, int y, int w, int h, MedicalData data) {
-        g.fill(x, y, x + w, y + h, 0x66081218);
-        g.renderOutline(x, y, w, h, 0xFF1A3040);
-        g.fill(x + 1, y + 1, x + w - 1, y + 2, 0x1800E5FF);
-
-        g.drawString(this.font, "BP mmHg", x + 5, y + 3, 0xFF546E7A, false);
-
-        int bpCol = getBPColor(data.getMeanArterialPressure(), (int) sprSystolic.val);
-        int curX = x + w - 50;
-        HudRenderHelper.drawRollingNumber(g, this.font, sprSystolic.val, curX, y + 3, bpCol);
-        g.drawString(this.font, "/", curX + 18, y + 3, 0xFF888888, false);
-        HudRenderHelper.drawRollingNumber(g, this.font, sprDiastolic.val, curX + 24, y + 3, bpCol);
-
-        int tx = x + 6;
-        int tw = w - 12;
-        int ty1 = y + h - 18;
-        int ty2 = y + h - 9;
-
-        float sbp = Mth.clamp(sprSystolic.val / 240f, 0f, 1f);
-        float dbp = Mth.clamp(sprDiastolic.val / 160f, 0f, 1f);
-
-        int normX0 = tx + (int) (tw * (90f / 240f));
-        int normX1 = tx + (int) (tw * (140f / 240f));
-        g.fill(normX0, ty1, normX1, ty1 + 5, 0x1A00FF88);
-
-        drawGlowBar(g, tx, ty1, tw, 5, sbp, bpCol, "SYS");
-        drawGlowBar(g, tx, ty2, tw, 5, dbp, HudColors.withAlpha(bpCol, 0.8f), "DIA");
-
-        float mapT = Mth.clamp(data.getMeanArterialPressure() / 160f, 0f, 1f);
-        int mapX = tx + (int) (tw * mapT);
-        g.fill(mapX, ty1 - 4, mapX + 1, ty2 + 8, 0xBB00E5FF);
-        g.fill(mapX - 1, ty1 - 5, mapX + 2, ty1 - 3, 0xFF00E5FF);
-    }
-
-    private void drawGlowBar(GuiGraphics g, int x, int y, int w, int h, float t, int color, String label) {
-        g.fill(x, y, x + w, y + h, 0x331A2A33);
-        int fw = (int) (w * t);
-        if (fw > 0) {
-            g.fill(x, y, x + fw, y + h, color);
-            g.fill(x, y, x + fw, y + 1, HudColors.withAlpha(color, 0.9f));
-            g.fill(x + fw - 1, y - 1, x + fw + 1, y + h + 1, 0xCCFFFFFF);
-        }
-    }
-
-    // ============================================================
-    // 八、人体拓扑视口卡片
-    // ============================================================
-    private void drawBodyModelCard(GuiGraphics graphics, MedicalData data, int mouseX, int mouseY,
-                                   float deltaSeconds, long now) {
-        int cardX = 24;
-        int cardY = HUD_BAR_H + 14;
-        int cardW = 220;
-        int cardH = this.height - HUD_BAR_H - 50;
-
-        drawCyberCard(graphics, cardX, cardY, cardW, cardH, "ANATOMY SCAN // 解剖拓扑", 0xFF00E5FF);
-        SciFiDataStreamRenderer.renderVerticalHexStream(graphics, this.font,
-                cardX + cardW - 34, cardY + 30, cardH - 50, now);
-
-        int startX = cardX + (cardW - TOTAL_W) / 2 + 10;
-        int startY = cardY + (cardH - TOTAL_H) / 2 + 5;
-
-        float beamPhase = (scanBeamY % (TOTAL_H + 40)) - 20;
-        int beamScreenY = startY + (int) beamPhase;
-        if (beamScreenY > startY - 5 && beamScreenY < startY + TOTAL_H + 5) {
-            graphics.fill(startX - 12, beamScreenY, startX + TOTAL_W + 12, beamScreenY + 1, 0x5500E5FF);
-        }
-
-        int gridColor = 0x0C00E5FF;
-        for (int gx = startX; gx < startX + TOTAL_W; gx += 8) {
-            graphics.fill(gx, startY, gx + 1, startY + TOTAL_H, gridColor);
-        }
-        for (int gy = startY; gy < startY + TOTAL_H; gy += 8) {
-            graphics.fill(startX, gy, startX + TOTAL_W, gy + 1, gridColor);
-        }
-
-        drawLimb(graphics, data, MedicalData.Limb.HEAD, startX + HEAD_OFFSET_X, startY + HEAD_OFFSET_Y,
-                HEAD_SIZE, HEAD_SIZE, mouseX, mouseY, now);
-        drawLimb(graphics, data, MedicalData.Limb.CHEST, startX + BODY_OFFSET_X, startY + BODY_OFFSET_Y,
-                BODY_W, BODY_H, mouseX, mouseY, now);
-        drawLimb(graphics, data, MedicalData.Limb.LEFT_ARM, startX + LEFT_ARM_OFFSET_X, startY + LEFT_ARM_OFFSET_Y,
-                ARM_W, ARM_H, mouseX, mouseY, now);
-        drawLimb(graphics, data, MedicalData.Limb.RIGHT_ARM, startX + RIGHT_ARM_OFFSET_X, startY + RIGHT_ARM_OFFSET_Y,
-                ARM_W, ARM_H, mouseX, mouseY, now);
-        drawLimb(graphics, data, MedicalData.Limb.LEFT_LEG, startX + LEFT_LEG_OFFSET_X, startY + LEFT_LEG_OFFSET_Y,
-                LEG_W, LEG_H, mouseX, mouseY, now);
-        drawLimb(graphics, data, MedicalData.Limb.RIGHT_LEG, startX + RIGHT_LEG_OFFSET_X, startY + RIGHT_LEG_OFFSET_Y,
-                LEG_W, LEG_H, mouseX, mouseY, now);
-
-        drawVascularNetwork(graphics, startX, startY, data, now);
-        drawBodyDashboard(graphics, data, startX, startY, now);
-        drawOnDemandSweepScan(graphics, data, startX, startY, TOTAL_W, TOTAL_H, now);
-        drawFloatingVitals(graphics, data, startX, startY, now);
-
-        if (data.isCardiacArrest() || data.isInVFib()) {
-            float alertPulse = 0.5f + 0.5f * (float) Math.sin(now / 120.0);
-            int alertBgAlpha = (int) ((0.30f + 0.50f * alertPulse) * 255);
-            graphics.fill(cardX + 8, cardY + cardH - 28, cardX + cardW - 8, cardY + cardH - 8,
-                    (alertBgAlpha << 24) | 0x00FF1744);
-            HudRenderHelper.drawGlowingString(graphics, this.font, "⚠ CARDIAC EMERGENCY",
-                    cardX + 16, cardY + cardH - 24, 0xFFFFFFFF, HudColors.DANGER);
-        }
-
-        int statusY = cardY + cardH - 40;
-        if (!data.isCardiacArrest() && !data.isInVFib()) {
-            int limbIssues = countLimbIssues(data);
-            String statusMsg = limbIssues == 0 ? "ALL SYSTEMS NOMINAL" : limbIssues + " ANOMALIES DETECTED";
-            int statusCol = limbIssues == 0 ? 0xFF00E676 : 0xFFFF9100;
-            drawCenteredSmall(graphics, statusMsg, cardX + cardW / 2, statusY, statusCol);
-        }
-    }
-
-    private void drawVascularNetwork(GuiGraphics g, int bx, int by, MedicalData data, long now) {
-        int heartX = bx + BODY_OFFSET_X + BODY_W / 2;
-        int heartY = by + BODY_OFFSET_Y + 18;
-
-        boolean arrest = data.isCardiacArrest() || data.isInVFib();
-        float pulse = Math.max(0.0f, cardiacPulse);
-        float beatScale = 1.0f + pulse * 0.5f;
-        int hRad = (int) (5 * beatScale);
-
-        if (!arrest) {
-            int glowAlpha = (int) (pulse * 90);
-            if (glowAlpha > 0) {
-                g.fill(heartX - hRad - 2, heartY - hRad - 2, heartX + hRad + 2, heartY + hRad + 2, (glowAlpha << 24) | 0x00FF1744);
-            }
-        }
-        g.fill(heartX - hRad, heartY - hRad, heartX + hRad, heartY + hRad, arrest ? 0x88550000 : 0xCCFF1744);
-        g.fill(heartX - 2, heartY - 2, heartX + 2, heartY + 2, arrest ? 0xFF888888 : 0xFFFFFFFF);
-
-        int hr = data.getHeartRate();
-        int speedMs = arrest ? 100000 : Math.max(15, 60000 / Math.max(40, hr * 12));
-        int offset = arrest ? 0 : (int) ((now / (long) speedMs) % 12);
-        int col = arrest ? 0x33550000 : (pulse > 0.3f ? 0x9900E5FF : 0x5500ADB5);
-
-        drawDottedLine(g, heartX, heartY, bx + HEAD_OFFSET_X + HEAD_SIZE / 2, by + HEAD_OFFSET_Y + HEAD_SIZE, col, offset);
-        drawDottedLine(g, heartX, heartY, bx + LEFT_ARM_OFFSET_X + ARM_W / 2, by + LEFT_ARM_OFFSET_Y + 10, col, offset);
-        drawDottedLine(g, heartX, heartY, bx + RIGHT_ARM_OFFSET_X + ARM_W / 2, by + RIGHT_ARM_OFFSET_Y + 10, col, offset);
-        drawDottedLine(g, heartX, heartY + 16, bx + LEFT_LEG_OFFSET_X + LEG_W / 2, by + LEFT_LEG_OFFSET_Y + 10, col, offset);
-        drawDottedLine(g, heartX, heartY + 16, bx + RIGHT_LEG_OFFSET_X + LEG_W / 2, by + RIGHT_LEG_OFFSET_Y + 10, col, offset);
-    }
-
-    private void drawBodyDashboard(GuiGraphics g, MedicalData data, int bx, int by, long now) {
-        boolean arrest = data.isCardiacArrest() || data.isInVFib();
-        float heartOut = Math.max(0.0f, Math.min(1.0f, data.getCardiacOutput()));
-        float spo2 = data.getBloodOxygenFloat();
-        float consciousness = Math.max(0.0f, Math.min(1.0f, data.getConsciousnessFloat() / 100.0f));
-        float brainHp = Math.max(0.0f, Math.min(1.0f, data.getBrainHealthFloat() / 100.0f));
-        float volRatio = Math.max(0.0f, Math.min(1.0f,
-                (float) data.getBloodVolume() / Math.max(1, data.getMaxBloodVolume())));
-        float pulse = Math.max(0.0f, cardiacPulse);
-
-        int heartX = bx + BODY_OFFSET_X + BODY_W / 2;
-        int heartY = by + BODY_OFFSET_Y + 18;
-        if (!arrest) {
-            float beatScale = 1.0f + pulse * 0.9f;
-            int coreR = (int) (3 * beatScale);
-            int coreAlpha = (int) (120 + pulse * 130);
-            int haloAlpha = (int) ((26 + pulse * 60) * heartOut + 8);
-            g.fill(heartX - coreR - 1, heartY - coreR - 1, heartX + coreR + 2, heartY + coreR + 2,
-                    (Math.min(255, haloAlpha * 2) << 24) | 0x00FF1744);
-            g.fill(heartX - coreR, heartY - coreR, heartX + coreR + 1, heartY + coreR + 1,
-                    (coreAlpha << 24) | 0x00FF3D5C);
-            g.fill(heartX - 1, heartY - 1, heartX + 2, heartY + 2, 0xFFFFFFFF);
-        } else {
-            int ember = (int) (40 + 20 * Math.sin(now / 600.0));
-            g.fill(heartX - 4, heartY - 4, heartX + 5, heartY + 5, ((ember) << 24) | 0x00550000);
-            g.fill(heartX - 1, heartY - 1, heartX + 2, heartY + 2, 0xFF662222);
-        }
-
-        int respRate = data.getRespirationRate();
-        float respCycle = (float) ((now / 1000.0) * Math.max(0.5, respRate / 12.0) * Math.PI * 2.0);
-        float breathe = 0.5f + 0.5f * (float) Math.sin(respCycle);
-        if (arrest) breathe = 0.05f;
-        float hypox = Math.max(0.0f, Math.min(1.0f, (75.0f - spo2) / 55.0f));
-        int lungAlpha = (int) (breathe * 70 + 10);
-        int lungCol = HudColors.lerpColor(hypox, 0x00E1F5FE, 0x007B1FA2);
-        int lungW = BODY_W / 2 - 6;
-        int lungH = BODY_H - 22;
-        g.fill(bx + BODY_OFFSET_X + 3, by + BODY_OFFSET_Y + 6,
-                bx + BODY_OFFSET_X + 3 + lungW, by + BODY_OFFSET_Y + 6 + (int) (lungH * (0.8f + breathe * 0.2f)),
-                (lungAlpha << 24) | lungCol);
-        g.fill(bx + BODY_OFFSET_X + BODY_W - 3 - lungW, by + BODY_OFFSET_Y + 6,
-                bx + BODY_OFFSET_X + BODY_W - 3, by + BODY_OFFSET_Y + 6 + (int) (lungH * (0.8f + breathe * 0.2f)),
-                (lungAlpha << 24) | lungCol);
-
-        int brainCx = bx + HEAD_OFFSET_X + HEAD_SIZE / 2;
-        int brainCy = by + HEAD_OFFSET_Y + HEAD_SIZE / 2;
-        float auraBase = 2.0f + consciousness * 5.0f;
-        int auraAlpha = (int) (30 + consciousness * 150);
-        if (brainHp > 0.3f) {
-            float fl = 1.0f + 0.06f * (float) Math.sin(now / 700.0);
-            int r = (int) (auraBase * fl);
-            g.fill(brainCx - r, brainCy - r, brainCx + r + 1, brainCy + r + 1,
-                    (auraAlpha << 24) | 0x0080DEEA);
-        } else {
-            long seg = now / 90;
-            java.util.Random rng = new java.util.Random(seg * 31 + (int) (brainHp * 100));
-            for (int i = 0; i < 10; i++) {
-                if (rng.nextFloat() > 0.4f + brainHp) continue;
-                int ang = rng.nextInt(360);
-                int rr = (int) (auraBase + rng.nextInt(3));
-                int px = brainCx + (int) (rr * Math.cos(Math.toRadians(ang)));
-                int py = brainCy + (int) (rr * Math.sin(Math.toRadians(ang)));
-                g.fill(px, py, px + 2, py + 2, ((int) (60 + 120 * rng.nextFloat()) << 24) | 0x00FF6E40);
-            }
-        }
-
-        int dimAlpha = (int) ((1.0f - volRatio) * 90);
-        if (dimAlpha > 4) {
-            g.fill(bx + BODY_OFFSET_X, by + BODY_OFFSET_Y,
-                    bx + BODY_OFFSET_X + BODY_W, by + BODY_OFFSET_Y + BODY_H, (dimAlpha << 24) | 0x00000810);
-            g.fill(bx + LEFT_LEG_OFFSET_X, by + LEFT_LEG_OFFSET_Y,
-                    bx + LEFT_LEG_OFFSET_X + LEG_W, by + LEFT_LEG_OFFSET_Y + LEG_H, (dimAlpha << 24) | 0x00000810);
-            g.fill(bx + RIGHT_LEG_OFFSET_X, by + RIGHT_LEG_OFFSET_Y,
-                    bx + RIGHT_LEG_OFFSET_X + LEG_W, by + RIGHT_LEG_OFFSET_Y + LEG_H, (dimAlpha << 24) | 0x00000810);
-            g.fill(bx + LEFT_ARM_OFFSET_X, by + LEFT_ARM_OFFSET_Y,
-                    bx + LEFT_ARM_OFFSET_X + ARM_W, by + LEFT_ARM_OFFSET_Y + ARM_H, (dimAlpha << 24) | 0x00000810);
-            g.fill(bx + RIGHT_ARM_OFFSET_X, by + RIGHT_ARM_OFFSET_Y,
-                    bx + RIGHT_ARM_OFFSET_X + ARM_W, by + RIGHT_ARM_OFFSET_Y + ARM_H, (dimAlpha << 24) | 0x00000810);
-        }
-
-        if (data.isInCriticalState()) {
-            int criticalRemaining = data.getCriticalTimer();
-            float urgency = criticalRemaining <= 3 ? 1.0f : 0.55f;
-            float redPulse = 0.5f + 0.5f * (float) Math.sin(now / (criticalRemaining <= 3 ? 90.0 : 160.0));
-            int redAlpha = (int) (urgency * redPulse * 60);
-            g.fill(bx + BODY_OFFSET_X - 2, by + BODY_OFFSET_Y - 2,
-                    bx + BODY_OFFSET_X + BODY_W + 2, by + BODY_OFFSET_Y + BODY_H + 2,
-                    (redAlpha << 24) | 0x00FF1744);
-        }
-
-        drawHemorrhageVisualization(g, data, bx, by, now);
-    }
-
-    private final java.util.List<int[]> hemorrhageDripsps = new java.util.ArrayList<>();
-    private float bloodPoolDepth = 0.0f;
-
-    private void drawHemorrhageVisualization(GuiGraphics g, MedicalData data, int bx, int by, long now) {
-        java.util.List<float[]> bleeders = new java.util.ArrayList<>();
-        MedicalData.Limb[] limbs = MedicalData.Limb.values();
-        for (MedicalData.Limb limb : limbs) {
-            MedicalData.LimbData ld = data.getLimb(limb);
-            float rate = ld.getBleeding();
-            if (rate <= 0) rate = ld.getInternalBleedingRate() > 0 ? 2.0f : 0.0f;
-            if (rate <= 0) continue;
-            int[] box = getLimbCenterBox(limb, bx, by);
-            if (box == null) continue;
-            bleeders.add(new float[]{box[0], box[1], box[0] + box[2], box[1] + box[3], rate});
-        }
-        if (bleeders.isEmpty()) {
-            bloodPoolDepth = Math.max(0.0f, bloodPoolDepth - 0.003f);
-        } else {
-            float maxRate = 0.0f;
-            for (float[] b : bleeders) maxRate = Math.max(maxRate, b[4]);
-            bloodPoolDepth = Math.min(1.0f, bloodPoolDepth + maxRate * 0.0012f);
-        }
-
-        if (!bleeders.isEmpty() && hemorrhageDripsps.size() < 24) {
-            for (float[] b : bleeders) {
-                float dripChance = Math.min(0.4f, b[4] * 0.08f);
-                if ((float) Math.random() < dripChance) {
-                    float wx = b[0] + (float) Math.random() * (b[2] - b[0]);
-                    float wy = b[1] + (b[3] - b[1]) * (0.4f + (float) Math.random() * 0.3f);
-                    hemorrhageDripsps.add(new int[]{(int) wx, (int) wy, (int) b[3], 0});
-                }
-            }
-        }
-
-        java.util.Iterator<int[]> dit = hemorrhageDripsps.iterator();
-        while (dit.hasNext()) {
-            int[] d = dit.next();
-            d[3] += 3;
-            int dropY = d[1] + d[3];
-            if (dropY >= d[2]) {
-                dit.remove();
-                continue;
-            }
-            g.fill(d[0] - 1, dropY - 2, d[0] + 2, dropY + 2, 0xCCB71C1C);
-            g.fill(d[0], dropY - 5, d[0] + 1, dropY - 2, 0x558E0E0E);
-        }
-
-        if (bloodPoolDepth > 0.02f) {
-            for (float[] b : bleeders) {
-                int poolW = (int) ((b[2] - b[0]) * (0.4f + bloodPoolDepth * 0.55f));
-                int px1 = (int) (b[0] + (b[2] - b[0] - poolW) / 2);
-                int poolH = Math.max(1, (int) (bloodPoolDepth * 6));
-                int floorY = (int) b[3];
-                for (int layer = 0; layer < poolH; layer++) {
-                    int shrink = (int) ((poolH - layer) * 1.2f);
-                    int alpha = 0xC0 - layer * 12;
-                    g.fill(px1 + shrink, floorY - layer - 1, px1 + poolW - shrink, floorY - layer,
-                            (alpha << 24) | 0x00610B0B);
-                }
-            }
-        }
-
-        for (float[] b : bleeders) {
-            float rateN = Math.min(1.0f, b[4] / 5.0f);
-            int glowA = (int) (30 + rateN * 50);
-            int x1 = (int) b[0], y1 = (int) b[1], x2 = (int) b[2], y2 = (int) b[3];
-            g.fill(x1 - 1, y1 - 1, x2 + 1, y1, (glowA << 24) | 0x00FF1744);
-            g.fill(x1 - 1, y2, x2 + 1, y2 + 1, (glowA << 24) | 0x00FF1744);
-            g.fill(x1 - 1, y1, x1, y2, (glowA << 24) | 0x00FF1744);
-            g.fill(x2, y1, x2 + 1, y2, (glowA << 24) | 0x00FF1744);
-        }
-    }
-
-    private int countLimbIssues(MedicalData data) {
-        int count = 0;
-        for (MedicalData.Limb limb : MedicalData.Limb.values()) {
-            MedicalData.LimbData ld = data.getLimb(limb);
-            if (ld.getBleeding() > 0 || ld.getInternalBleedingRate() > 0 || ld.hasFracture()
-                    || ld.hasDislocation() || ld.getInfection() > 0) {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    private void drawFloatingVitals(GuiGraphics g, MedicalData data, int bodyX, int bodyY, long now) {
-        int leftX = bodyX - 48;
-        int rightX = bodyX + TOTAL_W + 8;
-
-        float bob1 = (float) Math.sin(now / 800.0) * 2.0f;
-        float bob2 = (float) Math.sin(now / 900.0 + 1.5) * 2.0f;
-        float bob3 = (float) Math.sin(now / 700.0 + 3.0) * 2.0f;
-
-        drawMicroReadout(g, leftX, bodyY + 20 + (int) bob1, "HR",
-                String.valueOf((int) sprHeartRate.val), getHeartRateColor(data.getHeartRate()));
-        drawMicroReadout(g, leftX, bodyY + 55 + (int) bob2, "O₂",
-                (int) sprOxygen.val + "%", getOxygenColor(data.getBloodOxygen()));
-
-        drawMicroReadout(g, rightX, bodyY + 20 + (int) bob3, "BP",
-                (int) sprSystolic.val + "/" + (int) sprDiastolic.val,
-                getBPColor(data.getMeanArterialPressure(), data.getSystolicBP()));
-    }
-
-    private void drawMicroReadout(GuiGraphics g, int x, int y, String label, String value, int color) {
-        g.fill(x, y, x + 40, y + 22, 0x88060D14);
-        g.fill(x, y, x + 2, y + 22, HudColors.withAlpha(color, 0.7f));
-        g.drawString(this.font, label, x + 4, y + 2, 0xFF546E7A, false);
-
-        g.pose().pushPose();
-        g.pose().translate(x + 4, y + 11, 0);
-        g.pose().scale(0.85f, 0.85f, 1f);
-        g.drawString(this.font, value, 0, 0, color, false);
-        g.pose().popPose();
-    }
-
-    private void drawConnectionLine(GuiGraphics g, MedicalData data, long now) {
-        if (connectionLineLimb == null || connectionLineProgress < 0.01f) return;
-
-        int bodyCardX = 24;
-        int bodyCardY = HUD_BAR_H + 14;
-        int bodyCardW = 220;
-        int bodyCardH = this.height - HUD_BAR_H - 50;
-
-        int startX = bodyCardX + (bodyCardW - TOTAL_W) / 2 + 10;
-        int startY = bodyCardY + (bodyCardH - TOTAL_H) / 2 + 5;
-
-        int limbCx, limbCy;
-        switch (connectionLineLimb) {
-            case HEAD:      limbCx = startX + HEAD_OFFSET_X + HEAD_SIZE / 2; limbCy = startY + HEAD_OFFSET_Y + HEAD_SIZE / 2; break;
-            case CHEST:     limbCx = startX + BODY_OFFSET_X + BODY_W / 2;   limbCy = startY + BODY_OFFSET_Y + BODY_H / 2; break;
-            case LEFT_ARM:  limbCx = startX + LEFT_ARM_OFFSET_X + ARM_W / 2; limbCy = startY + LEFT_ARM_OFFSET_Y + ARM_H / 2; break;
-            case RIGHT_ARM: limbCx = startX + RIGHT_ARM_OFFSET_X + ARM_W / 2; limbCy = startY + RIGHT_ARM_OFFSET_Y + ARM_H / 2; break;
-            case LEFT_LEG:  limbCx = startX + LEFT_LEG_OFFSET_X + LEG_W / 2; limbCy = startY + LEFT_LEG_OFFSET_Y + LEG_H / 2; break;
-            case RIGHT_LEG: limbCx = startX + RIGHT_LEG_OFFSET_X + LEG_W / 2; limbCy = startY + RIGHT_LEG_OFFSET_Y + LEG_H / 2; break;
-            default: return;
-        }
-
-        int panelX = 260;
-        int targetX = panelX;
-        int targetY = bodyCardY + 40;
-        int midX = limbCx + (targetX - limbCx) / 2;
-
-        float p = connectionLineProgress;
-        int lineColor = HudColors.withAlpha(HudColors.CYAN, 0.5f * p);
-        int dotColor = HudColors.withAlpha(HudColors.CYAN, 0.8f * p);
-
-        int currentEndX = limbCx + (int) ((midX - limbCx) * Math.min(1f, p * 2f));
-        drawDottedHLine(g, limbCx, limbCy, currentEndX, lineColor, now);
-
-        if (p > 0.5f) {
-            float p2 = (p - 0.5f) * 2f;
-            int curX = midX + (int) ((targetX - midX) * p2);
-            int curY = limbCy + (int) ((targetY - limbCy) * p2);
-            drawDottedLine(g, midX, limbCy, curX, curY, lineColor, (int) ((now / 40) % 4));
-        }
-
-        g.fill(limbCx - 2, limbCy - 2, limbCx + 3, limbCy + 3, dotColor);
-        g.fill(limbCx - 1, limbCy - 1, limbCx + 2, limbCy + 2, 0xCCFFFFFF);
-    }
-
-    private void drawDottedHLine(GuiGraphics g, int x0, int y, int x1, int color, long now) {
-        int offset = (int) ((now / 50) % 6);
-        int sx = Math.min(x0, x1);
-        int ex = Math.max(x0, x1);
-        for (int x = sx + offset; x < ex; x += 6) {
-            g.fill(x, y, Math.min(x + 3, ex), y + 1, color);
-        }
-    }
-
-    private void drawDottedLine(GuiGraphics g, int x0, int y0, int x1, int y1, int color, int offset) {
-        float dx = x1 - x0;
-        float dy = y1 - y0;
-        float dist = (float) Math.sqrt(dx * dx + dy * dy);
-        int steps = (int) (dist / 4.0f);
-        if (steps <= 0) return;
-        for (int i = offset % 4; i < steps; i += 4) {
-            float t = (float) i / steps;
-            int px = x0 + (int) (dx * t);
-            int py = y0 + (int) (dy * t);
-            g.fill(px, py, px + 2, py + 2, color);
-        }
-    }
-
-    // ============================================================
-    // 九、肢体渲染
-    // ============================================================
-    private void drawLimb(GuiGraphics graphics, MedicalData data, MedicalData.Limb limb,
-                          int x, int y, int w, int h, int mouseX, int mouseY, long now) {
-        MedicalData.LimbData ld = data.getLimb(limb);
-        int baseColor = getLimbColor(ld);
-        int health = getLimbHealthPercent(ld);
-
-        boolean isHovered = (limb == hoveredLimb);
-        boolean isSelected = (limb == selectedLimb);
-        float anim = limbHoverProgress[limb.ordinal()];
-
-        float dimFactor = (selectedLimb != null && !isSelected && !isHovered) ? 0.45f : 1.0f;
-
-        int expand = (int) (anim * 3.0f);
-        int drawX = x - expand;
-        int drawY = y - expand;
-        int drawW = w + expand * 2;
-        int drawH = h + expand * 2;
-
-        if (anim > 0.05f) {
-            int glowAlpha = (int) (anim * 25 * dimFactor);
-            graphics.fill(drawX - 3, drawY - 3, drawX + drawW + 3, drawY + drawH + 3,
-                    (glowAlpha << 24) | (baseColor & 0x00FFFFFF));
-            graphics.fill(drawX - 1, drawY - 1, drawX + drawW + 1, drawY + drawH + 1,
-                    (glowAlpha * 2 << 24) | (baseColor & 0x00FFFFFF));
-        }
-
-        float baseFill = (0.35f + 0.40f * anim) * dimFactor;
-        int r = Math.min(4, drawH / 2);
-        for (int row = 0; row < r; row++) {
-            float intensity = baseFill * (0.8f + 0.2f * (float) Math.sin((float) row / drawH * Math.PI));
-            int inset = r - (int) Math.round(Math.sqrt(Math.max(0, r * r - (r - row - 0.5) * (r - row - 0.5))));
-            graphics.fill(drawX + inset, drawY + row, drawX + drawW - inset, drawY + row + 1, HudColors.withAlpha(baseColor, intensity));
-        }
-
-        int midH = drawH - 2 * r;
-        if (midH > 0) {
-            int halfMid = midH / 2;
-            graphics.fill(drawX, drawY + r, drawX + drawW, drawY + r + halfMid, HudColors.withAlpha(baseColor, baseFill * 0.95f));
-            graphics.fill(drawX, drawY + r + halfMid, drawX + drawW, drawY + drawH - r, HudColors.withAlpha(baseColor, baseFill * 1.0f));
-        }
-
-        for (int row = drawH - r; row < drawH; row++) {
-            float intensity = baseFill * (0.8f + 0.2f * (float) Math.sin((float) row / drawH * Math.PI));
-            int d = row - (drawH - r);
-            int inset = r - (int) Math.round(Math.sqrt(Math.max(0, r * r - (d + 0.5) * (d + 0.5))));
-            graphics.fill(drawX + inset, drawY + row, drawX + drawW - inset, drawY + row + 1, HudColors.withAlpha(baseColor, intensity));
-        }
-
-        int dotAlpha = (int) (0.08f * dimFactor * 255);
-        int dotColor = (dotAlpha << 24) | 0x00FFFFFF;
-        for (int gy = drawY + 3; gy < drawY + drawH - 2; gy += 4) {
-            for (int gx = drawX + 3; gx < drawX + drawW - 2; gx += 4) {
-                graphics.fill(gx, gy, gx + 1, gy + 1, dotColor);
-            }
-        }
-
-        int hBarH = 2;
-        int hBarY = drawY + drawH - hBarH - 2;
-        int hBarX = drawX + 3;
-        int hBarW = drawW - 6;
-        graphics.fill(hBarX, hBarY, hBarX + hBarW, hBarY + hBarH, 0x441A2A33);
-        int filledW = (int) (hBarW * (health / 100f));
-        int hpColor = getHealthColor(health);
-        graphics.fill(hBarX, hBarY, hBarX + filledW, hBarY + hBarH, HudColors.withAlpha(hpColor, 0.8f * dimFactor));
-
-        int borderColor;
-        if (isSelected) {
-            float breath = 0.6f + 0.4f * (float) Math.sin(selectedPulsePhase);
-            borderColor = HudColors.withAlpha(HudColors.CYAN, breath);
-        } else if (isHovered) {
-            borderColor = 0xFFFFFFFF;
-        } else {
-            borderColor = HudColors.withAlpha(baseColor, 0.7f * dimFactor);
-        }
-        HudRenderHelper.drawSciFiBorder(graphics, drawX, drawY, drawW, drawH, borderColor);
-
-        if (isSelected) {
-            float breath = 0.5f + 0.5f * (float) Math.sin(selectedPulsePhase);
-            HudRenderHelper.drawCardCorners(graphics, drawX - 3, drawY - 3, drawW + 6, drawH + 6, 4,
-                    HudColors.withAlpha(HudColors.CYAN, 0.4f + 0.6f * breath));
-        }
-
-        if (ld.getBleeding() > 0) {
-            float bleedIntensity = Math.min(1f, ld.getBleeding() / 300f);
-            for (int s = 0; s < 2; s++) {
-                float phase = ((now + s * 500) % 1400) / 1400f;
-                int flowY = drawY + (int) (phase * drawH);
-                int flowEnd = Math.min(flowY + (int) (6 + bleedIntensity * 8), drawY + drawH);
-                graphics.fill(drawX + drawW - 2, flowY, drawX + drawW, flowEnd,
-                        HudColors.withAlpha(0xFFFF1744, 0.5f + bleedIntensity * 0.5f));
-            }
-        }
-
-        if (ld.getInternalBleedingRate() > 0) {
-            float intensity = Math.min(1f, ld.getInternalBleedingRate() / 200f);
-            float ip = 0.5f + 0.5f * (float) Math.sin(now / 200.0);
-            int internalA = (int) ((0.06f + 0.12f * ip) * intensity * 255);
-            graphics.fill(drawX + 3, drawY + 3, drawX + drawW - 3, drawY + drawH - 3,
-                    (internalA << 24) | 0x00FF1744);
-        }
-
-        if (ld.hasFracture()) {
-            int fx = drawX + drawW / 2;
-            float flash = 0.6f + 0.4f * (float) Math.sin(now / 250.0);
-            int crackColor = HudColors.withAlpha(0xFFFF1744, flash);
-            for (int i = 0; i < drawH - 6; i += 2) {
-                int px = fx + (int) (Math.sin(i * 0.7) * 3);
-                graphics.fill(px, drawY + 3 + i, px + 1, drawY + 5 + i, crackColor);
-                graphics.fill(px - 1, drawY + 3 + i, px, drawY + 5 + i, HudColors.withAlpha(0xFFFF1744, 0.15f * flash));
-                graphics.fill(px + 1, drawY + 3 + i, px + 2, drawY + 5 + i, HudColors.withAlpha(0xFFFF1744, 0.15f * flash));
-            }
-        }
-
-        if (isHovered || isSelected) {
-            String label = getLimbFullName(limb) + "  " + health + "%";
-            int textW = this.font.width(label);
-            int tagX = drawX + drawW / 2 - textW / 2 - 4;
-            int tagY = drawY - 16;
-            int tagW = textW + 8;
-            int tagH = 14;
-
-            drawRoundedRect(graphics, tagX, tagY, tagW, tagH, 3, 0xDD060B10);
-            graphics.renderOutline(tagX, tagY, tagW, tagH, borderColor);
-            int triX = drawX + drawW / 2;
-            graphics.fill(triX - 1, tagY + tagH, triX + 2, tagY + tagH + 2, 0xDD060B10);
-            graphics.drawString(this.font, label, tagX + 4, tagY + 3, borderColor, false);
-
-            if (isHovered && !isSelected) {
-                String hint = "CLICK ▸";
-                int hintW = this.font.width(hint);
-                graphics.drawString(this.font, hint, drawX + drawW / 2 - hintW / 2,
-                        drawY + drawH / 2 - 4, 0x88FFFFFF, false);
-            }
-        }
-
-        if (ld.isTourniqueted()) {
-            int bandX = drawX + drawW / 2 - 3;
-            int bandY = drawY + 3;
-            int bandH = drawH - 6;
-            graphics.fill(bandX, bandY, bandX + 5, bandY + bandH, 0xAAFF9100);
-            graphics.fill(bandX - 1, bandY, bandX + 6, bandY + 2, 0xFFFFFFFF);
-            graphics.fill(bandX - 1, bandY + bandH - 2, bandX + 6, bandY + bandH, 0xFFFFFFFF);
-        }
-
-        if (ld.hasSplint()) {
-            graphics.fill(drawX + drawW - 6, drawY + 4, drawX + drawW - 3, drawY + drawH - 4, 0xFF00E676);
-            graphics.fill(drawX + drawW - 7, drawY + 4, drawX + drawW - 2, drawY + 6, 0xFF00E676);
-            graphics.fill(drawX + drawW - 7, drawY + drawH - 6, drawX + drawW - 2, drawY + drawH - 4, 0xFF00E676);
-        }
-    }
-
-    // ============================================================
-    // 十、右侧详情面板
-    // ============================================================
-    private void drawDetailPanel(GuiGraphics graphics, MedicalData data, int mouseX, int mouseY,
-                                 float deltaSeconds, long now) {
-        int panelX = 260;
-        int panelY = HUD_BAR_H + 14;
-        int panelWidth = this.width - panelX - 24;
-        int panelHeight = this.height - HUD_BAR_H - 50;
-
-        if (panelWidth < 100) return;
-
-        if (selectedLimb == MedicalData.Limb.HEAD) {
-            String cardTitle = "CEREBRAL SCAN // 3D 大脑全息扫描";
-            drawCyberCard(graphics, panelX, panelY, panelWidth, panelHeight, cardTitle, 0xFF00E5FF);
-            brainScanRenderer.render(graphics, this.font, panelX, panelY, panelWidth, panelHeight, data, deltaSeconds);
-            return;
-        }
-
-        String cardTitle = selectedLimb != null
-                ? "DIAGNOSIS // " + getLimbFullName(selectedLimb) + " " + tr("medical.detail.title")
-                : "SYSTEM OVERVIEW // 全身生理概览";
-
-        drawCyberCard(graphics, panelX, panelY, panelWidth, panelHeight, cardTitle, 0xFF00E5FF);
-
-        if (selectedLimb != null) {
-            int health = getLimbHealthPercent(data.getLimb(selectedLimb));
-            int hc = getHealthColor(health);
-            float hFrac = health / 100f;
-            int lineW = (int) ((panelWidth - 40) * hFrac);
-            graphics.fill(panelX + 12, panelY + 22, panelX + 12 + lineW, panelY + 23, hc);
-            if (lineW > 2) {
-                graphics.fill(panelX + 12 + lineW - 1, panelY + 21, panelX + 12 + lineW + 1, panelY + 24, 0xCCFFFFFF);
-            }
-        }
-
-        int contentX = panelX + 16;
-        int contentW = panelWidth - 32;
-        int lineY = panelY + 30;
-
-        if (selectedLimb != null) {
-            lineY = drawLimbDetail(graphics, data, selectedLimb, contentX, lineY, contentW, now);
-        } else {
-            lineY = drawSystemOverview(graphics, data, contentX, lineY, contentW, now);
-        }
-
-        int ecgY = Math.max(lineY + 8, panelY + panelHeight - 110);
-        int ecgHeight = Math.min(95, (panelY + panelHeight - 12) - ecgY);
-        if (ecgHeight > 45) {
-            drawDualOscilloscope(graphics, contentX, ecgY, contentW, ecgHeight, data);
-        }
-    }
-
-    // ============================================================
-    // 十一、选中肢体详情
-    // ============================================================
-    private int drawLimbDetail(GuiGraphics g, MedicalData data, MedicalData.Limb limb, int x, int y, int w, long now) {
-        MedicalData.LimbData ld = data.getLimb(limb);
-        int health = getLimbHealthPercent(ld);
-        int hc = getHealthColor(health);
-
-        g.drawString(this.font, "INTEGRITY STATUS", x, y, 0xFF546E7A, false);
-
-        String hStr = health + "%";
-        g.pose().pushPose();
-        g.pose().translate(x + w - 60, y - 4, 0);
-        g.pose().scale(1.5f, 1.5f, 1f);
-        int hw = this.font.width(hStr);
-        g.drawString(this.font, hStr, -hw, 0, hc, false);
-        g.pose().popPose();
-
-        y += 14;
-        drawFancyProgressBar(g, x, y, w, 10, health / 100f, hc, now);
-        y += 20;
-
-        if (ld.getBleeding() > 0) {
-            y = drawVisualRow(g, x, y, w, "出血 BLEED", ld.getBleeding() + " mL/min",
-                    Math.min(1f, ld.getBleeding() / 500f), getBleedingColor(ld.getBleeding()), VIZ_FLOW);
-        }
-        if (ld.getInternalBleedingRate() > 0) {
-            y = drawVisualRow(g, x, y, w, "内出血 INTERNAL", ld.getInternalBleedingRate() + " mL/min",
-                    Math.min(1f, ld.getInternalBleedingRate() / 300f), 0xFFFF1744, VIZ_FLOW);
-        }
-        y = drawVisualRow(g, x, y, w, "疼痛 PAIN", ld.getPainLevel() + " / 10",
-                ld.getPainLevel() / 10f, getPainColor(ld.getPainLevel()), VIZ_SEGMENT);
-        y = drawVisualRow(g, x, y, w, "感染 INFECTION", ld.getInfection() + "%",
-                ld.getInfection() / 100f, getInfectionColor(ld.getInfection()), VIZ_SEGMENT);
-
-        y += 6;
-        g.drawString(this.font, "STATUS FLAGS", x, y, 0xFF546E7A, false);
-        y += 12;
-
-        int pillX = x;
-        int pillY = y;
-        int rowEnd = x + w;
-        if (ld.isAmputated()) {
-            // 已截肢：最高优先级红色药丸，覆盖其余状态
-            drawStatusPill(g, pillX, pillY, tr("medical.status.amputated"), true, 0xFFFF1744);
-            return pillY + 22;
-        }
-        pillX += drawStatusPill(g, pillX, pillY, tr("medical.status.bandaged"), ld.isBandaged(), 0xFF00E676);
-        if (ld.isTourniqueted()) {
-            if (pillX + 60 > rowEnd) { pillX = x; pillY += 18; }
-            pillX += drawStatusPill(g, pillX, pillY, tr("medical.status.tourniquet"), true, 0xFFFF9100);
-        }
-        if (ld.hasFracture()) {
-            String fracTxt = ld.isOpenFracture() ? tr("medical.status.open_fracture")
-                    : (ld.hasSplint() ? tr("medical.status.fracture_splinted") : tr("medical.status.fracture"));
-            if (pillX + 80 > rowEnd) { pillX = x; pillY += 18; }
-            pillX += drawStatusPill(g, pillX, pillY, fracTxt, true, 0xFFFF1744);
-        }
-        if (ld.hasDislocation()) {
-            if (pillX + 70 > rowEnd) { pillX = x; pillY += 18; }
-            pillX += drawStatusPill(g, pillX, pillY, tr("medical.status.dislocation"), true, 0xFFFFD600);
-        }
-        if (ld.getInfection() > 0) {
-            String infTxt = ld.getInfection() <= 25 ? tr("medical.status.mild_infection")
-                    : ld.getInfection() <= 50 ? tr("medical.status.moderate_infection")
-                    : ld.getInfection() <= 75 ? tr("medical.status.severe_infection")
-                    : tr("medical.status.critical_infection");
-            if (pillX + 80 > rowEnd) { pillX = x; pillY += 18; }
-            pillX += drawStatusPill(g, pillX, pillY, infTxt, true, 0xFFFF1744);
-        }
-        if (!ld.isBandaged() && !ld.isTourniqueted() && !ld.hasFracture()
-                && !ld.hasDislocation() && ld.getInfection() <= 0) {
-            drawStatusPill(g, pillX, pillY, tr("medical.status.healthy"), true, 0xFF00E676);
-        }
-        y = pillY + 22;
-
-        if (limb == MedicalData.Limb.CHEST) {
-            y = drawChestExtra(g, data, x, y, w, now);
-        }
-
-        return y;
-    }
-
-    private int drawChestExtra(GuiGraphics g, MedicalData data, int x, int y, int w, long now) {
-        drawSectionDivider(g, x, y, w);
-        y += 8;
-        g.drawString(this.font, "CARDIOPULMONARY METRICS", x, y, 0xFF546E7A, false);
-        y += 13;
-
-        int spo2 = data.getBloodOxygen();
-        y = drawVisualRow(g, x, y, w, "血氧 SpO₂", spo2 + "%",
-                spo2 / 100f, getOxygenColor(spo2), VIZ_PROGRESS);
-
-        int rr = data.getRespirationRate();
-        y = drawVisualRow(g, x, y, w, "呼吸 RESP", rr + " /min",
-                Mth.clamp(rr / 40f, 0f, 1f), 0xFFE0E0E0, VIZ_PROGRESS);
-
-        int bv = data.getBloodVolume();
-        int mbv = data.getMaxBloodVolume();
-        y = drawVisualRow(g, x, y, w, "血容量 VOL", bv + " / " + mbv + " mL",
-                Mth.clamp((float) bv / Math.max(1, mbv), 0f, 1f), getBloodVolumeColor(bv, mbv), VIZ_PROGRESS);
-
-        float chestBlood = data.getChestBloodAccumulation();
-        if (chestBlood > 0) {
-            y = drawVisualRow(g, x, y, w, "胸腔积血 HEMO", (int) chestBlood + " / 2000 mL",
-                    Mth.clamp(chestBlood / 2000f, 0f, 1f), HudColors.DANGER, VIZ_FLOW);
-        }
-
-        int hemoLevel = data.getHemothoraxLevel();
-        if (hemoLevel > 0) {
-            y = drawVisualRow(g, x, y, w, "血胸 HEMOTHORAX", tr("medical.hemothorax.level." + hemoLevel),
-                    hemoLevel / 4f, getHemothoraxLevelColor(hemoLevel), VIZ_SEGMENT);
-        }
-
-        float lungContusion = data.getLungContusion();
-        if (lungContusion > 0) {
-            int color = lungContusion > 60 ? 0xFFFF1744 : (lungContusion > 30 ? 0xFFFF9100 : 0xFFFFD600);
-            y = drawVisualRow(g, x, y, w, "肺挫伤 CONTUSION", String.format("%.1f%%", lungContusion),
-                    Mth.clamp(lungContusion / 100f, 0f, 1f), color, VIZ_PROGRESS);
-        }
-
-        y = drawVisualRow(g, x, y, w, "心输出量 CO",
-                String.format("%.2f L/min", sprCardiacOutput.val),
-                Mth.clamp(sprCardiacOutput.val / 10f, 0f, 1f), 0xFFFFFFFF, VIZ_PROGRESS);
-
-        y = drawVisualRow(g, x, y, w, "外周阻力 SVR",
-                String.format("×%.2f", data.getPeripheralResistance()),
-                Mth.clamp(data.getPeripheralResistance() / 2f, 0f, 1f), 0xFFFFFFFF, VIZ_PROGRESS);
-
-        if (data.getSirsLevel() > 0) {
-            y = drawVisualRow(g, x, y, w, "SIRS", data.getSirsLevel() + " / 4",
-                    data.getSirsLevel() / 4f, 0xFFFF1744, VIZ_SEGMENT);
-        }
-
-        // 中毒条：全身毒素水平（0~100），轻/中/重度阈值取自配置
-        float toxin = data.getToxinValue();
-        if (toxin > 0.1f) {
-            float midTh = MedicalConfig.TOXIN_MID_THRESHOLD.get().floatValue();
-            float sevTh = MedicalConfig.TOXIN_SEVERE_THRESHOLD.get().floatValue();
-            int toxinColor = toxin >= sevTh ? 0xFFFF1744
-                    : (toxin >= midTh ? 0xFFFF9100 : 0xFFAEEA00);
-            String toxinTxt = String.format("%.0f/100 ", toxin)
-                    + (toxin >= sevTh ? "重度" : (toxin >= midTh ? "中度" : "轻度"));
-            y = drawVisualRow(g, x, y, w, "毒素 TOXIN", toxinTxt,
-                    Mth.clamp(toxin / 100f, 0f, 1f), toxinColor, VIZ_SEGMENT);
-        }
-
-        if (data.isInVFib()) {
-            y += 4;
-            drawAlertBanner(g, x, y, w, tr("medical.warning.vfib"), now);
-            y += 18;
-        }
-        if (data.isCardiacArrest()) {
-            drawAlertBanner(g, x, y, w, tr("medical.warning.cardiac_arrest"), now);
-            y += 18;
-        }
-        return y;
-    }
-
-    private void drawAlertBanner(GuiGraphics g, int x, int y, int w, String text, long now) {
-        float flash = 0.5f + 0.5f * (float) Math.sin(now / 130.0);
-        int bgA = (int) ((0.35f + 0.45f * flash) * 255);
-        g.fill(x, y, x + w, y + 14, (bgA << 24) | 0x00FF1744);
-        if ((now / 400) % 2 == 0) {
-            g.renderOutline(x, y, w, 14, 0xFFFF1744);
-        }
-        HudRenderHelper.drawGlowingString(g, this.font, "⚠ " + text, x + 6, y + 3, 0xFFFFFFFF, HudColors.DANGER);
-    }
-
-    // ============================================================
-    // 十二、全身概览
-    // ============================================================
-    private int drawSystemOverview(GuiGraphics g, MedicalData data, int x, int y, int w, long now) {
-        int gaugeR = 28;
-        int cols = Math.min(4, (w + 10) / (gaugeR * 2 + 20));
-        int spacing = w / Math.max(1, cols);
-        int gcy = y + gaugeR + 8;
-
-        int hr = (int) sprHeartRate.val;
-        drawBigRingGauge(g, x + spacing / 2, gcy, gaugeR,
-                Mth.clamp(sprHeartRate.val / 200f, 0f, 1f), getHeartRateColor(hr),
-                String.valueOf(hr), "BPM", "心率 HR");
-
-        if (cols >= 2) {
-            int spo2 = (int) sprOxygen.val;
-            drawBigRingGauge(g, x + spacing + spacing / 2, gcy, gaugeR,
-                    Mth.clamp(sprOxygen.val / 100f, 0f, 1f), getOxygenColor(spo2),
-                    String.valueOf(spo2), "%", "血氧 SpO₂");
-        }
-
-        if (cols >= 3) {
-            int con = (int) sprConsciousness.val;
-            drawBigRingGauge(g, x + spacing * 2 + spacing / 2, gcy, gaugeR,
-                    Mth.clamp(sprConsciousness.val / 100f, 0f, 1f), getConsciousnessColor(con),
-                    String.valueOf(con), "%", "意识 CONS");
-        }
-
-        if (cols >= 4) {
-            int brain = (int) sprBrainHealth.val;
-            drawBigRingGauge(g, x + spacing * 3 + spacing / 2, gcy, gaugeR,
-                    Mth.clamp(sprBrainHealth.val / 100f, 0f, 1f), getHealthColor(brain),
-                    String.valueOf(brain), "%", "脑健康 BRAIN");
-        }
-
-        int nextY = gcy + gaugeR + 24;
-        drawSectionDivider(g, x, nextY, w);
-        nextY += 8;
-
-        g.drawString(this.font, "BLOOD VOLUME", x, nextY, 0xFF546E7A, false);
-        nextY += 12;
-
-        int bv = (int) sprBloodVolume.val;
-        int mbv = data.getMaxBloodVolume();
-        int bvc = getBloodVolumeColor(bv, mbv);
-
-        int tankX = x + 4;
-        int tankY = nextY + 2;
-        int tankW = 44;
-        int tankH = 72;
-        drawFluidTank(g, tankX, tankY, tankW, tankH, bv, mbv, bvc);
-
-        int infoX = tankX + tankW + 22;
-
-        g.pose().pushPose();
-        g.pose().translate(infoX, tankY + 6, 0);
-        g.pose().scale(2.0f, 2.0f, 1f);
-        g.drawString(this.font, String.valueOf(bv), 0, 0, bvc, false);
-        g.pose().popPose();
-
-        int bvTxtW = (int) (this.font.width(String.valueOf(bv)) * 2.0f);
-        g.drawString(this.font, "/ " + mbv + " mL", infoX + bvTxtW + 6, tankY + 18, 0xFF546E7A, false);
-
-        int barW = Math.min(280, w - (infoX - x) - 10);
-        drawFancyProgressBar(g, infoX, tankY + 34, barW, 8,
-                Mth.clamp((float) bv / Math.max(1, mbv), 0f, 1f), bvc, now);
-
-        int volPct = bv * 100 / Math.max(1, mbv);
-        String volStatus = volPct > 70 ? "NOMINAL" : volPct > 50 ? "LOW" : "CRITICAL";
-        int volStatusCol = volPct > 70 ? 0xFF00E676 : volPct > 50 ? 0xFFFF9100 : 0xFFFF1744;
-        drawStatusPill(g, infoX, tankY + 48, volStatus, true, volStatusCol);
-
-        String conText = getConsciousnessText(data.getConsciousness());
-        g.drawString(this.font, "意识: " + conText, infoX, tankY + 66,
-                getConsciousnessColor(data.getConsciousness()), false);
-
-        nextY = tankY + tankH + 14;
-        drawSectionDivider(g, x, nextY, w);
-        nextY += 8;
-
-        float p = 0.5f + 0.5f * (float) Math.sin(now / 500.0);
-        int hintColor = HudColors.withAlpha(0xFF00E5FF, 0.4f + 0.6f * p);
-        g.drawString(this.font, "◆ 点击左侧身体部位查看创伤详情", x, nextY, hintColor, false);
-        nextY += 16;
-
-        return nextY;
-    }
-
-    private void drawSectionDivider(GuiGraphics g, int x, int y, int w) {
-        g.fill(x, y, x + w, y + 1, 0x2200ADB5);
-        int midX = x + w / 2;
-        int hlW = w / 4;
-        g.fill(midX - hlW, y, midX + hlW, y + 1, 0x4400E5FF);
-    }
-
-    private void drawFancyProgressBar(GuiGraphics g, int x, int y, int w, int h, float t, int color, long now) {
-        t = Mth.clamp(t, 0f, 1f);
-        g.fill(x, y, x + w, y + h, 0xFF0A1820);
-        g.renderOutline(x, y, w, h, 0xFF1A3040);
-
-        int fillW = (int) (w * t);
-        if (fillW <= 0) return;
-
-        g.fill(x + 1, y + 1, x + fillW - 1, y + h - 1, HudColors.withAlpha(color, 0.7f));
-        g.fill(x + 1, y + 1, x + fillW - 1, y + 2, HudColors.withAlpha(color, 0.95f));
-
-        float phase = (now % 1500) / 1500f;
-        int hlX = x + 1 + (int) (phase * (fillW - 12));
-        int hlW = 10;
-        if (hlX + hlW < x + fillW) {
-            g.fill(hlX, y + 1, hlX + hlW, y + h - 1, HudColors.withAlpha(0xFFFFFFFF, 0.12f));
-        }
-
-        g.fill(x + fillW - 2, y, x + fillW, y + h, 0xBBFFFFFF);
-        g.fill(x + 1, y - 1, x + fillW - 1, y, HudColors.withAlpha(color, 0.15f));
-        g.fill(x + 1, y + h, x + fillW - 1, y + h + 1, HudColors.withAlpha(color, 0.15f));
-    }
-
-    private void drawFluidTank(GuiGraphics g, int x, int y, int w, int h, int value, int max, int color) {
-        float t = Mth.clamp((float) value / Math.max(1, max), 0f, 1f);
-        int fillH = (int) (h * t);
-        int fillY = y + h - fillH;
-
-        g.fill(x - 1, y - 1, x + w + 1, y + h + 1, 0xFF0A1820);
-        g.renderOutline(x - 1, y - 1, w + 2, h + 2, 0xFF1A3040);
-        g.fill(x, y, x + w, y + h, 0xFF060E14);
-
-        if (fillH > 0) {
-            for (int row = 0; row < fillH; row += 3) {
-                int hChunk = Math.min(3, fillH - row);
-                float rowT = (float) row / fillH;
-                float alpha = 0.40f + 0.25f * rowT;
-                g.fill(x + 1, fillY + row, x + w - 1, fillY + row + hChunk,
-                        HudColors.withAlpha(color, alpha));
-            }
-
-            long now = System.currentTimeMillis();
-            float phase = (now % 2500) / 2500f * (float) Math.PI * 2;
-            for (int i = 0; i < w - 2; i++) {
-                float wave = (float) Math.sin(i * 0.35f + phase) * 1.8f
-                        + (float) Math.sin(i * 0.7f + phase * 1.3f) * 0.9f;
-                int wy = fillY + (int) Math.round(wave);
-                wy = Mth.clamp(wy, fillY, fillY + 7);
-                g.fill(x + 1 + i, wy, x + 2 + i, wy + 3, HudColors.withAlpha(color, 0.95f));
-            }
-            g.fill(x + 2, fillY + 1, x + w / 3, fillY + 2, HudColors.withAlpha(0xFFFFFFFF, 0.15f));
-        }
-
-        for (int i = 1; i < 5; i++) {
-            int ty = y + (h * i / 5);
-            g.fill(x + w - 7, ty, x + w - 1, ty + 1, 0x44FFFFFF);
-            String pct = (100 - i * 20) + "";
-            g.pose().pushPose();
-            g.pose().scale(0.6f, 0.6f, 1f);
-            g.drawString(this.font, pct,
-                    (int) ((x + w + 3) / 0.6f), (int) ((ty - 2) / 0.6f), 0x44FFFFFF, false);
-            g.pose().popPose();
-        }
-
-        int[] marks = {70, 50, 30};
-        int[] markCols = {0xFF00FF88, 0xFFFFD600, 0xFFFF1744};
-        for (int i = 0; i < marks.length; i++) {
-            int ty = y + h - (h * marks[i] / 100);
-            g.fill(x - 3, ty, x + 4, ty + 1, markCols[i]);
-        }
-        g.renderOutline(x - 2, y - 2, w + 4, h + 4, 0x1800E5FF);
-    }
-
-    private int drawVisualRow(GuiGraphics g, int x, int y, int w, String label, String value,
-                              float t, int color, int type) {
-        final int rowH = 24;
-        final int labelW = Math.min(140, w / 3);
-        final int valueW = Math.min(100, w / 4);
-        int barX = x + labelW;
-        int barW = Math.max(30, w - labelW - valueW - 8);
-        t = Mth.clamp(t, 0f, 1f);
-
-        g.fill(x, y, x + w, y + rowH - 2, 0x1A121F2C);
-        g.fill(x, y, x + 3, y + rowH - 2, color);
-        g.drawString(this.font, label, x + 8, y + 7, 0xFFB0BEC5, false);
-
-        int barY0 = y + 8;
-        int barY1 = y + 14;
-        long now = System.currentTimeMillis();
-
-        if (type == VIZ_SEGMENT) {
-            int segs = 10;
-            int gap = 2;
-            int segW = Math.max(2, (barW - (segs - 1) * gap) / segs);
-            int lit = (int) Math.ceil(t * segs);
-            for (int i = 0; i < segs; i++) {
-                int sx = barX + i * (segW + gap);
-                if (i < lit) {
-                    g.fill(sx, barY0, sx + segW, barY0 + 3, color);
-                    g.fill(sx, barY0 + 3, sx + segW, barY1, HudColors.withAlpha(color, 0.7f));
-                    g.fill(sx, barY0, sx + segW, barY0 + 1, HudColors.withAlpha(color, 0.95f));
-                } else {
-                    g.fill(sx, barY0, sx + segW, barY1, 0xFF0A1820);
-                    g.fill(sx, barY0, sx + segW, barY0 + 1, 0xFF142028);
-                }
-            }
-        } else if (type == VIZ_FLOW) {
-            g.fill(barX, barY0, barX + barW, barY1, 0xFF0A1820);
-            int fillW = (int) (barW * t);
-            if (fillW > 0) {
-                g.fill(barX, barY0, barX + fillW, barY1, HudColors.withAlpha(color, 0.65f));
-                for (int s = 0; s < 2; s++) {
-                    float phase = ((now + s * 450) % 1000) / 1000f;
-                    int hx = barX + (int) (phase * fillW);
-                    if (hx > barX && hx + 6 < barX + fillW) {
-                        g.fill(hx, barY0, hx + 4, barY1, HudColors.withAlpha(color, 0.4f));
-                        g.fill(hx + 4, barY0, hx + 6, barY1, 0xAAFFFFFF);
-                    }
-                }
-                g.fill(barX, barY0, barX + fillW, barY0 + 1, HudColors.withAlpha(color, 0.9f));
-            }
-        } else {
-            g.fill(barX, barY0, barX + barW, barY1, 0xFF0A1820);
-            int fillW = (int) (barW * t);
-            if (fillW > 0) {
-                g.fill(barX, barY0, barX + fillW, barY1, color);
-                g.fill(barX, barY0, barX + fillW, barY0 + 1, HudColors.withAlpha(color, 0.95f));
-                g.fill(barX + fillW - 1, barY0 - 1, barX + fillW + 1, barY1 + 1, 0xCCFFFFFF);
-                g.fill(barX + fillW - 1, barY0 - 2, barX + fillW + 1, barY0, HudColors.withAlpha(color, 0.3f));
-                g.fill(barX + fillW - 1, barY1, barX + fillW + 1, barY1 + 2, HudColors.withAlpha(color, 0.3f));
-            }
-        }
-
-        int vw = this.font.width(value);
-        g.drawString(this.font, value, x + w - vw - 6, y + 7, color, false);
-
-        return y + rowH;
-    }
-
-    private int drawStatusPill(GuiGraphics g, int x, int y, String label, boolean active, int activeColor) {
-        int tw = this.font.width(label);
-        int w = tw + 14;
-        int h = 14;
-
-        if (active) {
-            drawRoundedRect(g, x, y, w, h, 3, HudColors.withAlpha(activeColor, 0.22f));
-            g.renderOutline(x, y, w, h, activeColor);
-            g.fill(x + 1, y + 3, x + 4, y + h - 3, activeColor);
-            g.drawString(this.font, label, x + 7, y + 3, 0xFFFFFFFF, false);
-        } else {
-            drawRoundedRect(g, x, y, w, h, 3, 0x180A1820);
-            g.renderOutline(x, y, w, h, 0x44546E7A);
-            g.drawString(this.font, label, x + 7, y + 3, 0xFF546E7A, false);
-        }
-        return w + 6;
-    }
-
-    private void drawRoundedRect(GuiGraphics g, int x, int y, int w, int h, int r, int color) {
-        if (w <= 0 || h <= 0) return;
-        r = Math.max(0, Math.min(r, Math.min(w / 2, h / 2)));
-        for (int i = 0; i < r; i++) {
-            double d = r - i - 0.5;
-            int inset = r - (int) Math.round(Math.sqrt(Math.max(0, r * r - d * d)));
-            g.fill(x + inset, y + i, x + w - inset, y + i + 1, color);
-            g.fill(x + inset, y + h - i - 1, x + w - inset, y + h - i, color);
-        }
-        g.fill(x, y + r, x + w, y + h - r, color);
-    }
-
-    public int drawDataLine(GuiGraphics graphics, String label, String value, int color, int x, int y, int width) {
-        graphics.fill(x, y - 2, x + width, y + 12, 0x33121F2C);
-        graphics.fill(x, y - 2, x + 2, y + 12, 0x8800ADB5);
-        graphics.drawString(this.font, label, x + 6, y, 0xFFB0BEC5, false);
-
-        int valW = this.font.width(value);
-        int glowCol = (0x33 << 24) | (color & 0x00FFFFFF);
-        graphics.drawString(this.font, value, x + width - valW - 7, y, glowCol, false);
-        graphics.drawString(this.font, value, x + width - valW - 8, y, color, false);
-        return y + 16;
-    }
-
-    // ============================================================
-    // 十三、双通道示波器渲染
-    // ============================================================
-    private void drawDualOscilloscope(GuiGraphics graphics, int x, int y, int width, int height, MedicalData data) {
-        graphics.fill(x, y, x + width, y + height, 0xEE021008);
-        graphics.fill(x + 1, y + 1, x + width - 1, y + 2, 0x1800FF88);
-
-        final int bigGrid = 16;
-        final int smallGrid = 4;
-        int gridColorMinor = 0x1200FF66;
-        for (int gx = x; gx < x + width; gx += smallGrid) graphics.fill(gx, y, gx + 1, y + height, gridColorMinor);
-        for (int gy = y; gy < y + height; gy += smallGrid) graphics.fill(x, gy, x + width, gy + 1, gridColorMinor);
-
-        int gridColorMajor = 0x3300FF88;
-        for (int gx = x; gx < x + width; gx += bigGrid) graphics.fill(gx, y, gx + 1, y + height, gridColorMajor);
-        for (int gy = y; gy < y + height; gy += bigGrid) graphics.fill(x, gy, x + width, gy + 1, gridColorMajor);
-
-        int hr = data.getHeartRate();
-        int baseLineColor = getECGColor(hr);
-        int sampleCount = Math.min(BUFFER_SIZE, width - 4);
-        float xStep = (float) (width - 4) / (float) sampleCount;
-
-        int ecgH = (int) (height * 0.65f);
-        drawECGPass(graphics, x, y, width, ecgH, sampleCount, xStep, baseLineColor, 0.08f, 3);
-        drawECGPass(graphics, x, y, width, ecgH, sampleCount, xStep, baseLineColor, 0.25f, 1);
-        drawECGPass(graphics, x, y, width, ecgH, sampleCount, xStep, 0xFFFFFFFF, 0.6f, 0);
-
-        int ppgY = y + ecgH;
-        int ppgH = height - ecgH - 4;
-        drawWaveformTrace(graphics, x + 2, ppgY, sampleCount, xStep, ppgH, historyPPG, 0xFF00E5FF);
-
-        int cursorBufIdx = (sweepIndex - 1 + BUFFER_SIZE) % BUFFER_SIZE;
-        if (historyValid[cursorBufIdx]) {
-            int cursorX = x + 2 + (int) ((sampleCount - 1) * xStep);
-            int cursorY = y + 2 + (int) (historyY[cursorBufIdx] * (ecgH - 4));
-            graphics.fill(cursorX - 4, cursorY - 4, cursorX + 5, cursorY + 5, 0x2200FFCC);
-            graphics.fill(cursorX - 2, cursorY - 2, cursorX + 3, cursorY + 3, 0x5500FFCC);
-            graphics.fill(cursorX - 1, cursorY - 1, cursorX + 2, cursorY + 2, 0xFFFFFFFF);
-            graphics.fill(cursorX, y, cursorX + 1, cursorY - 4, 0x1A00FFCC);
-            graphics.fill(cursorX, cursorY + 5, cursorX + 1, y + height, 0x1A00FFCC);
-        }
-
-        graphics.drawString(this.font, "LEAD II", x + 5, y + 4, 0xFF70A890, false);
-        graphics.drawString(this.font, "PLETH PPG", x + 5, ppgY + 2, 0xFF3D9CA8, false);
-
-        graphics.pose().pushPose();
-        graphics.pose().translate(x + 55, y + 2, 0);
-        graphics.pose().scale(1.2f, 1.2f, 1f);
-        graphics.drawString(this.font, String.valueOf(hr), 0, 0, baseLineColor, false);
-        graphics.pose().popPose();
-        graphics.drawString(this.font, "BPM", x + 55 + (int) (this.font.width(String.valueOf(hr)) * 1.2f) + 4,
-                y + 5, 0xFF70A890, false);
-
-        int flashAlpha = (int) (rPeakFlash * 255);
-        if (flashAlpha > 10) {
-            int iconX = x + width - 18;
-            int iconY = y + 5;
-            float scale = 1.0f + rPeakFlash * 0.4f;
-            graphics.pose().pushPose();
-            graphics.pose().translate(iconX + 4, iconY + 4, 0);
-            graphics.pose().scale(scale, scale, 1f);
-            graphics.fill(-3, -3, 4, 4, (flashAlpha << 24) | 0x0033FF77);
-            graphics.fill(-2, -2, 3, 3, (Math.min(255, flashAlpha + 50) << 24) | 0x0066FFAA);
-            graphics.pose().popPose();
-        }
-        graphics.renderOutline(x + width - 15, y + 4, 10, 10, 0xFF0D5C3A);
-
-        String bpText = data.getSystolicBP() + "/" + data.getDiastolicBP();
-        graphics.drawString(this.font, "BP " + bpText, x + width - 88, y + 4, 0xFF88CCA8, false);
-
-        String mapText = "MAP " + (int) data.getMeanArterialPressure();
-        graphics.drawString(this.font, mapText, x + width - 68, y + height - 12, 0xFF558870, false);
-
-        String rhythmStatus = getHeartRateStatus(hr);
-        graphics.drawString(this.font, rhythmStatus, x + 5, y + height - 12, 0xFF66B28A, false);
-
-        if (data.isInVFib()) {
-            drawVfibStormOverlay(graphics, x, y, width, height, System.currentTimeMillis());
-        }
-
-        graphics.renderOutline(x, y, width, height, 0xFF0D5C3A);
-        HudRenderHelper.drawCardCorners(graphics, x, y, width, height, 4, 0x6600FF88);
-    }
-
-    private void drawVfibStormOverlay(GuiGraphics graphics, int x, int y, int width, int height, long now) {
-        int scroll = (int) ((now / 60) % 16);
-        int gridCol = 0x30FF1744;
-        for (int gx = x - scroll; gx < x + width; gx += 16) {
-            if (gx >= x) graphics.fill(gx, y, gx + 1, y + height, gridCol);
-        }
-        for (int gy = y; gy < y + height; gy += 16) {
-            graphics.fill(x, gy, x + width, gy + 1, 0x18D50000);
-        }
-
-        float bandPos = (now % 1400L) / 1400.0f;
-        int bandX = x + (int) (bandPos * width);
-        int bandW = 26;
-        for (int i = 0; i < bandW; i++) {
-            float fall = 1.0f - Math.abs(i - bandW / 2.0f) / (bandW / 2.0f);
-            int a = (int) (fall * 36);
-            if (a > 0) {
-                graphics.fill(bandX - bandW / 2 + i, y + 1, bandX - bandW / 2 + i + 1, y + height - 1, (a << 24) | 0x00FF1744);
-            }
-        }
-
-        boolean blinkOn = (now / 260L) % 2 == 0;
-        int alertBg = blinkOn ? 0xCCE50027 : 0x66330011;
-        graphics.fill(x, y, x + width, y + 11, alertBg);
-        String vfText = "▶ VF — VENTRICULAR FIBRILLATION — 除颤准备";
-        int vfTextCol = blinkOn ? 0xFFFFFFFF : 0xFFFF9E80;
-        int vtw = this.font.width(vfText);
-        int textRange = Math.max(1, width - vtw - 8);
-        int textOff = (int) ((now / 30L) % (textRange * 2));
-        if (textOff > textRange) textOff = textRange * 2 - textOff;
-        graphics.drawString(this.font, vfText, x + 4 + textOff, y + 2, vfTextCol, false);
-        graphics.fill(x, y + 11, x + width, y + 12, blinkOn ? 0xFFFF1744 : 0x44FF1744);
-
-        float cornerPulse = 0.5f + 0.5f * (float) Math.sin(now / 160.0);
-        int ca = (int) (cornerPulse * 110);
-        int ccol = (ca << 24) | 0x00FF1744;
-        int cs = 14;
-        graphics.fill(x, y + 12, x + cs, y + 12 + cs, ccol);
-        graphics.fill(x + width - cs, y + 12, x + width, y + 12 + cs, ccol);
-        graphics.fill(x, y + height - cs, x + cs, y + height, ccol);
-        graphics.fill(x + width - cs, y + height - cs, x + width, y + height, ccol);
-    }
-
-    private void drawECGPass(GuiGraphics graphics, int x, int y, int width, int height,
-                             int sampleCount, float xStep, int color, float alphaMultiplier,
-                             int extraThickness) {
-        int prevScreenX = -1;
-        int prevScreenY = -1;
-
-        for (int i = 0; i < sampleCount; i++) {
-            int bufIdx = (sweepIndex - sampleCount + i + BUFFER_SIZE * 2) % BUFFER_SIZE;
-
-            if (!historyValid[bufIdx]) {
-                prevScreenX = -1;
-                prevScreenY = -1;
-                continue;
-            }
-
-            int screenX = x + 2 + (int) (i * xStep);
-            int screenY = y + 2 + (int) (historyY[bufIdx] * (height - 4));
-
-            if (prevScreenX >= 0) {
-                float age = (float) i / (float) sampleCount;
-                int alpha = (int) ((35 + age * 220) * alphaMultiplier);
-                alpha = Mth.clamp(alpha, 5, 255);
-                int segColor = (alpha << 24) | (color & 0x00FFFFFF);
-
-                drawSmoothLine(graphics, prevScreenX, prevScreenY, screenX, screenY, segColor, extraThickness);
-            }
-
-            prevScreenX = screenX;
-            prevScreenY = screenY;
-        }
-    }
-
-    private void drawWaveformTrace(GuiGraphics g, int ox, int oy, int count, float step, int height, float[] buffer, int color) {
-        int prevX = -1, prevY = -1;
-        for (int i = 0; i < count; i++) {
-            int idx = (sweepIndex - count + i + BUFFER_SIZE * 2) % BUFFER_SIZE;
-            if (!historyValid[idx]) {
-                prevX = -1;
-                continue;
-            }
-            int px = ox + (int) (i * step);
-            int py = oy + (int) (buffer[idx] * height);
-
-            if (prevX >= 0) {
-                float age = (float) i / count;
-                int a = (int) ((30 + age * 225));
-                int c = (a << 24) | (color & 0x00FFFFFF);
-                g.fill(px, py, px + 1, py + 1, c);
-                if (Math.abs(py - prevY) > 1) {
-                    int sy = Math.min(py, prevY);
-                    int ey = Math.max(py, prevY);
-                    g.fill(px, sy, px + 1, ey, c);
-                }
-            }
-            prevX = px;
-            prevY = py;
-        }
-    }
-
-    private void drawSmoothLine(GuiGraphics graphics, int x0, int y0, int x1, int y1, int color, int extra) {
-        int dx = Math.abs(x1 - x0);
-        int dy = Math.abs(y1 - y0);
-        int sx = x0 < x1 ? 1 : -1;
-        int sy = y0 < y1 ? 1 : -1;
-        int err = dx - dy;
-
-        int halfExtra = extra / 2;
-
-        while (true) {
-            if (halfExtra <= 0) {
-                graphics.fill(x0, y0, x0 + 1, y0 + 1, color);
-            } else {
-                graphics.fill(x0, y0 - halfExtra, x0 + 1, y0 + halfExtra + 1, color);
-            }
-
-            if (x0 == x1 && y0 == y1) break;
-            int e2 = 2 * err;
-            if (e2 > -dy) { err -= dy; x0 += sx; }
-            if (e2 < dx) { err += dx; y0 += sy; }
-        }
-    }
-
-    // ============================================================
-    // 十四、悬浮快速检伤卡片
-    // ============================================================
-    private void drawFloatingTriageCard(GuiGraphics g, int mx, int my, MedicalData data) {
-        if (hoveredLimb == null) return;
-        MedicalData.LimbData ld = data.getLimb(hoveredLimb);
-        int health = getLimbHealthPercent(ld);
-
-        int tipW = 168;
-        int tipH = 54;
-        int tipX = mx + 20;
-        int tipY = my - 16;
-        if (tipX + tipW > this.width - 8) tipX = mx - tipW - 16;
-        if (tipY + tipH > this.height - 10) tipY = this.height - tipH - 10;
-        if (tipY < HUD_BAR_H + 8) tipY = HUD_BAR_H + 8;
-
-        int statusColor = getHealthColor(health);
-
-        String triageMsg;
-        if (ld.getBleeding() > 0) {
-            triageMsg = "严重出血: 需止血带/加压";
-            statusColor = 0xFFFF1744;
-        } else if (ld.hasFracture()) {
-            triageMsg = "骨折: 需固定夹板处置";
-            statusColor = 0xFFFF9100;
-        } else if (ld.getInfection() > 0) {
-            triageMsg = "组织感染: 需抗生素注射";
-            statusColor = 0xFFFFD600;
-        } else {
-            triageMsg = "生理组织完整良好";
-        }
-
-        String titleStr = getLimbFullName(hoveredLimb).toUpperCase() + " [" + health + "%]";
-        HudRenderHelper.drawTacticalBadge(g, this.font, tipX, tipY, tipW, tipH,
-                titleStr, triageMsg, statusColor, 0xEA050E17);
-
-        int barW = tipW - 14;
-        HudRenderHelper.drawSciFiProgressBar(g, tipX + 7, tipY + 44, barW, 4,
-                health / 100.0f, statusColor, 0x6608141E);
-
-        int targetAnchorX = tipX < mx ? tipX + tipW : tipX;
-        int targetAnchorY = tipY + tipH / 2;
-        HudRenderHelper.drawSciFiLeaderLine(g, mx, my, targetAnchorX, targetAnchorY,
-                HudColors.withAlpha(statusColor, 0.75f), HudColors.withAlpha(statusColor, 0.25f));
-    }
-
-    // ============================================================
-    // 十五、几何与辅助视觉
-    // ============================================================
-    private void drawCyberCard(GuiGraphics graphics, int x, int y, int width, int height, String title, int highlight) {
-        graphics.fill(x, y, x + width, y + height, 0xE0050D15);
-        graphics.renderOutline(x, y, width, height, 0xFF142B3C);
-        HudRenderHelper.drawCardCorners(graphics, x, y, width, height, 6, HudColors.withAlpha(highlight, 0.7f));
-        graphics.fill(x + 6, y, x + width - 6, y + 1, HudColors.withAlpha(highlight, 0.45f));
-
-        if (title != null && !title.isEmpty()) {
-            HudRenderHelper.drawGlowingString(graphics, this.font, title, x + 10, y + 8, 0xFFECEFF1, highlight);
-            int lineY = y + 21;
-            int midW = width - 20;
-            for (int i = 0; i < midW; i += 4) {
-                int segW = Math.min(4, midW - i);
-                graphics.fill(x + 10 + i, lineY, x + 10 + i + segW, lineY + 1, 0x3300ADB5);
-            }
-        }
-    }
-
-    private void drawCinematicVignette(GuiGraphics g) {
-        int w = this.width;
-        int h = this.height;
-        int depth = 42;
-        for (int i = 0; i < depth; i += 3) {
-            int a = (int) ((1.0f - (float) i / depth) * 75);
-            int color = a << 24;
-            g.fill(0, i, w, i + 3, color);
-            g.fill(0, h - i - 3, w, h - i, color);
-            g.fill(i, 0, i + 3, h, color);
-            g.fill(w - i - 3, 0, w - i, h, color);
-        }
-    }
-
-    private void drawSmoothArc(GuiGraphics g, int cx, int cy, int r, float a0, float a1, int color, int thickness) {
-        if (a1 <= a0) return;
-        float step = 2.2f;
-        int half = thickness / 2;
-        int d = thickness % 2 == 0 ? half : half + 1;
-        for (float a = a0; a <= a1; a += step) {
-            double rad = Math.toRadians(a);
-            int px = cx + (int) Math.round(Math.cos(rad) * r);
-            int py = cy + (int) Math.round(Math.sin(rad) * r);
-            g.fill(px - half, py - half, px + d, py + d, color);
-        }
-    }
-
-    private void drawCenteredSmall(GuiGraphics g, String text, int cx, int y, int color) {
-        int w = this.font.width(text);
-        g.drawString(this.font, text, cx - w / 2, y, color, false);
-    }
-
-    private void drawLoadingAnimation(GuiGraphics g, int cx, int cy, long now) {
-        int dots = (int) ((now / 300) % 4);
-        StringBuilder sb = new StringBuilder("CONNECTING");
-        for (int i = 0; i < dots; i++) sb.append(".");
-        int tw = this.font.width(sb.toString());
-        g.drawString(this.font, sb.toString(), cx - tw / 2, cy, 0xFF00E5FF, false);
-        float angle = (now % 2000) / 2000f * 360f;
-        drawSmoothArc(g, cx, cy + 18, 8, angle, angle + 90, 0xFF00E5FF, 2);
-        drawSmoothArc(g, cx, cy + 18, 8, angle + 180, angle + 270, 0x8800E5FF, 2);
-    }
-
-    private void drawCyberCursor(GuiGraphics g, int mx, int my, long now) {
-        float p = 0.4f + 0.2f * (float) Math.sin(now / 300.0);
-        int a = (int) (p * 40);
-        g.fill(mx - 3, my - 3, mx + 4, my + 4, (a << 24) | 0x0000E5FF);
-        g.fill(mx - 8, my, mx - 4, my + 1, 0x6600E5FF);
-        g.fill(mx + 5, my, mx + 9, my + 1, 0x6600E5FF);
-        g.fill(mx, my - 8, mx + 1, my - 4, 0x6600E5FF);
-        g.fill(mx, my + 5, mx + 1, my + 9, 0x6600E5FF);
-    }
-
-    /**
-     * pointy-top 六边形填充 + 描边 (逐行切片)
-     * 注: 原先由处置矩阵使用, 现仅供底栏图例芯片使用。
-     */
-    private void drawHexFill(GuiGraphics g, int cx, int cy, int r, float halfH, int fillCol, boolean hovered, int accent, long now) {
-        if (r <= 0) return;
-        for (int dy = -r; dy <= r; dy++) {
-            int halfW = (int) (r - Math.abs(dy) * 0.58f);
-            if (halfW < 0) continue;
-            g.fill(cx - halfW, cy + dy, cx + halfW + 1, cy + dy + 1, fillCol);
-        }
-        int[][] pts = {
-                {cx, cy - r}, {cx + r * 3 / 4, cy - r / 2}, {cx + r * 3 / 4, cy + r / 2},
-                {cx, cy + r}, {cx - r * 3 / 4, cy + r / 2}, {cx - r * 3 / 4, cy - r / 2}
-        };
-        int edgeCol = hovered ? accent : (accent & 0x66FFFFFF);
-        for (int i = 0; i < 6; i++) {
-            int[] p1 = pts[i];
-            int[] p2 = pts[(i + 1) % 6];
-            HudRenderHelper.drawLine(g, p1[0], p1[1], p2[0], p2[1], hovered ? accent : edgeCol, 1);
-        }
-        HudRenderHelper.drawLine(g, pts[0][0], pts[0][1], pts[1][0], pts[1][1], edgeCol, 1);
-    }
-
-    // ============================================================
-    // 十六、底栏按键帮助
-    // ============================================================
-    private void drawHelpText(GuiGraphics graphics, long now) {
-        int y = this.height - 26;
-        graphics.fill(12, y - 4, this.width - 12, this.height - 4, 0x88060D14);
-        graphics.fill(12, y - 4, this.width - 12, y - 3, 0x3300E5FF);
-        SciFiDataStreamRenderer.renderHorizontalDataTicker(graphics, this.font, 22,
-                this.height - 12, this.width - 66, now);
-
-        int cx = this.width - 26;
-        int cy = this.height - 18;
-        int mx = lastMouseX, my = lastMouseY;
-        boolean hoverChip = mx > cx - 12 && mx < cx + 12 && my > cy - 12 && my < cy + 12;
-
-        if (legendExpand > 0.01f) {
-            drawLegendPanel(graphics);
-        }
-        float breathe = 0.5f + 0.5f * (float) Math.sin(now / 450.0);
-        int chipCol = hoverChip || legendExpand > 0.5f ? 0xFF00E5FF : (int) (0x88 + 0x40 * breathe) << 24 | 0x00E5FF;
-        drawHexFill(graphics, cx, cy, 9, 0, 0x22060D14, hoverChip, chipCol, now);
-        graphics.drawString(this.font, "?", cx - 2, cy - 4, hoverChip || legendExpand > 0.5f ? 0xFF00E5FF : 0xFF546E7A, false);
-    }
-
-    private float legendExpand = 0f;
-    private int lastMouseX = 0, lastMouseY = 0;
-
-    private void drawLegendPanel(GuiGraphics g) {
-        int cx = this.width - 26;
-        int panelW = 170;
-        int panelH = (int) (96 * legendExpand);
-        int px = cx - panelW / 2;
-        int py = this.height - 36 - panelH;
-        if (panelH < 10) return;
-
-        HudRenderHelper.drawSciFiCard(g, px, py, panelW, panelH + 8, 4, 0xF0060D14, 0xFF00E5FF);
-        g.drawString(this.font, "PROTOCOL LEGEND", px + 10, py + 6, 0xFF00E5FF, false);
-        g.fill(px + 10, py + 16, px + panelW - 10, py + 17, 0x4400E5FF);
-
-        String[][] entries = {
-                {"H", "关闭面板"}, {"LMB", "选中肢体"}, {"TAB", "循环肢体"},
-                {"R", "取消选中"}, {"S", "全身诊断扫描"},
-                {"SCROLL", "断层逐层刮擦"}, {"HEAD", "3D脑部扫描"}
-        };
-        int itemStep = (int) (96f / entries.length);
-        int visCount = (int) (entries.length * legendExpand);
-        for (int i = 0; i < visCount; i++) {
-            int iy = py + 22 + i * itemStep;
-            drawKeyHint(g, px + 10, iy, entries[i][0], entries[i][1]);
-        }
-    }
-
-    private int drawKeyHint(GuiGraphics g, int x, int y, String key, String desc) {
-        int keyW = this.font.width(key) + 6;
-        g.fill(x, y, x + keyW, y + 11, 0x440A1820);
-        g.renderOutline(x, y, keyW, 11, 0xFF1A3040);
-        g.drawString(this.font, key, x + 3, y + 2, 0xFF00E5FF, false);
-        g.drawString(this.font, desc, x + keyW + 3, y + 2, 0xFF546E7A, false);
-        return x + keyW + 3 + this.font.width(desc) + 4;
-    }
-
-    // ============================================================
-    // 十七、交互逻辑与按键响应
-    // ============================================================
-    private void updateHoverState(int mouseX, int mouseY, float dt) {
-        int bodyCardX = 24;
-        int bodyCardY = HUD_BAR_H + 14;
-        int bodyCardW = 220;
-        int bodyCardH = this.height - HUD_BAR_H - 50;
-
-        int startX = bodyCardX + (bodyCardW - TOTAL_W) / 2 + 10;
-        int startY = bodyCardY + (bodyCardH - TOTAL_H) / 2 + 5;
-
-        hoveredLimb = null;
-        if (isMouseOverBlock(mouseX, mouseY, startX + HEAD_OFFSET_X, startY + HEAD_OFFSET_Y, HEAD_SIZE, HEAD_SIZE)) {
-            hoveredLimb = MedicalData.Limb.HEAD;
-        } else if (isMouseOverBlock(mouseX, mouseY, startX + BODY_OFFSET_X, startY + BODY_OFFSET_Y, BODY_W, BODY_H)) {
-            hoveredLimb = MedicalData.Limb.CHEST;
-        } else if (isMouseOverBlock(mouseX, mouseY, startX + LEFT_ARM_OFFSET_X, startY + LEFT_ARM_OFFSET_Y, ARM_W, ARM_H)) {
-            hoveredLimb = MedicalData.Limb.LEFT_ARM;
-        } else if (isMouseOverBlock(mouseX, mouseY, startX + RIGHT_ARM_OFFSET_X, startY + RIGHT_ARM_OFFSET_Y, ARM_W, ARM_H)) {
-            hoveredLimb = MedicalData.Limb.RIGHT_ARM;
-        } else if (isMouseOverBlock(mouseX, mouseY, startX + LEFT_LEG_OFFSET_X, startY + LEFT_LEG_OFFSET_Y, LEG_W, LEG_H)) {
-            hoveredLimb = MedicalData.Limb.LEFT_LEG;
-        } else if (isMouseOverBlock(mouseX, mouseY, startX + RIGHT_LEG_OFFSET_X, startY + RIGHT_LEG_OFFSET_Y, LEG_W, LEG_H)) {
-            hoveredLimb = MedicalData.Limb.RIGHT_LEG;
-        }
-
-        if (hoveredLimb != lastHoveredLimb) {
-            if (hoveredLimb != null) MedicalSoundHelper.playHoverSound();
-            lastHoveredLimb = hoveredLimb;
-        }
-
-        for (MedicalData.Limb limb : MedicalData.Limb.values()) {
-            int idx = limb.ordinal();
-            float target = (limb == hoveredLimb || limb == selectedLimb) ? 1.0f : 0.0f;
-            limbHoverProgress[idx] += (target - limbHoverProgress[idx]) * (dt * 12.0f);
-        }
-    }
-
-    private void updateConnectionLine(float dt) {
-        if (selectedLimb != null) {
-            if (connectionLineLimb != selectedLimb) {
-                connectionLineLimb = selectedLimb;
-                connectionLineProgress = 0.0f;
-            }
-            connectionLineProgress = Math.min(1.0f, connectionLineProgress + dt * 4.0f);
-        } else {
-            connectionLineProgress = Math.max(0.0f, connectionLineProgress - dt * 6.0f);
-        }
-    }
-
-    @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (state == ScreenState.CLOSING) return false;
-
-        int bodyCardX = 24;
-        int bodyCardY = HUD_BAR_H + 14;
-        int bodyCardW = 220;
-        int bodyCardH = this.height - HUD_BAR_H - 50;
-
-        int startX = bodyCardX + (bodyCardW - TOTAL_W) / 2 + 10;
-        int startY = bodyCardY + (bodyCardH - TOTAL_H) / 2 + 5;
-
-        MedicalData.Limb[] limbsForPulse = MedicalData.Limb.values();
-        int[] limbBoxes = new int[limbsForPulse.length * 4];
-        for (int li = 0; li < limbsForPulse.length; li++) {
-            int[] box = getLimbCenterBox(limbsForPulse[li], startX, startY);
-            limbBoxes[li * 4] = box[0];
-            limbBoxes[li * 4 + 1] = box[1];
-            limbBoxes[li * 4 + 2] = box[2];
-            limbBoxes[li * 4 + 3] = box[3];
-        }
-        rippleManager.addUltrasoundPulse((float) mouseX, (float) mouseY, 60.0f, HudColors.CYAN, limbBoxes);
-        if (button != 0) return super.mouseClicked(mouseX, mouseY, button);
-
-        long nowClick = System.currentTimeMillis();
-        MedicalData.Limb hitLimb = null;
-        if (isMouseOverBlock(mouseX, mouseY, startX + HEAD_OFFSET_X, startY + HEAD_OFFSET_Y, HEAD_SIZE, HEAD_SIZE)) hitLimb = MedicalData.Limb.HEAD;
-        else if (isMouseOverBlock(mouseX, mouseY, startX + BODY_OFFSET_X, startY + BODY_OFFSET_Y, BODY_W, BODY_H)) hitLimb = MedicalData.Limb.CHEST;
-        else if (isMouseOverBlock(mouseX, mouseY, startX + LEFT_ARM_OFFSET_X, startY + LEFT_ARM_OFFSET_Y, ARM_W, ARM_H)) hitLimb = MedicalData.Limb.LEFT_ARM;
-        else if (isMouseOverBlock(mouseX, mouseY, startX + RIGHT_ARM_OFFSET_X, startY + RIGHT_ARM_OFFSET_Y, ARM_W, ARM_H)) hitLimb = MedicalData.Limb.RIGHT_ARM;
-        else if (isMouseOverBlock(mouseX, mouseY, startX + LEFT_LEG_OFFSET_X, startY + LEFT_LEG_OFFSET_Y, LEG_W, LEG_H)) hitLimb = MedicalData.Limb.LEFT_LEG;
-        else if (isMouseOverBlock(mouseX, mouseY, startX + RIGHT_LEG_OFFSET_X, startY + RIGHT_LEG_OFFSET_Y, LEG_W, LEG_H)) hitLimb = MedicalData.Limb.RIGHT_LEG;
-
-        if (hitLimb != null) {
-            if (hitLimb == lastClickedLimb && (nowClick - lastLimbClickTime) < 350L) {
-                microTomographyLimb = (microTomographyLimb == hitLimb) ? null : hitLimb;
-                MedicalSoundHelper.playLimbSelectSound();
-                lastLimbClickTime = 0L;
-                lastClickedLimb = null;
-                return true;
-            } else {
-                lastLimbClickTime = nowClick;
-                lastClickedLimb = hitLimb;
-                toggleSelection(hitLimb);
-                return true;
-            }
-        }
-
-        if (microTomographyLimb != null && microTomographyAnim > 0.5f) {
-            microTomographyLimb = null;
-            return true;
-        }
-
-        return super.mouseClicked(mouseX, mouseY, button);
-    }
-
-    private void toggleSelection(MedicalData.Limb limb) {
-        MedicalSoundHelper.playLimbSelectSound();
-        if (selectedLimb == limb) {
-            selectedLimb = null;
-        } else {
-            selectedLimb = limb;
-        }
-    }
-
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == 72 || keyCode == 256) {
-            startCloseAnimation();
-            return true;
-        }
-        if (keyCode == 258) {
-            MedicalData.Limb[] limbs = MedicalData.Limb.values();
-            int cur = selectedLimb == null ? -1 : selectedLimb.ordinal();
-            int next = cur + 1;
-            selectedLimb = (next >= limbs.length) ? null : limbs[next];
-            MedicalSoundHelper.playLimbSelectSound();
-            return true;
-        }
-        if (keyCode == 82) {
-            if (selectedLimb != null) {
-                selectedLimb = null;
-                MedicalSoundHelper.playLimbSelectSound();
-            }
-            return true;
-        }
-        if (keyCode == 83) {
-            if (sweepScanAnim <= 0.01f) {
-                sweepScanAnim = 0.0001f;
-                sweepScanRevealed = false;
-                MedicalSoundHelper.playOpenSound();
-            }
-            return true;
-        }
-        return super.keyPressed(keyCode, scanCode, modifiers);
-    }
-
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double deltaX, double deltaY) {
-        if (microTomographyLimb != null && microTomographyAnim > 0.5f) {
-            if (deltaY != 0) {
-                int nl = (dcmLayer + (deltaY > 0 ? 1 : DICOM_LAYER_NAMES.length - 1)) % DICOM_LAYER_NAMES.length;
-                dcmLayer = nl;
-                dcmWipeStart = System.currentTimeMillis();
-                MedicalSoundHelper.playLimbSelectSound();
-            }
-            return true;
-        }
-        return super.mouseScrolled(mouseX, mouseY, deltaX, deltaY);
-    }
-
-    @Override
-    public void onClose() {
-        if (state == ScreenState.OPEN || state == ScreenState.OPENING) {
-            startCloseAnimation();
-        } else if (state == ScreenState.CLOSED) {
-            super.onClose();
-        }
-    }
-
-    private void startCloseAnimation() {
-        if (state == ScreenState.CLOSING || state == ScreenState.CLOSED) return;
-        state = ScreenState.CLOSING;
-        closeStartTime = System.currentTimeMillis();
-        MedicalSoundHelper.playCloseSound();
-    }
-
-    private boolean isMouseOverBlock(double mouseX, double mouseY, int x, int y, int w, int h) {
-        return mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
-    }
-
-    // ============================================================
-    // 十八、状态计算与辅助方法
-    // ============================================================
-    private int getLimbHealthPercent(MedicalData.LimbData ld) {
-        int bleeding = ld.getBleeding();
-        int internal = ld.getInternalBleedingRate();
-        int pain = ld.getPainLevel();
-        int h = 100;
-        h -= Math.min(40, bleeding / 15);
-        h -= Math.min(30, internal / 10);
-        h -= Math.min(30, pain * 3);
-        return Math.max(0, h);
-    }
-
-    private int getLimbColor(MedicalData.LimbData ld) {
-        int health = getLimbHealthPercent(ld);
-        int base = (health > 80) ? HudColors.NORMAL
-                : (health > 50) ? HudColors.WARNING
-                : (health > 20) ? HudColors.CAUTION_ORANGE : HudColors.DANGER;
-        if (ld.getBleeding() > 0) base = HudColors.DANGER;
-        if (ld.hasFracture()) base = HudColors.CRITICAL_PURPLE;
-        return base;
-    }
-
-    private String getLimbFullName(MedicalData.Limb limb) {
-        switch (limb) {
-            case HEAD: return tr("medical.limb.head");
-            case CHEST: return tr("medical.limb.chest");
-            case LEFT_ARM: return tr("medical.limb.left_arm");
-            case RIGHT_ARM: return tr("medical.limb.right_arm");
-            case LEFT_LEG: return tr("medical.limb.left_leg");
-            case RIGHT_LEG: return tr("medical.limb.right_leg");
-            default: return "";
-        }
-    }
-
-    public String getLimbStatus(MedicalData.LimbData ld) {
-        StringBuilder sb = new StringBuilder();
-        if (ld.getBleeding() > 0) {
-            int b = ld.getBleeding();
-            if (b <= 50) sb.append(tr("medical.status.minor_bleeding")).append(" ");
-            else if (b <= 200) sb.append(tr("medical.status.moderate_bleeding")).append(" ");
-            else if (b <= 500) sb.append(tr("medical.status.severe_bleeding")).append(" ");
-            else if (b <= 1000) sb.append(tr("medical.status.catastrophic_bleeding")).append(" ");
-            else sb.append(tr("medical.status.destructive_bleeding")).append(" ");
-        }
-        if (ld.getInternalBleedingRate() > 0) sb.append(tr("medical.status.internal_bleeding")).append(" ");
-        if (ld.hasFracture()) {
-            if (ld.isOpenFracture()) sb.append(tr("medical.status.open_fracture")).append(" ");
-            else if (ld.hasSplint()) sb.append(tr("medical.status.fracture_splinted")).append(" ");
-            else sb.append(tr("medical.status.fracture")).append(" ");
-        }
-        if (ld.hasDislocation()) sb.append(tr("medical.status.dislocation")).append(" ");
-        if (ld.isTourniqueted()) sb.append(tr("medical.status.tourniquet")).append(" ");
-        if (ld.isBandaged()) sb.append(tr("medical.status.bandaged")).append(" ");
-        if (ld.getInfection() > 0) {
-            int inf = ld.getInfection();
-            if (inf <= 25) sb.append(tr("medical.status.mild_infection")).append(" ");
-            else if (inf <= 50) sb.append(tr("medical.status.moderate_infection")).append(" ");
-            else if (inf <= 75) sb.append(tr("medical.status.severe_infection")).append(" ");
-            else sb.append(tr("medical.status.critical_infection")).append(" ");
-        }
-        if (sb.length() == 0) return tr("medical.status.healthy");
-        return sb.toString().trim();
-    }
-
-    private String tr(String key) {
-        return I18N_CACHE.computeIfAbsent(key, k -> Component.translatable(k).getString());
-    }
-
-    private int getBleedingColor(int value) {
-        if (value == 0) return HudColors.NORMAL;
-        if (value <= 50) return 0xFF81C784;
-        if (value <= 200) return HudColors.WARNING;
-        if (value <= 500) return HudColors.CAUTION_ORANGE;
-        return HudColors.DANGER;
-    }
-
-    private int getPainColor(int value) {
-        if (value == 0) return HudColors.NORMAL;
-        if (value <= 3) return 0xFF81C784;
-        if (value <= 6) return HudColors.WARNING;
-        return HudColors.DANGER;
-    }
-
-    private int getInfectionColor(int value) {
-        if (value == 0) return HudColors.NORMAL;
-        if (value <= 25) return 0xFF81C784;
-        if (value <= 50) return HudColors.WARNING;
-        if (value <= 75) return HudColors.CAUTION_ORANGE;
-        return HudColors.DANGER;
-    }
-
-    private int getHealthColor(int value) {
-        if (value > 80) return HudColors.NORMAL;
-        if (value > 50) return HudColors.WARNING;
-        return HudColors.DANGER;
-    }
-
-    private String getConsciousnessText(int value) {
-        if (value <= 0) return value + "% (" + tr("medical.consciousness.visual.coma") + ")";
-        else if (value < 40) return value + "% (" + tr("medical.consciousness.visual.severe") + ")";
-        else if (value < 80) return value + "% (" + tr("medical.consciousness.visual.blur") + ")";
-        return value + "%";
-    }
-
-    private int getConsciousnessColor(int value) {
-        if (value > 80) return HudColors.NORMAL;
-        if (value > 50) return HudColors.WARNING;
-        return HudColors.DANGER;
-    }
-
-    private int getOxygenColor(int value) {
-        if (value > 90) return HudColors.NORMAL;
-        if (value > 70) return HudColors.WARNING;
-        return HudColors.DANGER;
-    }
-
-    private int getHeartRateColor(int value) {
-        if (value >= 60 && value <= 100) return HudColors.NORMAL;
-        if (value > 100 && value <= 140) return HudColors.WARNING;
-        return HudColors.DANGER;
-    }
-
-    private int getHemothoraxLevelColor(int level) {
-        if (level <= 1) return HudColors.WARNING;
-        if (level == 2) return HudColors.CAUTION_ORANGE;
-        return HudColors.DANGER;
-    }
-
-    private int getBloodVolumeColor(int value, int maxValue) {
-        int ratio = value * 100 / Math.max(1, maxValue);
-        if (ratio > 70) return HudColors.NORMAL;
-        if (ratio > 50) return HudColors.WARNING;
-        if (ratio > 30) return HudColors.CAUTION_ORANGE;
-        return HudColors.DANGER;
-    }
-
-    private int getBPColor(float map, int sbp) {
-        if (sbp >= 180 || map < 50) return HudColors.DANGER;
-        if (map < 65) return HudColors.CAUTION_ORANGE;
-        if (map > 120 || sbp > 140) return HudColors.WARNING;
-        return HudColors.NORMAL;
-    }
-
-    private int getECGColor(int heartRate) {
-        if (heartRate <= 0) return 0xFFFF3344;
-        if (heartRate < 50) return 0xFF00E5FF;
-        if (heartRate <= 100) return 0xFF00FF88;
-        if (heartRate <= 140) return 0xFFFFD600;
-        return 0xFFFF3344;
-    }
-
-    private String getHeartRateStatus(int hr) {
-        if (hr <= 0) return tr("medical.ecg.cardiac_arrest");
-        if (hr < 45) return tr("medical.ecg.severe_bradycardia");
-        if (hr < 60) return tr("medical.ecg.bradycardia");
-        if (hr <= 100) return tr("medical.ecg.normal");
-        if (hr <= 140) return tr("medical.ecg.tachycardia");
-        if (hr <= 180) return tr("medical.ecg.severe_tachycardia");
-        return tr("medical.ecg.extreme_tachycardia");
+        if (state != ScreenState.OPEN) {
+            state = ScreenState.OPENING;
+            stateStartTimeMs = now;
+            openPulseTriggered = false;
+            MedicalSoundHelper.playOpenSound();
+        }
+        lastRenderTimeMs = now;
     }
 
     @Override
@@ -2686,427 +174,1970 @@ public class MedicalScreen extends Screen {
         return false;
     }
 
-    // ============================================================
-    // 十九、3A 核心动效增强
-    // ============================================================
-    private void drawAsystoleTakeover(GuiGraphics g, long now) {
-        g.fill(0, 0, this.width, this.height, 0x30000508);
-
-        int lineY = this.height / 2;
-        g.fill(0, lineY, this.width, lineY + 2, 0x997A0C18);
-        g.fill(0, lineY, this.width, lineY + 1, 0xCCB71C1C);
-        long msSince = now % 400000L;
-        float decay = Math.max(0.0f, 1.0f - msSince / 60000.0f);
-        if (decay > 0.01f) {
-            long seed = (now / 60) * 60;
-            int pr = (int) ((seed ^ (seed >>> 16)) & 0xFF);
-            int noiseX = (int) ((now / 16) % this.width);
-            int noiseH = (int) (decay * (pr % 3));
-            g.fill(noiseX, lineY - noiseH, noiseX + 14, lineY + 2, 0x3DB71C1C);
+    private void beginClosing() {
+        if (state != ScreenState.CLOSING && state != ScreenState.CLOSED) {
+            state = ScreenState.CLOSING;
+            stateStartTimeMs = System.currentTimeMillis();
+            MedicalSoundHelper.playCloseSound();
         }
-
-        String asys = "ASYS";
-        int ax = this.width - this.font.width(asys) - 14;
-        int ay = 12;
-        float blink = 0.6f + 0.4f * (float) Math.sin(now / 260.0);
-        int aCol = ((int) (255 * blink) << 24) | 0x00FF1744;
-        HudRenderHelper.drawGlowingString(g, this.font, asys, ax, ay, aCol, 0xFFB71C1C);
-        HudRenderHelper.drawGlowingString(g, this.font, "► CARDIAC ARREST — CPR IN PROGRESS", 14, ay,
-                0xFFB71C1C, 0xFF5D0711);
-
-        g.fill(0, 0, this.width, 26, 0x44000000);
-        g.fill(0, this.height - 26, this.width, this.height, 0x44000000);
     }
 
-    private void drawNeuralInterference(GuiGraphics g, long now) {
-        float severity = Math.max(0.0f, Math.min(1.0f,
-                (30.0f - Math.min(sprBrainHealth.val, sprConsciousness.val)) / 30.0f));
-
-        long seed = (now / 130) * 130;
-        int pr = (int) ((seed ^ (seed >>> 16)) & 0x7F);
-        if (pr < (int) (30 + severity * 50)) {
-            int tearY = 30 + (pr * 11) % (this.height - 80);
-            for (int i = 0; i < 3; i++) {
-                int off = ((pr >> i) & 3) * (int) (4 + severity * 10);
-                g.fill(Math.max(0, off), tearY + i * 3, this.width, tearY + i * 3 + 1, 0x2A00E5FF);
-            }
+    @Override
+    public void onClose() {
+        if (state != ScreenState.CLOSING && state != ScreenState.CLOSED) {
+            beginClosing();
+            return;
         }
-
-        java.util.Random rng = new java.util.Random(now / 90);
-        int edgePts = (int) (8 + severity * 26);
-        for (int i = 0; i < edgePts; i++) {
-            int side = rng.nextInt(4);
-            int ex, ey;
-            int m = 8;
-            switch (side) {
-                case 0 -> { ex = rng.nextInt(this.width); ey = rng.nextInt(m); }
-                case 1 -> { ex = rng.nextInt(this.width); ey = this.height - rng.nextInt(m); }
-                case 2 -> { ex = rng.nextInt(m); ey = rng.nextInt(this.height); }
-                default -> { ex = this.width - rng.nextInt(m); ey = rng.nextInt(this.height); }
-            }
-            int s = 1 + rng.nextInt(2 + (int) (severity * 3));
-            int col = rng.nextFloat() > 0.6f ? 0x5500E5FF : 0x55B0BEC5;
-            g.fill(ex, ey, ex + s, ey + s, col);
-        }
-
-        String ghost = "NEURAL INTERFERENCE DETECTED";
-        int gx = 14;
-        int gy = this.height - 20;
-        int ghostShift = (int) (severity * (1 + (now / 180) % 3));
-        HudRenderHelper.drawGlowingString(g, this.font, ghost, gx + ghostShift, gy, 0x40B0BEC5, 0x20004552);
-        HudRenderHelper.drawGlowingString(g, this.font, ghost, gx - ghostShift, gy, 0x60FFAB91, 0x40774C1F);
-
-        int scanY = (int) ((now / 20) % this.height);
-        g.fill(0, scanY, this.width, scanY + 2, 0x12000000);
+        super.onClose();
     }
 
-    private void drawOnDemandSweepScan(GuiGraphics g, MedicalData data, int startX, int startY, int totalW, int totalH, long now) {
-        if (sweepScanAnim <= 0.0f) return;
-        float phase = Math.min(1.0f, sweepScanAnim);
-
-        float sweepY = startY + phase * (totalH + 30) - 15;
-        float slope = 0.268f;
-        g.enableScissor(startX - 10, startY - 10, startX + totalW + 10, startY + totalH + 10);
-        for (int lx = 0; lx < totalW + 20; lx += 2) {
-            int curX = startX - 10 + lx;
-            int curY = (int) (sweepY + (lx - (totalW / 2)) * slope);
-            g.fill(curX, curY, curX + 2, curY + 2, 0x88FFFFFF);
-            g.fill(curX, curY - 3, curX + 2, curY, 0x2200E5FF);
-            g.fill(curX, curY + 2, curX + 2, curY + 5, 0x2200E5FF);
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE || keyCode == GLFW.GLFW_KEY_H) {
+            if (microTomographyLimb != null) {
+                microTomographyLimb = null;
+                MedicalSoundHelper.playCloseSound();
+                return true;
+            }
+            beginClosing();
+            return true;
         }
-        g.disableScissor();
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
 
-        MedicalData.Limb[] limbs = MedicalData.Limb.values();
-        for (MedicalData.Limb limb : limbs) {
-            int[] box = getLimbCenterBox(limb, startX, startY);
-            if (box == null) continue;
-            float limbTopFrac = (float) (box[1] - startY) / totalH;
-            float since = phase - limbTopFrac;
-            if (since > 0.0f && since < 0.25f) {
-                float glow = (1.0f - since / 0.25f);
-                MedicalData.LimbData ld = data.getLimb(limb);
-                int col = limbIssueColor(ld);
-                int alpha = (int) (glow * 90);
-                g.fill(box[0] - 2, box[1] - 2, box[0] + box[2] + 2, box[1] + box[3] + 2, (alpha << 24) | (col & 0x00FFFFFF));
+    /**
+     * 根据总体疼痛 (0 ~ 55) 计算全局面板动态主题色
+     * 0~10: 冷静科技青 -> 11~24: 预警琥珀黄 -> 25~39: 灼热创伤橙 -> 40~55: 剧痛深渊猩红 + 心搏脉冲
+     */
+    private void updatePainDrivenThemeColors(long now) {
+        float p = Mth.clamp(smoothPerceivedPain, 0.0f, 55.0f);
+        int baseAccent;
+        int baseBg;
+
+        if (p <= 10.0f) {
+            float t = p / 10.0f;
+            baseAccent = lerpColor(0xFF00F0FF, 0xFF00E5B8, t);
+            baseBg = lerpColor(0x060E18, 0x081218, t);
+        } else if (p <= 24.0f) {
+            float t = (p - 10.0f) / 14.0f;
+            baseAccent = lerpColor(0xFF00E5B8, 0xFFFFB300, t);
+            baseBg = lerpColor(0x081218, 0x161006, t);
+        } else if (p <= 39.0f) {
+            float t = (p - 24.0f) / 15.0f;
+            baseAccent = lerpColor(0xFFFFB300, 0xFFFF3D00, t);
+            baseBg = lerpColor(0x161006, 0x1C0806, t);
+        } else {
+            float t = (p - 39.0f) / 16.0f;
+            baseAccent = lerpColor(0xFFFF3D00, 0xFFFF0044, t);
+            baseBg = lerpColor(0x1C0806, 0x24040A, t);
+        }
+
+        // 高疼痛下叠加心搏共振亮度呼吸
+        if (p > 18.0f) {
+            float painPulse = 0.5f + 0.5f * Mth.sin(now * 0.008f + ecgPhase * ((float) Math.PI * 2.0f));
+            float boost = Mth.clamp((p - 18.0f) / 37.0f, 0.0f, 1.0f) * 0.28f * painPulse;
+            baseAccent = lerpColor(baseAccent, 0xFFFF8095, boost);
+        }
+
+        this.themePrimaryColor = baseAccent;
+        this.themeSecondaryColor = lerpColor(baseAccent, 0xFF00A0FF, 0.25f);
+        this.themeCardBgColor = (0xDF << 24) | (baseBg & 0x00FFFFFF);
+    }
+
+    /**
+     * 绘制受总体疼痛值染色的全屏背景科技网格与激光扫描束
+     */
+    private void drawPainTintedBackground(GuiGraphics g, long now) {
+        float painRatio = Mth.clamp(smoothPerceivedPain / 55.0f, 0.0f, 1.0f);
+        int topBg = lerpColor(0x060B10, 0x1E0408, painRatio * 0.85f) | 0xD4000000;
+        int botBg = lerpColor(0x0B131C, 0x2A060C, painRatio * 0.85f) | 0xEC000000;
+        g.fillGradient(0, 0, this.width, this.height, topBg, botBg);
+
+        int gridColor = withAlpha(themePrimaryColor, 0.05f + 0.04f * painRatio);
+        for (int gx = 0; gx < this.width; gx += 32) {
+            g.fill(gx, 0, gx + 1, this.height, gridColor);
+        }
+        for (int gy = 0; gy < this.height; gy += 32) {
+            g.fill(0, gy, this.width, gy + 1, gridColor);
+        }
+
+        float scanPeriod = 3500.0f - painRatio * 1400.0f; // 疼痛越高，全息扫描激光扫速越急促
+        float scanProg = (now % (long) scanPeriod) / scanPeriod;
+        int scanY = (int) (scanProg * (this.height + 40)) - 20;
+        if (scanY >= -20 && scanY <= this.height) {
+            g.fill(0, scanY, this.width, scanY + 1, withAlpha(themePrimaryColor, 0.32f));
+            g.fillGradient(0, scanY - 12, this.width, scanY, 0x00000000, withAlpha(themePrimaryColor, 0.15f));
+        }
+
+        HudRenderHelper.drawAmbientPhotonDust(g, this.width, this.height, now);
+    }
+
+    @Override
+    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        Minecraft mc = Minecraft.getInstance();
+        Player player = mc.player;
+        if (player == null) return;
+
+        MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
+        if (data == null) return;
+
+        long now = System.currentTimeMillis();
+        if (lastRenderTimeMs == 0L) lastRenderTimeMs = now;
+        float dt = Mth.clamp((now - lastRenderTimeMs) / 1000.0f, 0.001f, 0.1f);
+        lastRenderTimeMs = now;
+
+        float rawAnim = updateScreenStateProgress(mc, now);
+        if (state == ScreenState.CLOSED) return;
+
+        updateOscilloscopeBuffers(data, dt);
+
+        // 平滑插值生命体征与总体疼痛 (0~55)
+        smoothHrDisplay = Mth.lerp(Math.min(1.0f, dt * 8.0f), smoothHrDisplay, data.getHeartRate());
+        smoothBloodDisplay = Mth.lerp(Math.min(1.0f, dt * 8.0f), smoothBloodDisplay, data.getBloodVolume());
+        smoothSpo2Display = Mth.lerp(Math.min(1.0f, dt * 8.0f), smoothSpo2Display, data.getBloodOxygen());
+        smoothPerceivedPain = Mth.lerp(Math.min(1.0f, dt * 6.0f), smoothPerceivedPain, data.getPerceivedPain());
+
+        // 更新由总体疼痛驱动的全局面板颜色
+        updatePainDrivenThemeColors(now);
+
+        // 1. 绘制受疼痛染色的全息背景网格与激光扫描线
+        drawPainTintedBackground(graphics, now);
+
+        if (state == ScreenState.OPENING && rawAnim < 0.45f) {
+            float beamT = rawAnim / 0.45f;
+            int halfSpan = (int) (this.height * 0.5f * EasingFunctions.easeOutCubic(beamT));
+            int cy = this.height / 2;
+            graphics.fill(0, cy - halfSpan, this.width, cy - halfSpan + 2, withAlpha(themePrimaryColor, 0.7f));
+            graphics.fill(0, cy + halfSpan - 2, this.width, cy + halfSpan, withAlpha(themePrimaryColor, 0.7f));
+        }
+
+        float topBarProg = (state == ScreenState.CLOSING)
+                ? EasingFunctions.easeInBack(rawAnim)
+                : EasingFunctions.easeOutBack(MedicalAnimUtils.getStaggeredProgress(rawAnim, 0.0f, 0.60f));
+        float leftPanelProg = (state == ScreenState.CLOSING)
+                ? EasingFunctions.easeInCubic(rawAnim)
+                : EasingFunctions.easeOutCubic(MedicalAnimUtils.getStaggeredProgress(rawAnim, 0.12f, 0.68f));
+        float rightPanelProg = (state == ScreenState.CLOSING)
+                ? EasingFunctions.easeInCubic(rawAnim)
+                : EasingFunctions.easeOutBack(MedicalAnimUtils.getStaggeredProgress(rawAnim, 0.22f, 0.78f));
+
+        // 极高疼痛 (>= 38) 时面板产生轻微的痛觉神经震颤微偏移
+        float painJitterX = 0.0f;
+        float painJitterY = 0.0f;
+        if (smoothPerceivedPain >= 38.0f) {
+            float jStrength = (smoothPerceivedPain - 38.0f) / 17.0f;
+            painJitterX = Mth.sin(now * 0.045f) * 1.2f * jStrength;
+            painJitterY = Mth.cos(now * 0.053f) * 0.9f * jStrength;
+        }
+
+        // 2. 顶部多维生命体征数码遥测顶栏
+        graphics.pose().pushPose();
+        float topOffsetY = (1.0f - topBarProg) * -(HUD_BAR_H + 16) + painJitterY * 0.5f;
+        graphics.pose().translate(painJitterX * 0.5f, topOffsetY, 0.0f);
+        drawTopBiometricBar(graphics, data, now);
+        graphics.pose().popPose();
+
+        // 3. 左侧 3A 全息解剖人偶与痛觉表情遥测舱
+        graphics.pose().pushPose();
+        float leftOffsetX = (1.0f - leftPanelProg) * -(LEFT_PANEL_W + 30) + painJitterX;
+        graphics.pose().translate(leftOffsetX, painJitterY, 0.0f);
+        drawLeftBodyScannerPanel(graphics, data, mouseX, mouseY, dt, now);
+        graphics.pose().popPose();
+
+        if (!openPulseTriggered && rawAnim >= 0.65f) {
+            openPulseTriggered = true;
+            int[] chestBox = limbScreenBounds.get(MedicalData.Limb.CHEST);
+            if (chestBox != null && chestBox[2] > 0) {
+                float cx = chestBox[0] + chestBox[2] * 0.5f;
+                float cy = chestBox[1] + chestBox[3] * 0.5f;
+                rippleManager.addUltrasoundPulse(cx, cy, 155.0f, themePrimaryColor, packAllLimbBoxes());
             }
         }
 
-        if (sweepScanRevealed) {
-            long t = now - sweepScanStampTime;
-            if (t < 6000L) {
-                int stampX = startX + totalW - 70;
-                int stampY = startY + 6;
-                int idx = 0;
-                for (MedicalData.Limb limb : limbs) {
-                    MedicalData.LimbData ld = data.getLimb(limb);
-                    int issueCount = countLimbIssuesFrom(ld);
-                    if (issueCount <= 0) continue;
-                    int col = limbIssueColor(ld);
-                    long lt = t - idx * 120L;
-                    if (lt < 0) { idx++; continue; }
-                    float pop = Math.min(1.0f, lt / 200.0f);
-                    float scale = 1.0f + 0.5f * (float) Math.sin(pop * Math.PI);
-                    String label = limbShortName(limb) + " ×" + issueCount;
-                    int w = this.font.width(label) + 10;
-                    int h = (int) (12 * scale);
-                    int yy = stampY + idx * 15;
-                    g.fill(stampX - w, yy, stampX, yy + h, (0xE0 << 24) | 0x00061018);
-                    HudRenderHelper.drawGlowingString(g, this.font, label, stampX - w + 5, yy + 2,
-                            (0xFF000000 | (col & 0x00FFFFFF)), col);
-                    idx++;
+        // 4. 右侧全集成多模态详情与示波器舱
+        int rightPanelX = LEFT_PANEL_X + LEFT_PANEL_W + 10;
+        int rightPanelW = this.width - rightPanelX - 24;
+        graphics.pose().pushPose();
+        float rightOffsetX = (1.0f - rightPanelProg) * (rightPanelW + 40) + painJitterX;
+        graphics.pose().translate(rightOffsetX, painJitterY, 0.0f);
+        drawDetailPanel(graphics, data, rightPanelX, rightPanelW, mouseX, mouseY, dt, now);
+        graphics.pose().popPose();
+
+        if (rawAnim > 0.5f) {
+            SciFiDataStreamRenderer.renderHorizontalDataTicker(
+                    graphics, this.font, 16, this.height - 20, this.width - 32, now);
+            SciFiDataStreamRenderer.renderVerticalHexStream(
+                    graphics, this.font, this.width - 18, HUD_BAR_H + 14, this.height - HUD_BAR_H - 44, now);
+        }
+
+        rippleManager.updateAndRender(graphics, dt);
+        updateAndRenderMicroTomography(graphics, data, mouseX, mouseY, dt, now);
+
+        if (microTomographyLimb == null && hoveredLimb != null && rawAnim > 0.85f) {
+            drawHoveredLimbTacticalCallout(graphics, data, hoveredLimb, mouseX, mouseY);
+        }
+    }
+
+    private float updateScreenStateProgress(Minecraft mc, long now) {
+        long elapsed = now - stateStartTimeMs;
+        if (state == ScreenState.OPENING) {
+            if (elapsed >= OPEN_ANIM_DURATION_MS) {
+                state = ScreenState.OPEN;
+                return 1.0f;
+            }
+            return Mth.clamp(elapsed / (float) OPEN_ANIM_DURATION_MS, 0.0f, 1.0f);
+        } else if (state == ScreenState.CLOSING) {
+            if (elapsed >= CLOSE_ANIM_DURATION_MS) {
+                state = ScreenState.CLOSED;
+                mc.setScreen(null);
+                return 0.0f;
+            }
+            return 1.0f - Mth.clamp(elapsed / (float) CLOSE_ANIM_DURATION_MS, 0.0f, 1.0f);
+        }
+        return 1.0f;
+    }
+
+    // ============================================================
+    // 二、顶部 3A 多维生命体征数码遥测舱 (含微型痛觉读数)
+    // ============================================================
+    private void drawTopBiometricBar(GuiGraphics g, MedicalData data, long now) {
+        int barX = 16;
+        int barY = 6;
+        int barW = this.width - 32;
+
+        HudRenderHelper.drawSciFiCard(g, barX, barY, barW, HUD_BAR_H, 5, themeCardBgColor, withAlpha(themePrimaryColor, 0.75f));
+        HudRenderHelper.drawCardCorners(g, barX, barY, barW, HUD_BAR_H, 8, themePrimaryColor);
+
+        HudRenderHelper.drawGlowingString(g, this.font, "TRAUMA TEAM // BIO-MONITOR v4.5",
+                barX + 10, barY + 6, themePrimaryColor, withAlpha(themePrimaryColor, 0.4f));
+        String subStatus = data.isCardiacArrest() ? "STATUS: CARDIAC ARREST [CRITICAL]"
+                : (data.isInVFib() ? "STATUS: VENTRICULAR FIBRILLATION"
+                : (data.isInCriticalState() ? "STATUS: CRITICAL EMERGENCY (" + data.getCriticalTimer() + "s)"
+                : "PAIN INDEX: " + data.getPerceivedPain() + "/55 (" + getPainStageText(data.getPerceivedPain()) + ") | R-CLICK LIMB: CT SCAN"));
+        int subColor = (data.isCardiacArrest() || data.isInVFib() || data.isInCriticalState())
+                ? C_ALERT_RED : themePrimaryColor;
+        g.drawString(this.font, subStatus, barX + 10, barY + 19, subColor, false);
+
+        int metricsStartX = Math.max(barX + 235, barX + barW - 355);
+        int availW = (barX + barW - 10) - metricsStartX;
+        if (availW < 140) return;
+
+        int slotW = availW / 4;
+
+        int hr = Math.round(smoothHrDisplay);
+        int hrColor = (data.isCardiacArrest() || data.isInVFib() || hr >= 150 || hr <= 45)
+                ? C_ALERT_RED : (hr >= 115 ? C_WARN_YELLOW : C_SAFE_GREEN);
+        drawDigitalVitalSlot(g, metricsStartX, barY + 4, slotW - 4, "HR (BPM)",
+                String.format("%03d", Mth.clamp(hr, 0, 299)), hrColor);
+        int pipAlpha = (int) (Mth.clamp(0.25f + rPeakFlashAlpha * 0.75f, 0.0f, 1.0f) * 255.0f);
+        g.fill(metricsStartX + slotW - 12, barY + 7, metricsStartX + slotW - 7, barY + 12,
+                (pipAlpha << 24) | (hrColor & 0x00FFFFFF));
+
+        int sbp = data.getSystolicBP();
+        int dbp = data.getDiastolicBP();
+        float map = data.getMeanArterialPressure();
+        int bpColor = (map < 55 || sbp >= 180) ? C_ALERT_RED
+                : (map < 70 || sbp >= 145 ? C_WARN_YELLOW : C_VITAL_BP);
+        drawDigitalVitalSlot(g, metricsStartX + slotW, barY + 4, slotW - 4, "BP (mmHg)",
+                sbp + "/" + dbp, bpColor);
+
+        int spo2 = Math.round(smoothSpo2Display);
+        int spo2Color = spo2 < 80 ? C_ALERT_RED : (spo2 < 92 ? C_WARN_YELLOW : C_VITAL_OXYGEN);
+        drawDigitalVitalSlot(g, metricsStartX + slotW * 2, barY + 4, slotW - 4, "SpO2 (%)",
+                String.format("%02d", Mth.clamp(spo2, 0, 100)), spo2Color);
+
+        int blood = Math.round(smoothBloodDisplay);
+        int bloodColor = blood <= 3000 ? C_ALERT_RED : (blood <= 4000 ? C_WARN_YELLOW : C_SAFE_GREEN);
+        drawDigitalVitalSlot(g, metricsStartX + slotW * 3, barY + 4, slotW - 4, "BLOOD (mL)",
+                String.format("%04d", Mth.clamp(blood, 0, 9999)), bloodColor);
+    }
+
+    private void drawDigitalVitalSlot(GuiGraphics g, int x, int y, int w, String label, String digits, int color) {
+        g.fill(x, y, x + w, y + 30, 0x88040B12);
+        g.fill(x, y, x + 2, y + 30, color);
+        g.drawString(this.font, label, x + 5, y + 2, 0xFF90A4AE, false);
+
+        int dimColor = withAlpha(color, 0.14f);
+        SegmentDisplayRenderer.renderString(g, digits, x + 6, y + 13, 6, 13, 2, 1, color, dimColor);
+    }
+
+    // ============================================================
+    // 三、左侧 3A 全息解剖人偶 + 总体疼痛表情遥测舱
+    // ============================================================
+    private void drawLeftBodyScannerPanel(GuiGraphics g, MedicalData data, int mouseX, int mouseY, float dt, long now) {
+        int panelX = LEFT_PANEL_X;
+        int panelY = HUD_BAR_H + 14;
+        int panelW = LEFT_PANEL_W;
+        int panelH = this.height - HUD_BAR_H - 38;
+        if (panelH < 100) return;
+
+        drawCyberCard(g, panelX, panelY, panelW, panelH, "BIOMETRIC SCAN // 人体创伤定位", themePrimaryColor);
+
+        String ctTxt = "CT 断层";
+        this.ctBtnW = this.font.width(ctTxt) + 10;
+        this.ctBtnH = 13;
+        this.ctBtnX = panelX + panelW - ctBtnW - 8;
+        this.ctBtnY = panelY + 5;
+        boolean ctHov = mouseX >= ctBtnX && mouseX <= ctBtnX + ctBtnW && mouseY >= ctBtnY && mouseY <= ctBtnY + ctBtnH;
+        HudRenderHelper.drawSciFiCard(g, ctBtnX, ctBtnY, ctBtnW, ctBtnH, 2,
+                microTomographyLimb != null ? 0xCC006080 : (ctHov ? 0x990A2538 : 0x66050E17),
+                ctHov ? themePrimaryColor : withAlpha(themePrimaryColor, 0.5f));
+        g.drawString(this.font, ctTxt, ctBtnX + 5, ctBtnY + 3, themePrimaryColor, false);
+
+        // 预留底部 46px 给 3A 总体疼痛动态表情遥测仪 (0~55 从笑脸到痛苦脸)
+        int painWidgetH = 44;
+        int bodyAreaTop = panelY + 23;
+        int bodyAreaH = Math.max(70, panelH - 28 - painWidgetH);
+        int cx = panelX + panelW / 2;
+        int cy = bodyAreaTop + bodyAreaH / 2;
+
+        float scale = Math.min(panelW / 150.0f, bodyAreaH / 185.0f);
+        scale = Mth.clamp(scale, 0.48f, 1.25f);
+
+        int headW = Math.round(32 * scale);
+        int headH = Math.round(32 * scale);
+        int chestW = Math.round(42 * scale);
+        int chestH = Math.round(54 * scale);
+        int armW = Math.round(20 * scale);
+        int armH = Math.round(52 * scale);
+        int legW = Math.round(19 * scale);
+        int legH = Math.round(56 * scale);
+        int gap = Math.max(2, Math.round(4 * scale));
+
+        int chestX = cx - chestW / 2;
+        int chestY = cy - chestH / 2 - Math.round(8 * scale);
+        int headX = cx - headW / 2;
+        int headY = chestY - headH - gap;
+
+        int leftArmX = chestX - armW - gap;
+        int leftArmY = chestY + 2;
+        int rightArmX = chestX + chestW + gap;
+        int rightArmY = chestY + 2;
+
+        int legsY = chestY + chestH + gap;
+        int leftLegX = cx - legW - Math.max(2, gap / 2);
+        int rightLegX = cx + Math.max(2, gap / 2);
+
+        limbScreenBounds.put(MedicalData.Limb.HEAD, new int[]{headX, headY, headW, headH});
+        limbScreenBounds.put(MedicalData.Limb.CHEST, new int[]{chestX, chestY, chestW, chestH});
+        limbScreenBounds.put(MedicalData.Limb.LEFT_ARM, new int[]{leftArmX, leftArmY, armW, armH});
+        limbScreenBounds.put(MedicalData.Limb.RIGHT_ARM, new int[]{rightArmX, rightArmY, armW, armH});
+        limbScreenBounds.put(MedicalData.Limb.LEFT_LEG, new int[]{leftLegX, legsY, legW, legH});
+        limbScreenBounds.put(MedicalData.Limb.RIGHT_LEG, new int[]{rightLegX, legsY, legW, legH});
+
+        drawAnatomicalVascularAndSkeleton(g, data, cx, chestY + chestH / 3, now);
+
+        hoveredLimb = null;
+        if (microTomographyLimb == null) {
+            for (MedicalData.Limb limb : MedicalData.Limb.values()) {
+                int[] b = limbScreenBounds.get(limb);
+                if (mouseX >= b[0] && mouseX <= b[0] + b[2] && mouseY >= b[1] && mouseY <= b[1] + b[3]) {
+                    hoveredLimb = limb;
+                    break;
                 }
-                String banner = "SWEEP COMPLETE — FINDINGS: " + stampCountCache(data);
-                HudRenderHelper.drawGlowingString(g, this.font, banner,
-                        startX + totalW - this.font.width(banner) - 6, startY - 12, 0xFF00E5FF, HudColors.CYAN);
+            }
+        }
+        if (hoveredLimb != null && hoveredLimb != lastHoveredLimb) {
+            MedicalSoundHelper.playHoverSound();
+        }
+        lastHoveredLimb = hoveredLimb;
+
+        for (MedicalData.Limb limb : MedicalData.Limb.values()) {
+            float targetHov = (limb == hoveredLimb || limb == selectedLimb) ? 1.0f : 0.0f;
+            float curHov = MedicalAnimUtils.smoothDamp(limbHoverProgress.getOrDefault(limb, 0.0f), targetHov, 14.0f, dt);
+            limbHoverProgress.put(limb, curHov);
+
+            drawSingleLimbHologramBox(g, data, limb, curHov, now);
+        }
+
+        // 在左侧面板底部绘制 3A 全息总体疼痛动态表情遥测卡 (0 ~ 55 从笑脸到极度痛苦脸)
+        int widgetY = panelY + panelH - painWidgetH - 5;
+        drawPainExpressionWidget(g, panelX + 8, widgetY, panelW - 16, painWidgetH, data, now);
+    }
+
+    /**
+     * 3A 全息总体疼痛动态表情遥测仪 (0 ~ 55 从笑脸到痛苦脸)
+     */
+    private void drawPainExpressionWidget(GuiGraphics g, int x, int y, int w, int h, MedicalData data, long now) {
+        int rawPain = data.getPerceivedPain();
+        float pNorm = Mth.clamp(smoothPerceivedPain / 55.0f, 0.0f, 1.0f);
+        int faceColor = getPainScaleColor(pNorm);
+
+        HudRenderHelper.drawSciFiCard(g, x, y, w, h, 3, 0xCC040A12, withAlpha(faceColor, 0.7f));
+        g.fill(x, y + 2, x + 2, y + h - 2, faceColor);
+
+        // 1. 左侧：OpenGL 高精度连续形变全息人脸 (半径 r=16)
+        float faceCX = x + 23.0f;
+        float faceCY = y + h * 0.5f;
+        float faceR = 15.5f;
+        drawHolographicPainFace(g, faceCX, faceCY, faceR, smoothPerceivedPain, faceColor, now);
+
+        // 2. 右侧：总体疼痛数值 (XX / 55)、表情阶段状态词与 6 段式 Wong-Baker 色阶进度条
+        int infoX = x + 44;
+        int infoW = w - 50;
+
+        String title = "PAIN INDEX // 总体疼痛";
+        g.drawString(this.font, title, infoX, y + 4, 0xFFB0BEC5, false);
+
+        String valStr = rawPain + " / 55";
+        g.drawString(this.font, valStr, infoX + infoW - this.font.width(valStr), y + 4, faceColor, false);
+
+        String stageDesc = getPainStageText(rawPain);
+        g.drawString(this.font, stageDesc, infoX, y + 15, faceColor, false);
+
+        // 绘制 6 级临床痛觉色阶条 (0~55)
+        int barY = y + 28;
+        int segGap = 2;
+        int numStages = 6;
+        int segW = (infoW - (numStages - 1) * segGap) / numStages;
+        int[] stageColors = new int[]{
+                0xFF00FF80, // Stage 0: 无痛笑脸
+                0xFF00E5FF, // Stage 1: 轻度平静
+                0xFFFFEA00, // Stage 2: 中度不适
+                0xFFFF9100, // Stage 3: 重度拧眉
+                0xFFFF3D00, // Stage 4: 剧烈咬牙
+                0xFFFF0055  // Stage 5: 痛觉崩溃
+        };
+
+        for (int i = 0; i < numStages; i++) {
+            int sx = infoX + i * (segW + segGap);
+            float segStart = (i / (float) numStages) * 55.0f;
+            float segEnd = ((i + 1) / (float) numStages) * 55.0f;
+            float fill = Mth.clamp((smoothPerceivedPain - segStart) / (segEnd - segStart), 0.0f, 1.0f);
+
+            g.fill(sx, barY, sx + segW, barY + 6, 0xFF08121C);
+            if (fill > 0.01f) {
+                int fw = Math.max(1, (int) (segW * fill));
+                g.fill(sx, barY, sx + fw, barY + 6, stageColors[i]);
             }
         }
     }
 
-    private String limbShortName(MedicalData.Limb limb) {
-        return switch (limb) {
-            case HEAD -> "颅";
-            case CHEST -> "胸";
-            case LEFT_ARM -> "左臂";
-            case RIGHT_ARM -> "右臂";
-            case LEFT_LEG -> "左腿";
-            case RIGHT_LEG -> "右腿";
+    /**
+     * 使用 OpenGL 连续矢量几何绘制从「镇定微笑 (0)」到「极度痛苦抽搐 (55)」的全息表情人脸
+     */
+    private void drawHolographicPainFace(GuiGraphics g, float cx, float cy, float r,
+                                         float painVal, int color, long now) {
+        float pNorm = Mth.clamp(painVal / 55.0f, 0.0f, 1.0f);
+
+        // 高痛感下人脸产生剧痛抽搐颤抖
+        if (pNorm > 0.45f) {
+            float shake = (pNorm - 0.45f) * 2.2f;
+            cx += Mth.sin(now * 0.055f) * shake;
+            cy += Mth.cos(now * 0.068f) * shake * 0.8f;
+        }
+
+        Matrix4f pose = g.pose().last().pose();
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.disableDepthTest();
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+
+        int cr = (color >>> 16) & 0xFF;
+        int cg = (color >>> 8) & 0xFF;
+        int cb = color & 0xFF;
+
+        Tesselator tess = Tesselator.getInstance();
+        BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+
+        // 1. 绘制全息人脸外轮廓环 (32 段平滑圆环 + 太阳穴生物电极刻度)
+        int ringSegs = 32;
+        for (int i = 0; i < ringSegs; i++) {
+            float a1 = (i / (float) ringSegs) * ((float) Math.PI * 2.0f);
+            float a2 = ((i + 1) / (float) ringSegs) * ((float) Math.PI * 2.0f);
+            float x1 = cx + Mth.cos(a1) * r;
+            float y1 = cy + Mth.sin(a1) * r;
+            float x2 = cx + Mth.cos(a2) * r;
+            float y2 = cy + Mth.sin(a2) * r;
+            PainVisualOverlay.addQuadSegment(buf, pose, x1, y1, x2, y2, 0.95f, cr, cg, cb, 215, 215);
+            PainVisualOverlay.addQuadSegment(buf, pose, x1, y1, x2, y2, 2.2f, cr, cg, cb, 45, 45);
+        }
+
+        // 2. 绘制双眉：随疼痛值从舒展平缓 (pain=0) -> 紧蹙八字/倒八字怒蹙 (pain=55)
+        // browTilt: 0 时微微柔和弯拱，越高时眉头越往下压、眉尾挑起并剧烈紧缩
+        float browTilt = Mth.clamp((painVal - 6.0f) / 35.0f, -0.15f, 1.0f);
+        for (int side = -1; side <= 1; side += 2) {
+            float innerX = cx + side * (r * 0.16f);
+            float outerX = cx + side * (r * 0.56f);
+            float innerY = cy - r * 0.28f + browTilt * (r * 0.18f);
+            float outerY = cy - r * 0.32f - browTilt * (r * 0.10f);
+            float midX = (innerX + outerX) * 0.5f;
+            float midY = (innerY + outerY) * 0.5f - (1.0f - Math.abs(browTilt)) * (r * 0.06f);
+
+            PainVisualOverlay.addQuadSegment(buf, pose, innerX, innerY, midX, midY, 0.9f, cr, cg, cb, 240, 240);
+            PainVisualOverlay.addQuadSegment(buf, pose, midX, midY, outerX, outerY, 0.85f, cr, cg, cb, 240, 200);
+        }
+
+        // 3. 绘制双眼：
+        // - pain < 28: 圆润全息眼眸（带自然周期眨眼与半眯紧绷收缩）
+        // - pain >= 28: 剧痛紧闭的 `>   <` 折角痛苦眼睑！
+        float eyeCenterY = cy - r * 0.10f;
+        float eyeOffsetX = r * 0.34f;
+        boolean blinking = (painVal < 15.0f) && ((now % 3800L) < 130L);
+
+        if (painVal < 28.0f) {
+            float squint = blinking ? 0.1f : Mth.clamp(1.0f - (painVal / 36.0f), 0.25f, 1.0f);
+            float eyeRx = r * 0.15f;
+            float eyeRy = r * 0.15f * squint;
+
+            for (int side = -1; side <= 1; side += 2) {
+                float ex = cx + side * eyeOffsetX;
+                int eSegs = 12;
+                for (int i = 0; i < eSegs; i++) {
+                    float a1 = (i / (float) eSegs) * ((float) Math.PI * 2.0f);
+                    float a2 = ((i + 1) / (float) eSegs) * ((float) Math.PI * 2.0f);
+                    PainVisualOverlay.addQuadSegment(buf, pose,
+                            ex + Mth.cos(a1) * eyeRx, eyeCenterY + Mth.sin(a1) * eyeRy,
+                            ex + Mth.cos(a2) * eyeRx, eyeCenterY + Mth.sin(a2) * eyeRy,
+                            0.85f, cr, cg, cb, 245, 245);
+                }
+                // 瞳孔高光点
+                if (!blinking) {
+                    float pr = r * 0.05f;
+                    buf.addVertex(pose, ex - pr, eyeCenterY - pr, 0.0f).setColor(255, 255, 255, 230);
+                    buf.addVertex(pose, ex + pr, eyeCenterY - pr, 0.0f).setColor(255, 255, 255, 230);
+                    buf.addVertex(pose, ex + pr, eyeCenterY + pr, 0.0f).setColor(255, 255, 255, 230);
+                    buf.addVertex(pose, ex - pr, eyeCenterY + pr, 0.0f).setColor(255, 255, 255, 230);
+                }
+            }
+        } else {
+            // 重度/极度疼痛 (>= 28)：紧闭痛苦折角眼 `>  <`
+            float winceSpan = r * 0.18f;
+            float winceH = r * 0.13f;
+            // 左眼 `>`
+            float lx = cx - eyeOffsetX;
+            PainVisualOverlay.addQuadSegment(buf, pose, lx - winceSpan, eyeCenterY - winceH, lx + winceSpan * 0.6f, eyeCenterY, 1.05f, cr, cg, cb, 255, 255);
+            PainVisualOverlay.addQuadSegment(buf, pose, lx + winceSpan * 0.6f, eyeCenterY, lx - winceSpan, eyeCenterY + winceH, 1.05f, cr, cg, cb, 255, 255);
+            // 右眼 `<`
+            float rx = cx + eyeOffsetX;
+            PainVisualOverlay.addQuadSegment(buf, pose, rx + winceSpan, eyeCenterY - winceH, rx - winceSpan * 0.6f, eyeCenterY, 1.05f, cr, cg, cb, 255, 255);
+            PainVisualOverlay.addQuadSegment(buf, pose, rx - winceSpan * 0.6f, eyeCenterY, rx + winceSpan, eyeCenterY + winceH, 1.05f, cr, cg, cb, 255, 255);
+        }
+
+        // 4. 绘制嘴部：随总体疼痛 (0~55) 从「上扬笑脸」 -> 「平直」 -> 「下撇撇嘴」 -> 「咬牙切齿/哀嚎张口」
+        float mouthY = cy + r * 0.34f;
+        float mouthHalfW = r * (0.38f + 0.12f * pNorm);
+        // smileFactor: pain=0 时为 +1.0 (标准微笑上扬)，pain=12 时为 0 (平线)，pain>=24 时为 -1.0 (痛苦下弯)
+        float smileFactor = Mth.clamp(1.0f - (painVal / 12.0f), -1.15f, 1.0f);
+        int mSegs = 12;
+
+        if (painVal < 26.0f) {
+            // 连续弧线嘴（微笑 -> 平静 -> 痛苦下弯）
+            for (int i = 0; i < mSegs; i++) {
+                float t1 = (i / (float) mSegs) * 2.0f - 1.0f;       // [-1, 1]
+                float t2 = ((i + 1) / (float) mSegs) * 2.0f - 1.0f;
+                float mx1 = cx + t1 * mouthHalfW;
+                float mx2 = cx + t2 * mouthHalfW;
+                // 抛物线曲率：(1 - t^2) 决定中间凹凸
+                float my1 = mouthY + (1.0f - t1 * t1) * (r * 0.22f) * smileFactor;
+                float my2 = mouthY + (1.0f - t2 * t2) * (r * 0.22f) * smileFactor;
+                PainVisualOverlay.addQuadSegment(buf, pose, mx1, my1, mx2, my2, 1.0f, cr, cg, cb, 245, 245);
+            }
+        } else {
+            // 重度/极度疼痛 (pain >= 26)：张口咬牙切齿 / 波浪抽搐哀嚎嘴框
+            float openH = r * (0.10f + 0.14f * ((painVal - 26.0f) / 29.0f));
+            for (int i = 0; i < mSegs; i++) {
+                float t1 = (i / (float) mSegs) * 2.0f - 1.0f;
+                float t2 = ((i + 1) / (float) mSegs) * 2.0f - 1.0f;
+                float mx1 = cx + t1 * mouthHalfW;
+                float mx2 = cx + t2 * mouthHalfW;
+
+                float arch1 = (1.0f - t1 * t1);
+                float arch2 = (1.0f - t2 * t2);
+                // 上唇微拱，下唇深凹张开
+                float topY1 = mouthY - arch1 * openH * 0.7f;
+                float topY2 = mouthY - arch2 * openH * 0.7f;
+                float botY1 = mouthY + openH * 0.6f - arch1 * openH * 0.2f;
+                float botY2 = mouthY + openH * 0.6f - arch2 * openH * 0.2f;
+
+                PainVisualOverlay.addQuadSegment(buf, pose, mx1, topY1, mx2, topY2, 0.9f, cr, cg, cb, 250, 250);
+                PainVisualOverlay.addQuadSegment(buf, pose, mx1, botY1, mx2, botY2, 0.9f, cr, cg, cb, 250, 250);
+            }
+            // 左右嘴角闭合与内部紧咬牙列竖线
+            PainVisualOverlay.addQuadSegment(buf, pose, cx - mouthHalfW, mouthY, cx - mouthHalfW, mouthY + openH * 0.6f, 0.85f, cr, cg, cb, 240, 240);
+            PainVisualOverlay.addQuadSegment(buf, pose, cx + mouthHalfW, mouthY, cx + mouthHalfW, mouthY + openH * 0.6f, 0.85f, cr, cg, cb, 240, 240);
+            for (int tooth = -2; tooth <= 2; tooth++) {
+                float tx = cx + (tooth / 3.0f) * mouthHalfW;
+                PainVisualOverlay.addQuadSegment(buf, pose, tx, mouthY - openH * 0.35f, tx, mouthY + openH * 0.45f, 0.55f, cr, cg, cb, 160, 160);
+            }
+        }
+
+        // 5. 当疼痛 >= 32 时，在额角绘制暴起的痛觉青筋十字与电脉冲芒刺
+        if (painVal >= 32.0f) {
+            float vx = cx + r * 0.58f;
+            float vy = cy - r * 0.55f;
+            float vs = r * 0.20f * (0.8f + 0.3f * Mth.sin(now * 0.015f));
+            PainVisualOverlay.addQuadSegment(buf, pose, vx - vs, vy, vx + vs, vy, 0.85f, 255, 30, 70, 240, 240);
+            PainVisualOverlay.addQuadSegment(buf, pose, vx, vy - vs, vx, vy + vs, 0.85f, 255, 30, 70, 240, 240);
+        }
+
+        MeshData mesh = buf.build();
+        if (mesh != null) BufferUploader.drawWithShader(mesh);
+
+        RenderSystem.enableDepthTest();
+        RenderSystem.disableBlend();
+    }
+
+    private int getPainScaleColor(float pNorm) {
+        if (pNorm < 0.18f) return lerpColor(0xFF00FF80, 0xFF00E5FF, pNorm / 0.18f);
+        if (pNorm < 0.42f) return lerpColor(0xFF00E5FF, 0xFFFFD000, (pNorm - 0.18f) / 0.24f);
+        if (pNorm < 0.70f) return lerpColor(0xFFFFD000, 0xFFFF3D00, (pNorm - 0.42f) / 0.28f);
+        return lerpColor(0xFFFF3D00, 0xFFFF0055, (pNorm - 0.70f) / 0.30f);
+    }
+
+    private String getPainStageText(int pain) {
+        if (pain <= 3) return "LV.0 镇定微笑 (SERENE)";
+        if (pain <= 12) return "LV.1 轻度不适 (MILD)";
+        if (pain <= 24) return "LV.2 中度疼痛 (MODERATE)";
+        if (pain <= 36) return "LV.3 重度咬牙 (SEVERE)";
+        if (pain <= 46) return "LV.4 剧烈折磨 (AGONY)";
+        return "LV.5 痛觉崩溃 (OVERLOAD)";
+    }
+
+    private void drawAnatomicalVascularAndSkeleton(GuiGraphics g, MedicalData data, int heartX, int heartY, long now) {
+        Matrix4f pose = g.pose().last().pose();
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+
+        float bpm = Mth.clamp(data.getHeartRate(), 35.0f, 220.0f);
+        float pulsePhase = ((now % (long) (60000.0f / bpm)) / (60000.0f / bpm));
+
+        int[] head = limbScreenBounds.get(MedicalData.Limb.HEAD);
+        int[] chest = limbScreenBounds.get(MedicalData.Limb.CHEST);
+        int[] lArm = limbScreenBounds.get(MedicalData.Limb.LEFT_ARM);
+        int[] rArm = limbScreenBounds.get(MedicalData.Limb.RIGHT_ARM);
+        int[] lLeg = limbScreenBounds.get(MedicalData.Limb.LEFT_LEG);
+        int[] rLeg = limbScreenBounds.get(MedicalData.Limb.RIGHT_LEG);
+
+        int hx = chest[0] + chest[2] / 2;
+        int hy = chest[1] + chest[3] / 3;
+        int pelvisY = chest[1] + chest[3] - 6;
+
+        int[][] vessels = new int[][]{
+                {hx, hy, head[0] + head[2] / 2, head[1] + head[3] / 2},
+                {hx, hy, lArm[0] + lArm[2] / 2, lArm[1] + lArm[3] * 2 / 3},
+                {hx, hy, rArm[0] + rArm[2] / 2, rArm[1] + rArm[3] * 2 / 3},
+                {hx, hy, hx, pelvisY},
+                {hx, pelvisY, lLeg[0] + lLeg[2] / 2, lLeg[1] + lLeg[3] * 3 / 4},
+                {hx, pelvisY, rLeg[0] + rLeg[2] / 2, rLeg[1] + rLeg[3] * 3 / 4}
         };
-    }
 
-    private int limbIssueColor(MedicalData.LimbData ld) {
-        if (ld.hasFracture()) return 0xAA00FF;
-        if (ld.getBleeding() > 0 || ld.hasOpenWound()) return 0xFF1744;
-        if (ld.getInfection() > 0) return 0x00E676;
-        return 0x00E5FF;
-    }
+        Tesselator tess = Tesselator.getInstance();
+        BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
 
-    private int countLimbIssuesFrom(MedicalData.LimbData ld) {
-        int n = 0;
-        if (ld.hasFracture()) n++;
-        if (ld.getBleeding() > 0 || ld.hasOpenWound()) n++;
-        if (ld.getInfection() > 0) n++;
-        return n;
-    }
+        for (int[] v : vessels) {
+            PainVisualOverlay.addQuadSegment(buf, pose, v[0], v[1], v[2], v[3], 1.1f, 0, 180, 220, 55, 35);
 
-    private int stampCountCache(MedicalData data) {
-        int total = 0;
-        for (MedicalData.Limb limb : MedicalData.Limb.values()) {
-            total += countLimbIssuesFrom(data.getLimb(limb));
+            if (!data.isCardiacArrest()) {
+                float pHead = pulsePhase;
+                float pTail = Math.max(0.0f, pHead - 0.28f);
+                float px1 = Mth.lerp(pTail, v[0], v[2]);
+                float py1 = Mth.lerp(pTail, v[1], v[3]);
+                float px2 = Mth.lerp(pHead, v[0], v[2]);
+                float py2 = Mth.lerp(pHead, v[1], v[3]);
+                PainVisualOverlay.addQuadSegment(buf, pose, px1, py1, px2, py2, 1.8f, 255, 45, 75, 0, 210);
+            }
         }
-        return total;
+
+        MeshData mesh = buf.build();
+        if (mesh != null) BufferUploader.drawWithShader(mesh);
     }
 
-    private int[] getLimbCenterBox(MedicalData.Limb limb, int startX, int startY) {
-        return switch (limb) {
-            case HEAD -> new int[]{startX + HEAD_OFFSET_X, startY + HEAD_OFFSET_Y, HEAD_SIZE, HEAD_SIZE};
-            case CHEST -> new int[]{startX + BODY_OFFSET_X, startY + BODY_OFFSET_Y, BODY_W, BODY_H};
-            case LEFT_ARM -> new int[]{startX + LEFT_ARM_OFFSET_X, startY + LEFT_ARM_OFFSET_Y, ARM_W, ARM_H};
-            case RIGHT_ARM -> new int[]{startX + RIGHT_ARM_OFFSET_X, startY + RIGHT_ARM_OFFSET_Y, ARM_W, ARM_H};
-            case LEFT_LEG -> new int[]{startX + LEFT_LEG_OFFSET_X, startY + LEFT_LEG_OFFSET_Y, LEG_W, LEG_H};
-            case RIGHT_LEG -> new int[]{startX + RIGHT_LEG_OFFSET_X, startY + RIGHT_LEG_OFFSET_Y, LEG_W, LEG_H};
-        };
+    private void drawSingleLimbHologramBox(GuiGraphics g, MedicalData data, MedicalData.Limb limb, float hoverProg, long now) {
+        MedicalData.LimbData ld = data.getLimb(limb);
+        int[] baseBox = limbScreenBounds.get(limb);
+        if (ld == null || baseBox == null) return;
+
+        int expand = Math.round(hoverProg * 2.5f);
+        int x = baseBox[0] - expand;
+        int y = baseBox[1] - expand;
+        int w = baseBox[2] + expand * 2;
+        int h = baseBox[3] + expand * 2;
+
+        boolean isSelected = (limb == selectedLimb);
+        int limbColor = getLimbColor(ld);
+
+        float alertPulse = 1.0f;
+        if (ld.getBleeding() > 100 || ld.getInternalBleedingRate() > 100 || ld.hasFracture()) {
+            alertPulse = 0.65f + 0.35f * Mth.sin(now * 0.008f);
+        }
+
+        int bgAlpha = isSelected ? 0x88 : (hoverProg > 0.1f ? 0x66 : 0x44);
+        int bgColor = ((int) (bgAlpha * alertPulse) << 24) | (limbColor & 0x00FFFFFF);
+        int borderColor = isSelected ? 0xFFFFFFFF : (hoverProg > 0.2f ? themePrimaryColor : limbColor);
+
+        if (isSelected || hoverProg > 0.05f) {
+            int glowAlpha = (int) ((isSelected ? 0.45f : hoverProg * 0.30f) * 255.0f);
+            int glowCol = (glowAlpha << 24) | (borderColor & 0x00FFFFFF);
+            g.fill(x - 2, y - 2, x + w + 2, y + h + 2, glowCol);
+        }
+
+        HudRenderHelper.drawSciFiCard(g, x, y, w, h, 3, bgColor, borderColor);
+
+        int midX = x + w / 2;
+        int boneTop = y + 6;
+        int boneBot = y + h - 6;
+        if (ld.isAmputated()) {
+            HudRenderHelper.drawLine(g, x + 4, y + 4, x + w - 4, y + h - 4, C_ALERT_RED, 1);
+            HudRenderHelper.drawLine(g, x + w - 4, y + 4, x + 4, y + h - 4, C_ALERT_RED, 1);
+        } else if (ld.hasFracture()) {
+            int breakY = (boneTop + boneBot) / 2;
+            int fracCol = ld.hasSplint() ? C_SAFE_GREEN : C_ALERT_RED;
+            HudRenderHelper.drawLine(g, midX, boneTop, midX - 3, breakY - 2, fracCol, 1);
+            HudRenderHelper.drawLine(g, midX - 3, breakY - 2, midX + 3, breakY + 2, 0xFFFFFFFF, 1);
+            HudRenderHelper.drawLine(g, midX + 3, breakY + 2, midX, boneBot, fracCol, 1);
+        } else {
+            g.fill(midX, boneTop, midX + 1, boneBot, 0x44E0F7FF);
+        }
+
+        if (ld.getBleeding() > 0) {
+            g.fill(x + w - 6, y + 2, x + w - 2, y + 6, 0xFFFF1744);
+        }
+        if (ld.getInternalBleedingRate() > 0) {
+            int px = (ld.getBleeding() > 0) ? (x + w - 12) : (x + w - 6);
+            g.fill(px, y + 2, px + 4, y + 6, 0xFFAB47BC);
+        }
+        if (ld.isTourniqueted()) {
+            g.fill(x + 2, y + 2, x + 6, y + 6, 0xFFFF9100);
+        }
+        if (ld.isBandaged()) {
+            g.fill(x + 2, y + h - 6, x + 6, y + h - 2, 0xFF00E676);
+        }
+        if (ld.hasFracture() || ld.getInfection() >= 25) {
+            g.drawString(this.font, "!", x + w - 6, y + h - 9, 0xFFFFD600, false);
+        }
+
+        int hp = BrainScan3DRenderer.computeLimbHealthPercent(ld);
+        String hpTxt = hp + "%";
+        int tw = this.font.width(hpTxt);
+        if (w >= tw + 4 && h >= 18) {
+            g.drawString(this.font, hpTxt, x + (w - tw) / 2, y + (h - 7) / 2, 0xEEFFFFFF, false);
+        }
     }
 
-    private void drawMicroTomographyHUD(GuiGraphics g, MedicalData data, long now) {
-        if (microTomographyAnim <= 0.01f || microTomographyLimb == null) return;
+    private void drawHoveredLimbTacticalCallout(GuiGraphics g, MedicalData data, MedicalData.Limb limb, int mouseX, int mouseY) {
+        MedicalData.LimbData ld = data.getLimb(limb);
+        int[] box = limbScreenBounds.get(limb);
+        if (ld == null || box == null) return;
 
-        float anim = microTomographyAnim;
-        int winW = (int) (240 * anim);
-        int winH = (int) (180 * anim);
-        int winX = this.width / 2 - winW / 2;
-        int winY = this.height / 2 - winH / 2 + 10;
+        int anchorX = box[0] + box[2];
+        int anchorY = box[1] + box[3] / 2;
+        int cardX = Math.min(this.width - 135, anchorX + 18);
+        int cardY = Mth.clamp(anchorY - 16, HUD_BAR_H + 16, this.height - 48);
 
-        if (winW < 50 || winH < 40) return;
+        int color = getLimbColor(ld);
+        HudRenderHelper.drawSciFiLeaderLine(g, anchorX, anchorY, cardX, cardY + 12, color, withAlpha(color, 0.4f));
 
-        HudRenderHelper.drawSciFiCard(g, winX, winY, winW, winH, 4, 0xF0060D14, 0xFF00E5FF);
-        HudRenderHelper.drawCardCorners(g, winX, winY, winW, winH, 8, 0xFF00E5FF);
+        String title = getLimbFullName(limb) + " [" + BrainScan3DRenderer.computeLimbHealthPercent(ld) + "%]";
+        String sub = "外:" + ld.getBleeding() + " 内:" + ld.getInternalBleedingRate() + " 痛:" + ld.getPainLevel();
+        HudRenderHelper.drawTacticalBadge(g, this.font, cardX, cardY, 122, 24, title, sub, color, 0xEE050D17);
+    }
 
-        String title = "TOMOGRAPHY // " + microTomographyLimb.name()
-                + " // L" + (dcmLayer + 1) + " " + DICOM_LAYER_NAMES[dcmLayer];
-        g.drawString(this.font, title, winX + 10, winY + 8, 0xFF00E5FF, false);
-        g.fill(winX + 10, winY + 19, winX + winW - 10, winY + 20, 0x4400E5FF);
-
-        int gridX = winX + 12;
-        int gridY = winY + 25;
-        int gridW = winW - 24;
-        int gridH = winH - 55;
-        g.fill(gridX, gridY, gridX + gridW, gridY + gridH, 0x4404090E);
-
-        for (int gx = gridX; gx < gridX + gridW; gx += 16) {
-            g.fill(gx, gridY, gx + 1, gridY + gridH, 0x1100E5FF);
-        }
-        for (int gy = gridY; gy < gridY + gridH; gy += 16) {
-            g.fill(gridX, gy, gridX + gridW, gy + 1, 0x1100E5FF);
-        }
+    // ============================================================
+    // 四、3A 级 4 层高精度解剖级 DICOM 微观断层 CT 扫描仪
+    // ============================================================
+    private void updateAndRenderMicroTomography(GuiGraphics g, MedicalData data, int mouseX, int mouseY, float dt, long now) {
+        float target = (microTomographyLimb != null) ? 1.0f : 0.0f;
+        microTomographyAnim = MedicalAnimUtils.smoothDamp(microTomographyAnim, target, 14.0f, dt);
+        if (microTomographyAnim < 0.02f || microTomographyLimb == null) return;
 
         MedicalData.LimbData ld = data.getLimb(microTomographyLimb);
-        boolean hasFracture = ld != null && ld.hasFracture();
-        boolean hasBleeding = ld != null && (ld.getBleeding() > 0 || ld.getInternalBleedingRate() > 0);
-        boolean hasLaceration = hasBleeding;
+        if (ld == null) return;
 
-        float wipeP = 1.0f;
-        if (dcmWipeStart > 0) {
-            wipeP = Mth.clamp((float) (now - dcmWipeStart) / (float) DICOM_WIPE_MS, 0.0f, 1.0f);
-            if (wipeP >= 1.0f) dcmWipeStart = 0L;
+        int boxW = Math.min(386, this.width - 40);
+        int boxH = Math.min(232, this.height - 50);
+        int boxX = (this.width - boxW) / 2;
+        int boxY = (this.height - boxH) / 2;
+
+        int dimAlpha = (int) (microTomographyAnim * 195.0f);
+        g.fill(0, 0, this.width, this.height, (dimAlpha << 24) | 0x02060A);
+
+        g.pose().pushPose();
+        float scale = 0.85f + 0.15f * EasingFunctions.easeOutBack(microTomographyAnim);
+        g.pose().translate(boxX + boxW * 0.5f, boxY + boxH * 0.5f, 0.0f);
+        g.pose().scale(scale, scale, 1.0f);
+        g.pose().translate(-(boxX + boxW * 0.5f), -(boxY + boxH * 0.5f), 0.0f);
+
+        String title = "DICOM CT WORKSTATION // " + getLimbFullName(microTomographyLimb) + " 断层扫描";
+        drawCyberCard(g, boxX, boxY, boxW, boxH, title, themePrimaryColor);
+
+        // 顶部层态导航栏 + [< PREV] [NEXT >] 切片按钮
+        int curLayerIdx = Math.floorMod(dcmLayer, DICOM_LAYER_NAMES.length);
+        String layerName = DICOM_LAYER_NAMES[curLayerIdx];
+        g.drawString(this.font, layerName, boxX + 12, boxY + 25, C_WARN_YELLOW, false);
+
+        this.layerBtnW = 22;
+        this.layerBtnH = 12;
+        this.layerBtnY = boxY + 23;
+        this.layerBtnNextX = boxX + boxW - 34;
+        this.layerBtnPrevX = this.layerBtnNextX - 26;
+        HudRenderHelper.drawSciFiCard(g, layerBtnPrevX, layerBtnY, layerBtnW, layerBtnH, 2, 0x88071624, themePrimaryColor);
+        HudRenderHelper.drawSciFiCard(g, layerBtnNextX, layerBtnY, layerBtnW, layerBtnH, 2, 0x88071624, themePrimaryColor);
+        g.drawString(this.font, "<", layerBtnPrevX + 8, layerBtnY + 2, 0xFFFFFFFF, false);
+        g.drawString(this.font, ">", layerBtnNextX + 8, layerBtnY + 2, 0xFFFFFFFF, false);
+
+        // 左侧：高分辨率圆形 CT 断层扫描视窗 (含 HU 标尺、极坐标刻度与 4 层解剖几何绘制)
+        int scopeX = boxX + 12;
+        int scopeY = boxY + 40;
+        int scopeSize = Math.min(162, boxH - 60);
+        g.fill(scopeX, scopeY, scopeX + scopeSize, scopeY + scopeSize, 0xE602070D);
+        HudRenderHelper.drawSciFiBorder(g, scopeX, scopeY, scopeSize, scopeSize, withAlpha(themePrimaryColor, 0.75f));
+
+        // 左侧边缘 HU (亨氏单位) 密度标尺条
+        for (int s = 0; s < 10; s++) {
+            int sy = scopeY + 12 + s * ((scopeSize - 24) / 10);
+            int gray = 35 + s * 22;
+            int huCol = (0xCC << 24) | (gray << 16) | (Math.min(255, gray + 20) << 8) | 255;
+            g.fill(scopeX + 4, sy, scopeX + 8, sy + 6, huCol);
         }
-        int revealW = (int) (gridW * wipeP);
-        if (wipeP < 1.0f) {
-            int wipeX = gridX + revealW;
-            g.fill(wipeX, gridY, wipeX + 2, gridY + gridH, 0xAA00E5FF);
-            g.fill(wipeX - 1, gridY, wipeX + 3, gridY + 1, 0xCC00E5FF);
-            g.fill(wipeX - 1, gridY + gridH - 1, wipeX + 3, gridY + gridH, 0xCC00E5FF);
+        g.drawString(this.font, "HU", scopeX + 3, scopeY + 3, 0xFF546E7A, false);
+
+        float radarCX = scopeX + scopeSize * 0.52f;
+        float radarCY = scopeY + scopeSize * 0.50f;
+        float radarR = scopeSize * 0.39f;
+
+        // 调用高精度 OpenGL 解剖断层渲染器
+        drawHighPrecisionTomographySlice(g, radarCX, radarCY, radarR, curLayerIdx, microTomographyLimb, data, ld, now);
+
+        // 切片切换激光纵向擦除扫描光束
+        float wipeProg = Mth.clamp((now - dcmWipeStartMs) / 480.0f, 0.0f, 1.0f);
+        if (wipeProg < 1.0f) {
+            int wipeY = scopeY + (int) (scopeSize * wipeProg);
+            g.fill(scopeX + 2, wipeY, scopeX + scopeSize - 2, wipeY + 2, 0xFF00F0FF);
+            g.fillGradient(scopeX + 2, Math.max(scopeY, wipeY - 14), scopeX + scopeSize - 2, wipeY, 0x0000F0FF, 0x5500F0FF);
         }
 
-        renderDcmLayerContent(g, gridX, gridY, revealW, gridH, ld, hasFracture, hasBleeding, hasLaceration, now);
+        // 右侧：分层定量诊断报告与 4 层指示器
+        int rightX = scopeX + scopeSize + 10;
+        int rightY = scopeY;
+        int rightW = boxX + boxW - rightX - 12;
 
-        int indY = gridY + gridH + 6;
-        int segW = (gridW - 3 * 4) / 4;
-        for (int i = 0; i < 4; i++) {
-            int sx = gridX + i * (segW + 4);
-            int fillCol = (i == dcmLayer) ? 0xFF00E5FF : 0x3300E5FF;
-            g.fill(sx, indY, sx + segW, indY + 3, fillCol);
-            if (i == dcmLayer) {
-                g.drawString(this.font, "L" + (i + 1), sx, indY + 5, 0xFF00E5FF, false);
+        // 4 层切片深度进度指示器
+        int pillW = (rightW - 9) / 4;
+        for (int l = 0; l < 4; l++) {
+            int px = rightX + l * (pillW + 3);
+            boolean active = (l == curLayerIdx);
+            g.fill(px, rightY, px + pillW, rightY + 10, active ? themePrimaryColor : 0x550A1926);
+            String lNum = "L0" + (l + 1);
+            g.drawString(this.font, lNum, px + (pillW - this.font.width(lNum)) / 2, rightY + 1,
+                    active ? 0xFF000000 : 0xFF90A4AE, false);
+        }
+
+        int metricY = rightY + 16;
+        switch (curLayerIdx) {
+            case 0 -> {
+                drawTomographyMetric(g, rightX, metricY, rightW, "开放性创口 OPEN WOUND",
+                        ld.hasOpenWound() || ld.getBleeding() > 0 ? "DETECTED // 表皮撕裂缺口" : "INTACT // 角质层完整",
+                        ld.getBleeding() > 0 ? C_ALERT_RED : C_SAFE_GREEN);
+                drawTomographyMetric(g, rightX, metricY + 28, rightW, "无菌敷料包扎 BANDAGE",
+                        ld.isBandaged() ? tr("medical.detail.bandaged") + " (环向加压)" : tr("medical.detail.unbandaged"),
+                        ld.isBandaged() ? C_SAFE_GREEN : 0xFF90A4AE);
+                drawTomographyMetric(g, rightX, metricY + 56, rightW, "真皮烧伤热损 BURN",
+                        ld.hasBurn() ? String.format("%d° 烧伤 (面积 %.1f%%)", ld.getBurnDegree(), ld.getBurnArea()) : "0.0% (无热损伤)",
+                        ld.hasBurn() ? 0xFFFF6D00 : C_SAFE_GREEN);
+                drawTomographyMetric(g, rightX, metricY + 84, rightW, "自然凝血计时 CLOTTING",
+                        ld.getNaturalClottingTimer() > 0 ? ld.getNaturalClottingTimer() + " s (血小板聚集)" : "STANDBY",
+                        C_NEON_CYAN);
+            }
+            case 1 -> {
+                drawTomographyMetric(g, rightX, metricY, rightW, tr("medical.detail.bleeding_rate"),
+                        ld.getBleeding() + " mL/min (动脉射血)",
+                        ld.getBleeding() > 0 ? C_ALERT_RED : C_SAFE_GREEN);
+                drawTomographyMetric(g, rightX, metricY + 28, rightW, tr("medical.detail.internal_bleeding_rate"),
+                        ld.getInternalBleedingRate() + " mL/min (间隙血肿)",
+                        ld.getInternalBleedingRate() > 0 ? 0xFFE040FB : C_SAFE_GREEN);
+                drawTomographyMetric(g, rightX, metricY + 56, rightW, tr("medical.detail.tourniquet"),
+                        ld.isTourniqueted() ? tr("medical.detail.bound") + " (动脉阻断)" : tr("medical.detail.unbound"),
+                        ld.isTourniqueted() ? C_WARN_YELLOW : 0xFF90A4AE);
+                drawTomographyMetric(g, rightX, metricY + 84, rightW, "局部灌注压 LOCAL MAP",
+                        String.format("%.0f mmHg (CO %.1f L/m)", data.getMeanArterialPressure(), data.getCardiacOutput()),
+                        C_VITAL_BP);
+            }
+            case 2 -> {
+                String fracState = ld.isOpenFracture() ? tr("medical.status.open_fracture")
+                        : (ld.hasFracture() ? (ld.hasSplint() ? tr("medical.status.fracture_splinted") : tr("medical.status.fracture"))
+                        : tr("medical.status.healthy"));
+                drawTomographyMetric(g, rightX, metricY, rightW, tr("medical.detail.fracture"),
+                        fracState, ld.hasFracture() ? C_ALERT_RED : C_SAFE_GREEN);
+                drawTomographyMetric(g, rightX, metricY + 28, rightW, "关节对位 DISLOCATION",
+                        ld.hasDislocation() ? tr("medical.status.dislocation") : "ALIGNED (解剖对位正常)",
+                        ld.hasDislocation() ? C_WARN_YELLOW : C_SAFE_GREEN);
+                drawTomographyMetric(g, rightX, metricY + 56, rightW, tr("medical.detail.fracture_healing"),
+                        ld.hasFracture() ? ld.getFractureTimer() + " s (骨痂重塑中)" : "INTACT CORTEX", C_NEON_CYAN);
+                drawTomographyMetric(g, rightX, metricY + 84, rightW, "外固定支架 SPLINT",
+                        ld.hasSplint() ? "TITANIUM FIXATION (已锁定)" : "NONE",
+                        ld.hasSplint() ? C_SAFE_GREEN : 0xFF90A4AE);
+            }
+            default -> {
+                drawTomographyMetric(g, rightX, metricY, rightW, tr("medical.detail.infection"),
+                        ld.getInfection() + " % (病原菌落密度)",
+                        ld.getInfection() > 0 ? C_WARN_YELLOW : C_SAFE_GREEN);
+                drawTomographyMetric(g, rightX, metricY + 28, rightW, tr("medical.detail.pain_level"),
+                        ld.getPainLevel() + " / 10 (痛觉神经放电)",
+                        ld.getPainLevel() > 0 ? C_VITAL_PAIN : C_SAFE_GREEN);
+                drawTomographyMetric(g, rightX, metricY + 56, rightW, "穿刺贯通通道 PERFORATION",
+                        ld.hasPerforation() ? "POSITIVE (深部贯通伤)" : "NEGATIVE",
+                        ld.hasPerforation() ? C_ALERT_RED : C_SAFE_GREEN);
+                drawTomographyMetric(g, rightX, metricY + 84, rightW, "全身炎症反应 SIRS",
+                        "STAGE " + data.getSirsLevel() + " / 4",
+                        data.getSirsLevel() > 0 ? C_ALERT_RED : C_SAFE_GREEN);
             }
         }
-        g.drawString(this.font, "SCROLL TO SCRUB", gridX + gridW - 78, indY + 5, 0x6600E5FF, false);
+
+        g.drawString(this.font, "滚轮或点击 < > 切换断层切片  |  点击外部或按 ESC 关闭断层仪",
+                boxX + 12, boxY + boxH - 14, 0xFF80CBC4, false);
+
+        g.pose().popPose();
     }
 
-    private void renderDcmLayerContent(GuiGraphics g, int gridX, int gridY, int revealW, int gridH,
-                                       MedicalData.LimbData ld, boolean hasFracture, boolean hasBleeding,
-                                       boolean hasLaceration, long now) {
-        if (revealW <= 2) return;
-        int midX = gridX + revealW / 2;
-        int topY = gridY + 12;
-        int botY = gridY + gridH - 14;
-        int midY = (topY + botY) / 2;
+    /**
+     * 高精度 OpenGL 4 层解剖横截面 CT 渲染器（彻底告别粗糙菱形）
+     */
+    private void drawHighPrecisionTomographySlice(GuiGraphics g, float cx, float cy, float r,
+                                                  int layer, MedicalData.Limb limb,
+                                                  MedicalData data, MedicalData.LimbData ld, long now) {
+        Matrix4f pose = g.pose().last().pose();
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.disableDepthTest();
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
 
-        g.enableScissor(gridX, gridY, gridX + revealW, gridY + gridH);
+        Tesselator tess = Tesselator.getInstance();
+        BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
 
-        switch (dcmLayer) {
+        float timeSec = (now % 60000L) / 1000.0f;
+        int segs = 56;
+
+        // 0. 绘制外围 CT 旋转扫描机架刻度环与旋转激光游标
+        for (int i = 0; i < segs; i++) {
+            float a1 = (i / (float) segs) * ((float) Math.PI * 2.0f);
+            float a2 = ((i + 1) / (float) segs) * ((float) Math.PI * 2.0f);
+            float gR = r * 1.08f;
+            PainVisualOverlay.addQuadSegment(buf, pose,
+                    cx + Mth.cos(a1) * gR, cy + Mth.sin(a1) * gR,
+                    cx + Mth.cos(a2) * gR, cy + Mth.sin(a2) * gR,
+                    0.5f, 0, 190, 235, 65, 65);
+            if (i % 7 == 0) {
+                PainVisualOverlay.addQuadSegment(buf, pose,
+                        cx + Mth.cos(a1) * (gR - 3.0f), cy + Mth.sin(a1) * (gR - 3.0f),
+                        cx + Mth.cos(a1) * (gR + 2.0f), cy + Mth.sin(a1) * (gR + 2.0f),
+                        0.75f, 0, 240, 255, 150, 150);
+            }
+        }
+        // 旋转 CT 机架投影径向扫描线
+        float gantryAng = timeSec * 1.6f;
+        PainVisualOverlay.addQuadSegment(buf, pose,
+                cx, cy, cx + Mth.cos(gantryAng) * r * 1.06f, cy + Mth.sin(gantryAng) * r * 1.06f,
+                0.8f, 0, 240, 255, 110, 15);
+
+        switch (layer) {
             case 0 -> {
-                g.fill(gridX + 8, topY, gridX + revealW - 8, botY, 0x335A4A44);
-                HudRenderHelper.drawLine(g, gridX + 8, topY, gridX + revealW - 8, topY, 0xFF8A7A72, 1);
-                HudRenderHelper.drawLine(g, gridX + 8, botY, gridX + revealW - 8, botY, 0xFF8A7A72, 1);
-                int burnDeg = ld.getBurnDegree();
-                boolean heatActive = ld.getBurnHeatTimer() > 0;
-                if (burnDeg > 0 || heatActive) {
-                    // 烧伤病灶：横向宽度 ∝ 面积，按深度着色
-                    int zoneW = Math.max(10, (int) ((revealW - 16) * Math.max(0.15f, ld.getBurnArea())));
-                    int zx0 = midX - zoneW / 2;
-                    int zx1 = midX + zoneW / 2;
-                    int zoneColor = switch (Math.max(1, burnDeg)) {
-                        case 1 -> 0x66E85D3A;                                   // I度:红斑
-                        case 2 -> 0x88D4442A;                                   // 浅II:鲜红+水疱
-                        case 3 -> 0x88905A38;                                   // 深II:斑驳红褐
-                        default -> 0xCC1E1610;                                  // III:焦黑
-                    };
-                    g.fill(zx0, topY + 3, zx1, botY - 3, zoneColor);
-                    if (burnDeg == 2) {
-                        // 浅II度:水疱亮斑
-                        for (int i = 0; i < 5; i++) {
-                            int bx = zx0 + 4 + i * Math.max(3, (zoneW - 8) / 5);
-                            int by = topY + 8 + ((i * 7) % Math.max(6, (botY - topY) / 2));
-                            g.fill(bx, by, bx + 3, by + 2, 0xAAF0E6C8);
-                        }
-                    } else if (burnDeg == 3) {
-                        // 深II度:斑驳纹理
-                        for (int i = 0; i < 6; i++) {
-                            int bx = zx0 + 3 + (i * Math.max(4, (zoneW - 6) / 6));
-                            int by = topY + 6 + ((i * 11) % Math.max(8, botY - topY - 12));
-                            g.fill(bx, by, bx + 4, by + 3, 0x556B4226);
-                        }
-                    } else if (burnDeg >= 4) {
-                        g.drawString(this.font, "ESCHAR FORMED", gridX + 6, gridY + 6, 0xFFC8B8A0, false);
+                // ========== LAYER 01: 表皮、真皮乳头层、皮下脂肪蜂窝网与创口/敷料 ==========
+                boolean hasWound = ld.getBleeding() > 0 || ld.hasOpenWound();
+                float burnRatio = ld.hasBurn() ? Mth.clamp(ld.getBurnArea() / 30.0f, 0.15f, 1.0f) : 0.0f;
+
+                for (int i = 0; i < segs; i++) {
+                    float u1 = i / (float) segs;
+                    float u2 = (i + 1) / (float) segs;
+                    float a1 = u1 * ((float) Math.PI * 2.0f);
+                    float a2 = u2 * ((float) Math.PI * 2.0f);
+
+                    // 解剖轮廓轻微椭圆塑造
+                    float shape1 = 0.92f + 0.08f * Mth.cos(a1 * 2.0f);
+                    float shape2 = 0.92f + 0.08f * Mth.cos(a2 * 2.0f);
+
+                    // 若有开放性出血创口，在右上象限 (a ∈ [0.5, 0.95]) 形成深 V 型表皮撕裂缺口
+                    float cleft1 = (hasWound && a1 > 0.55f && a1 < 0.95f)
+                            ? (1.0f - 0.32f * Mth.sin(((a1 - 0.55f) / 0.40f) * (float) Math.PI)) : 1.0f;
+                    float cleft2 = (hasWound && a2 > 0.55f && a2 < 0.95f)
+                            ? (1.0f - 0.32f * Mth.sin(((a2 - 0.55f) / 0.40f) * (float) Math.PI)) : 1.0f;
+
+                    float rEpi1 = r * 0.88f * shape1 * cleft1;
+                    float rEpi2 = r * 0.88f * shape2 * cleft2;
+
+                    // 烧伤区域染色为焦橙红，正常表皮为翡翠青
+                    boolean inBurnArc = (u1 < burnRatio);
+                    int er = inBurnArc ? 255 : (cleft1 < 0.98f ? 255 : 0);
+                    int eg = inBurnArc ? 105 : (cleft1 < 0.98f ? 25 : 230);
+                    int eb = inBurnArc ? 20 : (cleft1 < 0.98f ? 50 : 180);
+
+                    // 1) 外表皮角质层亮环
+                    PainVisualOverlay.addQuadSegment(buf, pose,
+                            cx + Mth.cos(a1) * rEpi1, cy + Mth.sin(a1) * rEpi1,
+                            cx + Mth.cos(a2) * rEpi2, cy + Mth.sin(a2) * rEpi2,
+                            1.5f, er, eg, eb, 230, 230);
+
+                    // 2) 真皮乳头波浪层 (Dermal Papillae Wave Ring)
+                    float wave1 = 0.76f + 0.035f * Mth.sin(a1 * 18.0f);
+                    float wave2 = 0.76f + 0.035f * Mth.sin(a2 * 18.0f);
+                    float rDer1 = r * wave1 * shape1 * cleft1;
+                    float rDer2 = r * wave2 * shape2 * cleft2;
+                    PainVisualOverlay.addQuadSegment(buf, pose,
+                            cx + Mth.cos(a1) * rDer1, cy + Mth.sin(a1) * rDer1,
+                            cx + Mth.cos(a2) * rDer2, cy + Mth.sin(a2) * rDer2,
+                            0.9f, 0, 175, 220, 150, 150);
+
+                    // 3) 若已包扎，在表皮外侧绘制双层无菌加压纱布编织环與卡扣
+                    if (ld.isBandaged()) {
+                        float rBand1 = r * 0.96f * shape1;
+                        float rBand2 = r * 0.96f * shape2;
+                        int ba = (i % 2 == 0) ? 220 : 120;
+                        PainVisualOverlay.addQuadSegment(buf, pose,
+                                cx + Mth.cos(a1) * rBand1, cy + Mth.sin(a1) * rBand1,
+                                cx + Mth.cos(a2) * rBand2, cy + Mth.sin(a2) * rBand2,
+                                1.6f, 0, 255, 128, ba, ba);
                     }
-                    String burnLabel = burnDeg == 0 ? "THERMAL LOADING"
-                            : burnDeg == 1 ? "EPIDERMAL ERYTHEMA"
-                            : burnDeg == 2 ? "PARTIAL THICKNESS" + (ld.isBandaged() ? " [DRESSED]" : "")
-                            : burnDeg == 3 ? "DEEP DERMAL" + (ld.isBandaged() ? " [DRESSED]" : "")
-                            : "FULL THICKNESS" + (ld.isBandaged() ? " [DRESSED]" : "");
-                    int labelColor = burnDeg >= 4 ? 0xFFC8B8A0 : (burnDeg >= 2 ? 0xFFFF8A5C : 0xFFE8B08A);
-                    g.drawString(this.font, burnLabel, gridX + 6, gridY + 6, labelColor, false);
-                    if (heatActive) {
-                        // 热力期闪烁:IRRIGATE 提示（冷水冲洗可阻止加深）
-                        boolean blink = (now % 800) < 400;
-                        if (blink) {
-                            g.drawString(this.font, "IRRIGATE NOW", gridX + 6, gridY + gridH - 12, 0xFF00E5FF, false);
-                        }
-                    }
-                } else if (hasLaceration) {
-                    for (int i = 0; i < 6; i++) {
-                        int lx = midX - 15 + i * 6;
-                        HudRenderHelper.drawLine(g, lx, midY - 4 + i, lx + 4, midY + 4 - i, 0xFFFF1744, 1);
-                    }
-                    g.drawString(this.font, "LACERATION OPEN", gridX + 6, gridY + 6, 0xFFFF5252, false);
-                } else {
-                    g.drawString(this.font, "INTEGUMENT INTACT", gridX + 6, gridY + 6, 0xFF00FF88, false);
                 }
-                if (hasBleeding) {
-                    g.fill(midX - 20, midY - 10, midX + 20, midY + 10, 0x3D3A1E4A);
-                    g.drawString(this.font, "HEMATOMA", midX + 22, midY - 3, 0xFF9A6CD0, false);
+
+                // 4) 皮下脂肪小叶蜂窝微晶格 (Subcutaneous Adipose Lattice)
+                for (int ring = 1; ring <= 2; ring++) {
+                    float subR = r * (0.42f + ring * 0.14f);
+                    int cells = 12 + ring * 6;
+                    for (int c = 0; c < cells; c++) {
+                        float ang = (c / (float) cells) * ((float) Math.PI * 2.0f) + ring * 0.3f;
+                        drawCircleOutline(buf, pose, cx + Mth.cos(ang) * subR, cy + Mth.sin(ang) * subR,
+                                r * 0.06f, 10, 0, 150, 190, 75);
+                    }
+                }
+
+                // 5) 若有外出血，在表皮撕裂缺口处绘制向外喷溅的动态血液粒子
+                if (ld.getBleeding() > 0) {
+                    for (int drop = 0; drop < 6; drop++) {
+                        float dProg = ((timeSec * 1.8f + drop * 0.17f) % 1.0f);
+                        float dAng = 0.75f + (drop - 2.5f) * 0.06f;
+                        float dRad = r * (0.72f + dProg * 0.34f);
+                        drawFilledDisc(buf, pose, cx + Mth.cos(dAng) * dRad, cy + Mth.sin(dAng) * dRad,
+                                2.2f * (1.0f - dProg * 0.5f), 255, 25, 45, (int) ((1.0f - dProg) * 240));
+                    }
                 }
             }
             case 1 -> {
-                HudRenderHelper.drawLine(g, midX - 3, topY, midX - 3, botY, 0xFFC23B4E, 1);
-                HudRenderHelper.drawLine(g, midX + 3, topY, midX + 3, botY, 0xFFC23B4E, 1);
-                for (int i = 0; i < 7; i++) {
-                    int vy = topY + 6 + i * ((botY - topY) / 8);
-                    HudRenderHelper.drawLine(g, midX - 3, vy, midX - 14, vy + 6, 0x88C23B4E, 1);
-                    HudRenderHelper.drawLine(g, midX + 3, vy, midX + 14, vy - 6, 0x88C23B4E, 1);
+                // ========== LAYER 02: 肌肉筋膜室、搏动主干动静脉、毛细血管网与内出血血肿 ==========
+                // 1) 外周深筋膜鞘环 (Deep Fascia Epimysium)
+                drawCircleOutline(buf, pose, cx, cy, r * 0.88f, 48, 0, 180, 230, 180);
+
+                // 2) 四大肌群室横截面 (Muscle Compartments) 与结缔组织肌间隔 (Intermuscular Septa)
+                for (int q = 0; q < 4; q++) {
+                    float qAng = q * ((float) Math.PI * 0.5f) + 0.4f;
+                    PainVisualOverlay.addQuadSegment(buf, pose,
+                            cx + Mth.cos(qAng) * r * 0.22f, cy + Mth.sin(qAng) * r * 0.22f,
+                            cx + Mth.cos(qAng) * r * 0.88f, cy + Mth.sin(qAng) * r * 0.88f,
+                            0.9f, 0, 160, 210, 110, 110);
+
+                    // 肌室中心肌束环
+                    float mCX = cx + Mth.cos(qAng + 0.4f) * r * 0.52f;
+                    float mCY = cy + Mth.sin(qAng + 0.4f) * r * 0.52f;
+                    drawCircleOutline(buf, pose, mCX, mCY, r * 0.22f, 18, 0, 140, 180, 85);
                 }
-                if (hasBleeding) {
-                    float t = (now % 1000) / 1000.0f;
-                    for (int i = 0; i < 6; i++) {
-                        float angle = -1.2f + (i * 0.4f);
-                        float dist = (t * 22.0f + i * 4.0f) % 24.0f;
-                        int px = midX + (int) (Math.cos(angle) * dist);
-                        int py = midY + (int) (Math.sin(angle) * dist);
-                        int alpha = (int) ((1.0f - dist / 24.0f) * 220);
-                        g.fill(px - 1, py - 1, px + 2, py + 2, (alpha << 24) | 0x00FF1744);
-                    }
-                    g.drawString(this.font, "ACTIVE ARTERIAL JET", gridX + 6, gridY + gridH - 12, 0xFFFF1744, false);
-                } else {
-                    g.drawString(this.font, "PERFUSION NOMINAL", gridX + 6, gridY + 6, 0xFF00FF88, false);
+
+                // 3) 若有内出血，在组织间隙渲染紫红色浸润性血肿池 (Interstitial Hematoma Pool)
+                int inBleed = ld.getInternalBleedingRate();
+                if (inBleed > 0) {
+                    float hemaScale = Mth.clamp(0.18f + (inBleed / 300.0f) * 0.28f, 0.18f, 0.46f);
+                    float pulse = 0.9f + 0.1f * Mth.sin(timeSec * 5.0f);
+                    drawFilledDisc(buf, pose, cx - r * 0.28f, cy + r * 0.22f, r * hemaScale * pulse, 215, 25, 245, 165);
+                    drawCircleOutline(buf, pose, cx - r * 0.28f, cy + r * 0.22f, r * hemaScale * pulse, 24, 255, 80, 255, 230);
+                }
+
+                // 4) 主干动脉 (Main Artery - 随心率收缩搏动) 与双伴行静脉 (Paired Veins)
+                float artPulse = 1.0f + 0.22f * PainVisualOverlay.evaluateDicroticPulse(ecgPhase);
+                float artX = cx + r * 0.18f;
+                float artY = cy - r * 0.16f;
+                float artR = r * 0.13f * (ld.isTourniqueted() ? 0.45f : artPulse);
+                drawFilledDisc(buf, pose, artX, artY, artR, 255, 25, 50, 210);
+                drawCircleOutline(buf, pose, artX, artY, artR * 1.25f, 20, 255, 90, 110, 240);
+
+                // 伴行静脉 (深青蓝)
+                drawFilledDisc(buf, pose, cx - r * 0.16f, cy - r * 0.22f, r * 0.11f, 0, 150, 255, 180);
+                drawFilledDisc(buf, pose, cx + r * 0.08f, cy + r * 0.24f, r * 0.09f, 0, 150, 255, 165);
+
+                // 5) 放射状微血管灌注分支
+                for (int b = 0; b < 14; b++) {
+                    float bAng = (b / 14.0f) * ((float) Math.PI * 2.0f);
+                    float bx1 = artX + Mth.cos(bAng) * artR;
+                    float by1 = artY + Mth.sin(bAng) * artR;
+                    float bx2 = cx + Mth.cos(bAng) * r * 0.82f;
+                    float by2 = cy + Mth.sin(bAng) * r * 0.82f;
+                    PainVisualOverlay.addQuadSegment(buf, pose, bx1, by1, bx2, by2, 0.65f, 255, 45, 70, 150, 25);
+                }
+
+                // 6) 若绑定了止血带，在外圈绘制橙色高压机械锁紧环
+                if (ld.isTourniqueted()) {
+                    drawCircleOutline(buf, pose, cx, cy, r * 0.92f, 48, 255, 145, 0, 245);
                 }
             }
             case 2 -> {
-                for (int i = 0; i < 9; i++) {
-                    int fy = topY + 4 + i * ((botY - topY) / 10);
-                    int off = (i % 2 == 0) ? 3 : -3;
-                    HudRenderHelper.drawLine(g, gridX + 10, fy + off, gridX + revealW - 10, fy - off, 0x55B0563A, 1);
+                // ========== LAYER 03: 骨骼皮质、骨小梁蜂窝网、粉碎骨折裂隙与外固定钛板 ==========
+                drawCircleOutline(buf, pose, cx, cy, r * 0.88f, 48, 0, 140, 180, 75);
+
+                if (limb == MedicalData.Limb.CHEST) {
+                    // 胸部横截面：后方脊柱椎体 + 前方胸骨 + 左右对称肋骨弓围绕双肺野
+                    for (int side = -1; side <= 1; side += 2) {
+                        float lungCX = cx + side * r * 0.36f;
+                        drawCircleOutline(buf, pose, lungCX, cy, r * 0.34f, 28, 200, 245, 255, 210);
+                        // 若有血胸，在胸膜腔底部渲染暗红积液液面
+                        if (data.getHemothoraxLevel() > 0) {
+                            drawFilledDisc(buf, pose, lungCX, cy + r * 0.14f, r * 0.22f, 255, 20, 45, 175);
+                        }
+                    }
+                    // 脊柱骨密质核心
+                    drawFilledDisc(buf, pose, cx, cy + r * 0.56f, r * 0.16f, 225, 250, 255, 230);
+                } else if (limb == MedicalData.Limb.HEAD) {
+                    // 头颅横截面：厚实的颅骨外板/板障/内板双环 + 大脑镰中线
+                    drawCircleOutline(buf, pose, cx, cy, r * 0.78f, 48, 230, 250, 255, 240);
+                    drawCircleOutline(buf, pose, cx, cy, r * 0.68f, 48, 160, 225, 255, 190);
+                    PainVisualOverlay.addQuadSegment(buf, pose, cx, cy - r * 0.68f, cx, cy + r * 0.68f, 0.8f, 0, 210, 255, 140, 140);
+                } else {
+                    // 四肢双骨截面 (如尺骨+桡骨 / 胫骨+腓骨)：主承重骨 + 副骨
+                    float mainBX = cx - r * 0.15f;
+                    float mainBY = cy - r * 0.08f;
+                    float mainBR = r * 0.34f;
+
+                    float subBX = cx + r * 0.34f;
+                    float subBY = cy + r * 0.20f;
+                    float subBR = r * 0.19f;
+
+                    // 主骨高密度骨皮质环 (Cortical Bone) + 内部骨小梁网格 (Trabecular Lattice)
+                    drawCircleOutline(buf, pose, mainBX, mainBY, mainBR, 36, 235, 252, 255, 245);
+                    drawCircleOutline(buf, pose, mainBX, mainBY, mainBR * 0.62f, 28, 120, 210, 240, 170);
+                    for (int sp = 0; sp < 8; sp++) {
+                        float sa = (sp / 8.0f) * ((float) Math.PI * 2.0f);
+                        PainVisualOverlay.addQuadSegment(buf, pose,
+                                mainBX + Mth.cos(sa) * mainBR * 0.2f, mainBY + Mth.sin(sa) * mainBR * 0.2f,
+                                mainBX + Mth.cos(sa + 0.5f) * mainBR * 0.62f, mainBY + Mth.sin(sa + 0.5f) * mainBR * 0.62f,
+                                0.55f, 150, 225, 255, 130, 130);
+                    }
+
+                    // 副骨皮质环与髓腔
+                    drawCircleOutline(buf, pose, subBX, subBY, subBR, 24, 220, 245, 255, 225);
+                    drawCircleOutline(buf, pose, subBX, subBY, subBR * 0.55f, 18, 120, 200, 235, 150);
                 }
-                int shrapnelX = midX - 18;
-                int shrapnelY = topY + 16;
-                HudRenderHelper.drawDiamond(g, shrapnelX, shrapnelY, 3, 0xFFFFD600);
-                g.fill(shrapnelX + 4, shrapnelY, shrapnelX + 16, shrapnelY + 1, 0x88FFD600);
-                g.drawString(this.font, "FOREIGN BODY", shrapnelX + 18, shrapnelY - 3, 0xFFFFD600, false);
-                if (hasBleeding) {
-                    g.fill(midX - 24, midY - 6, midX + 8, midY + 6, 0x2E5A2E3A);
+
+                // 若存在骨折：绘制贯穿骨皮质的红色锯齿状粉碎性骨折裂隙与游离骨片
+                if (ld.hasFracture()) {
+                    PainVisualOverlay.addQuadSegment(buf, pose, cx - r * 0.52f, cy - r * 0.35f, cx - r * 0.12f, cy - r * 0.05f, 1.5f, 255, 25, 45, 255, 255);
+                    PainVisualOverlay.addQuadSegment(buf, pose, cx - r * 0.12f, cy - r * 0.05f, cx + r * 0.05f, cy - r * 0.22f, 1.5f, 255, 255, 255, 255, 255);
+                    PainVisualOverlay.addQuadSegment(buf, pose, cx + r * 0.05f, cy - r * 0.22f, cx + r * 0.38f, cy + r * 0.18f, 1.5f, 255, 25, 45, 255, 255);
+                }
+
+                // 若已打夹板：在两侧绘制翠绿色钛合金外固定支架与锁定螺钉
+                if (ld.hasSplint()) {
+                    PainVisualOverlay.addQuadSegment(buf, pose, cx - r * 0.82f, cy - r * 0.45f, cx - r * 0.82f, cy + r * 0.45f, 2.2f, 0, 255, 128, 240, 240);
+                    PainVisualOverlay.addQuadSegment(buf, pose, cx + r * 0.82f, cy - r * 0.45f, cx + r * 0.82f, cy + r * 0.45f, 2.2f, 0, 255, 128, 240, 240);
+                    PainVisualOverlay.addQuadSegment(buf, pose, cx - r * 0.82f, cy, cx + r * 0.82f, cy, 0.9f, 0, 255, 128, 160, 160);
                 }
             }
             default -> {
-                if (hasFracture) {
-                    HudRenderHelper.drawLine(g, midX - 6, topY, midX - 4, midY - 3, 0xFFEEEEEE, 4);
-                    HudRenderHelper.drawLine(g, midX + 5, midY + 4, midX + 3, botY, 0xFFEEEEEE, 4);
-                    HudRenderHelper.drawLine(g, midX - 7, midY - 3, midX + 7, midY + 4, 0xFFFF1744, 2);
-                    g.drawString(this.font, "DISPLACEMENT: 14.2°", gridX + 6, gridY + 6, 0xFFFF5252, false);
-                } else {
-                    HudRenderHelper.drawLine(g, midX, topY, midX, botY, 0xFFCCCCCC, 5);
-                    g.drawString(this.font, "CORTICAL BONE: INTACT", gridX + 6, gridY + 6, 0xFF00FF88, false);
+                // ========== LAYER 04: 细胞基质、外周神经束髓鞘、痛觉放电环与病原体感染菌落 ==========
+                drawCircleOutline(buf, pose, cx, cy, r * 0.88f, 48, 0, 180, 220, 110);
+
+                // 1) 中央外周神经干横截面 (Peripheral Nerve Trunk & Fascicles)
+                float nerveR = r * 0.32f;
+                drawCircleOutline(buf, pose, cx, cy, nerveR, 32, 0, 240, 255, 210);
+                for (int f = 0; f < 6; f++) {
+                    float fa = (f / 6.0f) * ((float) Math.PI * 2.0f) + timeSec * 0.2f;
+                    float fx = cx + Mth.cos(fa) * nerveR * 0.55f;
+                    float fy = cy + Mth.sin(fa) * nerveR * 0.55f;
+                    drawCircleOutline(buf, pose, fx, fy, nerveR * 0.26f, 16, 80, 220, 255, 175);
+                }
+
+                // 2) 痛觉神经放电脉冲环与放射状电刺 (随 ld.getPainLevel() 0~10 增强)
+                int pain = ld.getPainLevel();
+                if (pain > 0) {
+                    float painWave = (timeSec * (1.2f + pain * 0.25f)) % 1.0f;
+                    float waveR = nerveR + painWave * (r * 0.56f);
+                    int waveA = (int) ((1.0f - painWave) * (120 + pain * 13));
+                    drawCircleOutline(buf, pose, cx, cy, waveR, 36, 255, 0, 95, waveA);
+
+                    int spikes = 4 + pain * 2;
+                    for (int sp = 0; sp < spikes; sp++) {
+                        float sa = (sp / (float) spikes) * ((float) Math.PI * 2.0f) + timeSec * 2.5f;
+                        float sLen = r * (0.35f + 0.045f * pain);
+                        PainVisualOverlay.addQuadSegment(buf, pose,
+                                cx + Mth.cos(sa) * nerveR, cy + Mth.sin(sa) * nerveR,
+                                cx + Mth.cos(sa + 0.12f) * sLen, cy + Mth.sin(sa + 0.12f) * sLen,
+                                0.9f, 255, 20, 100, 220, 0);
+                    }
+                }
+
+                // 3) 细菌感染群落与生物靶向锁定框 (随 ld.getInfection() 0~100% 增殖)
+                int inf = ld.getInfection();
+                if (inf > 0) {
+                    int colonies = Math.max(1, inf / 8);
+                    for (int c = 0; c < colonies; c++) {
+                        float ca = c * 2.39996f + 0.5f;
+                        float crDist = r * (0.28f + ((c * 19) % 50) * 0.011f);
+                        float colX = cx + Mth.cos(ca) * crDist;
+                        float colY = cy + Mth.sin(ca) * crDist;
+                        float colR = 2.5f + (inf / 100.0f) * 4.5f;
+                        drawFilledDisc(buf, pose, colX, colY, colR, 255, 190, 0, 195);
+                        drawCircleOutline(buf, pose, colX, colY, colR * 1.6f, 12, 255, 80, 20, 150);
+                    }
                 }
             }
         }
-        g.disableScissor();
+
+        MeshData mesh = buf.build();
+        if (mesh != null) BufferUploader.drawWithShader(mesh);
+
+        RenderSystem.enableDepthTest();
+        RenderSystem.disableBlend();
     }
 
-    private void drawAssemblyTrail(GuiGraphics g, float panelX, float panelY, float progress, long now, int seed) {
-        if (progress >= 0.999f) return;
-        float ang = (seed * 2.399963f) + 1.1f;
-        float depth = 120f + (seed % 2) * 60f;
-        float sx = panelX + (float) Math.cos(ang) * depth;
-        float sy = panelY + (float) Math.sin(ang) * depth * 0.6f;
-
-        for (int i = 0; i < 8; i++) {
-            float tp = (i / 8.0f);
-            float px = sx + (panelX - sx) * tp * progress;
-            float py = sy + (panelY - sy) * tp * progress;
-            int a = (int) ((1.0f - tp) * 150 * progress);
-            if (a <= 0) continue;
-            int jitter = (int) (Math.sin(now * 0.02f + i * 1.7f + seed) * 1.5f);
-            g.fill((int) px + jitter, (int) py + jitter, (int) px + 2 + jitter, (int) py + 2 + jitter,
-                    (a << 24) | 0x0000E5FF);
+    private void drawCircleOutline(BufferBuilder buf, Matrix4f pose, float cx, float cy, float radius,
+                                   int segments, int r, int g, int b, int a) {
+        for (int i = 0; i < segments; i++) {
+            float a1 = (i / (float) segments) * ((float) Math.PI * 2.0f);
+            float a2 = ((i + 1) / (float) segments) * ((float) Math.PI * 2.0f);
+            PainVisualOverlay.addQuadSegment(buf, pose,
+                    cx + Mth.cos(a1) * radius, cy + Mth.sin(a1) * radius,
+                    cx + Mth.cos(a2) * radius, cy + Mth.sin(a2) * radius,
+                    0.85f, r, g, b, a, a);
         }
-        int ax = (int) (sx + (panelX - sx) * 0.5f * progress);
-        int ay = (int) (sy + (panelY - sy) * 0.5f * progress);
-        int a2 = (int) (90 * progress);
-        if (a2 > 0) HudRenderHelper.drawLine(g, ax, ay, (int) panelX, (int) panelY, (a2 << 24) | 0x0000E5FF, 1);
     }
 
-    private void drawAssemblyReticle(GuiGraphics g, float overallProgress, long now) {
-        if (overallProgress >= 1.0f) return;
-        int cx = this.width / 2;
-        int cy = this.height / 2;
-        int a = (int) (70 * (1.0f - overallProgress) + 20);
-        int col = (a << 24) | 0x0000E5FF;
-        int armLen = (int) (60 - 40 * overallProgress);
-        HudRenderHelper.drawLine(g, cx - armLen, cy, cx - 6, cy, col, 1);
-        HudRenderHelper.drawLine(g, cx + 6, cy, cx + armLen, cy, col, 1);
-        HudRenderHelper.drawLine(g, cx, cy - armLen, cx, cy - 6, col, 1);
-        HudRenderHelper.drawLine(g, cx, cy + 6, cx, cy + armLen, col, 1);
-        int m = (int) (36 - 26 * overallProgress);
-        int[][] corners = {{cx - m, cy - m, 1, 1}, {cx + m, cy - m, -1, 1}, {cx - m, cy + m, 1, -1}, {cx + m, cy + m, -1, -1}};
-        for (int[] c : corners) {
-            g.fill(c[0], c[1], c[0] + 7 * c[2], c[1] + 1 * c[3], col);
-            g.fill(c[0], c[1], c[0] + 1 * c[2], c[1] + 7 * c[3], col);
+    private void drawFilledDisc(BufferBuilder buf, Matrix4f pose, float cx, float cy, float radius,
+                                int r, int g, int b, int a) {
+        float c = radius * 0.7f;
+        buf.addVertex(pose, cx - c, cy - c, 0.0f).setColor(r, g, b, a);
+        buf.addVertex(pose, cx + c, cy - c, 0.0f).setColor(r, g, b, a);
+        buf.addVertex(pose, cx + c, cy + c, 0.0f).setColor(r, g, b, a);
+        buf.addVertex(pose, cx - c, cy + c, 0.0f).setColor(r, g, b, a);
+    }
+
+    private void drawTomographyMetric(GuiGraphics g, int x, int y, int w, String label, String val, int color) {
+        g.fill(x, y, x + w, y + 23, 0x8806121E);
+        g.fill(x, y, x + 2, y + 23, color);
+        g.drawString(this.font, label, x + 6, y + 3, 0xFF90A4AE, false);
+        g.drawString(this.font, val, x + 6, y + 13, color, false);
+    }
+
+    // ============================================================
+    // 五、右侧详情面板
+    // ============================================================
+    private void drawDetailPanel(GuiGraphics graphics, MedicalData data, int panelX, int panelWidth,
+                                 int mouseX, int mouseY, float deltaSeconds, long now) {
+        int panelY = HUD_BAR_H + 14;
+        int panelHeight = this.height - HUD_BAR_H - 38;
+
+        if (panelWidth < 100 || panelHeight < 60) return;
+
+        if (selectedLimb == MedicalData.Limb.HEAD) {
+            String cardTitle = "CEREBRAL & CRANIAL SCAN // 头部创伤与全息脑扫描";
+            drawCyberCard(graphics, panelX, panelY, panelWidth, panelHeight, cardTitle, themePrimaryColor);
+            brainScanRenderer.render(graphics, this.font, panelX, panelY, panelWidth, panelHeight,
+                    data, deltaSeconds, mouseX, mouseY, now);
+            return;
         }
-        if (overallProgress > 0.95f) {
-            float flash = (overallProgress - 0.95f) / 0.05f;
-            int fa = (int) (50 * (1.0f - flash));
-            if (fa > 0) {
-                g.fill(0, 0, this.width, 2, (fa << 24) | 0x0000E5FF);
-                g.fill(0, this.height - 2, this.width, this.height, (fa << 24) | 0x0000E5FF);
+
+        String cardTitle = selectedLimb != null
+                ? "DIAGNOSIS // " + getLimbFullName(selectedLimb) + " " + tr("medical.detail.title")
+                : "SYSTEM OVERVIEW // 全身生理概览";
+
+        drawCyberCard(graphics, panelX, panelY, panelWidth, panelHeight, cardTitle, themePrimaryColor);
+
+        detailPanelRenderer.renderLimbOrOverviewPanel(
+                graphics, this.font,
+                panelX, panelY, panelWidth, panelHeight,
+                data, selectedLimb,
+                mouseX, mouseY, now, themePrimaryColor,
+                (g, ecgX, ecgY, ecgW, ecgH, d) -> drawDualOscilloscope(g, ecgX, ecgY, ecgW, ecgH, d)
+        );
+    }
+
+    // ============================================================
+    // 六、临床级双通道监护示波器 (Lead II ECG & SpO2 Plethysmograph)
+    // ============================================================
+    private void updateOscilloscopeBuffers(MedicalData data, float dt) {
+        rPeakFlashAlpha = Math.max(0.0f, rPeakFlashAlpha - dt * 3.5f);
+
+        oscSweepAccumulator += dt * 45.0f;
+        int steps = (int) oscSweepAccumulator;
+        if (steps <= 0) return;
+        oscSweepAccumulator -= steps;
+        steps = Math.min(steps, 6);
+
+        float bpm = Mth.clamp(data.getHeartRate(), 30.0f, 240.0f);
+        float stepSec = 1.0f / 45.0f;
+
+        for (int s = 0; s < steps; s++) {
+            float prevPhase = ecgPhase;
+            ecgPhase = (ecgPhase + stepSec * (bpm / 60.0f)) % 1.0f;
+
+            float ecgVal;
+            float plethVal;
+
+            if (data.isCardiacArrest()) {
+                ecgVal = ((System.nanoTime() & 0xFF) / 255.0f - 0.5f) * 0.04f;
+                plethVal = 0.0f;
+            } else if (data.isInVFib()) {
+                float t = System.currentTimeMillis() * 0.015f + s * 0.4f;
+                ecgVal = (Mth.sin(t * 1.7f) * 0.45f + Mth.cos(t * 3.1f) * 0.35f + Mth.sin(t * 5.3f) * 0.20f);
+                plethVal = 0.08f * Mth.sin(t * 0.9f);
+            } else {
+                ecgVal = evaluateClinicalLeadII(ecgPhase);
+                if (prevPhase < 0.22f && ecgPhase >= 0.22f) {
+                    rPeakFlashAlpha = 1.0f;
+                }
+                float plethPhase = (ecgPhase + 0.82f) % 1.0f;
+                float mapFactor = Mth.clamp(data.getMeanArterialPressure() / 93.0f, 0.2f, 1.3f);
+                plethVal = (PainVisualOverlay.evaluateDicroticPulse(plethPhase) - 0.35f) * 1.2f * mapFactor;
             }
+
+            oscWriteHead = (oscWriteHead + 1) % OSC_SAMPLES;
+            ecgBuffer[oscWriteHead] = Mth.clamp(ecgVal, -1.0f, 1.2f);
+            plethBuffer[oscWriteHead] = Mth.clamp(plethVal, -0.8f, 1.0f);
+        }
+    }
+
+    private float evaluateClinicalLeadII(float p) {
+        if (p < 0.08f) return 0.0f;
+        if (p < 0.16f) return 0.18f * Mth.sin(((p - 0.08f) / 0.08f) * (float) Math.PI);
+        if (p < 0.19f) return 0.0f;
+        if (p < 0.21f) return -0.22f * Mth.sin(((p - 0.19f) / 0.02f) * (float) Math.PI);
+        if (p < 0.25f) return 1.15f * Mth.sin(((p - 0.21f) / 0.04f) * (float) Math.PI);
+        if (p < 0.28f) return -0.35f * Mth.sin(((p - 0.25f) / 0.03f) * (float) Math.PI);
+        if (p < 0.36f) return 0.0f;
+        if (p < 0.50f) return 0.32f * Mth.sin(((p - 0.36f) / 0.14f) * (float) Math.PI);
+        return 0.0f;
+    }
+
+    private void drawDualOscilloscope(GuiGraphics g, int x, int y, int width, int height, MedicalData data) {
+        HudRenderHelper.drawSciFiCard(g, x, y, width, height, 4, 0xE603080E, withAlpha(themePrimaryColor, 0.55f));
+
+        for (int gx = x + 8; gx < x + width - 4; gx += 12) {
+            g.fill(gx, y + 4, gx + 1, y + height - 4, withAlpha(themePrimaryColor, 0.08f));
+        }
+        for (int gy = y + 8; gy < y + height - 4; gy += 12) {
+            g.fill(x + 4, gy, x + width - 4, gy + 1, withAlpha(themePrimaryColor, 0.08f));
+        }
+
+        int hr = data.getHeartRate();
+        int ecgColor = (data.isCardiacArrest() || data.isInVFib() || hr >= 150 || hr <= 45)
+                ? C_ALERT_RED : (hr >= 115 ? C_WARN_YELLOW : C_SAFE_GREEN);
+
+        g.drawString(this.font, "LEAD II // 25mm/s  HR: " + hr + " BPM", x + 6, y + 4, ecgColor, false);
+        String bpInfo = String.format("BP %d/%d (MAP %.0f)", data.getSystolicBP(), data.getDiastolicBP(), data.getMeanArterialPressure());
+        g.drawString(this.font, bpInfo, x + width - this.font.width(bpInfo) - 6, y + 4, C_VITAL_BP, false);
+
+        float ecgCenterY = y + height * 0.42f;
+        float ecgAmp = height * 0.24f;
+        float plethCenterY = y + height * 0.78f;
+        float plethAmp = height * 0.14f;
+
+        g.drawString(this.font, "PLETH // SpO2 " + data.getBloodOxygen() + "%", x + 6, (int) (plethCenterY - 10), C_VITAL_OXYGEN, false);
+
+        Matrix4f pose = g.pose().last().pose();
+        RenderSystem.enableBlend();
+        RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+
+        Tesselator tess = Tesselator.getInstance();
+        BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+
+        int plotX = x + 6;
+        int plotW = width - 12;
+        int er = (ecgColor >>> 16) & 0xFF;
+        int eg = (ecgColor >>> 8) & 0xFF;
+        int eb = ecgColor & 0xFF;
+
+        for (int i = 0; i < OSC_SAMPLES - 1; i++) {
+            int age = (oscWriteHead - i + OSC_SAMPLES) % OSC_SAMPLES;
+            if (age > OSC_SAMPLES - 10) continue;
+
+            float ageNorm = 1.0f - (age / (float) (OSC_SAMPLES - 10));
+            int alpha = (int) (Math.pow(ageNorm, 1.8) * 240.0f);
+            if (alpha < 8) continue;
+
+            float x1 = plotX + (i / (float) (OSC_SAMPLES - 1)) * plotW;
+            float x2 = plotX + ((i + 1) / (float) (OSC_SAMPLES - 1)) * plotW;
+
+            float ey1 = ecgCenterY - ecgBuffer[i] * ecgAmp;
+            float ey2 = ecgCenterY - ecgBuffer[i + 1] * ecgAmp;
+
+            PainVisualOverlay.addQuadSegment(buf, pose, x1, ey1, x2, ey2, 1.8f, er, eg, eb, alpha / 3, alpha / 3);
+            PainVisualOverlay.addQuadSegment(buf, pose, x1, ey1, x2, ey2, 0.85f, er, eg, eb, alpha, alpha);
+
+            float py1 = plethCenterY - plethBuffer[i] * plethAmp;
+            float py2 = plethCenterY - plethBuffer[i + 1] * plethAmp;
+            int pAlpha = (alpha * 3) / 4;
+            PainVisualOverlay.addQuadSegment(buf, pose, x1, py1, x2, py2, 0.75f, 0, 210, 255, pAlpha, pAlpha);
+        }
+
+        MeshData mesh = buf.build();
+        if (mesh != null) BufferUploader.drawWithShader(mesh);
+        RenderSystem.defaultBlendFunc();
+
+        int headX = plotX + (int) ((oscWriteHead / (float) (OSC_SAMPLES - 1)) * plotW);
+        int headY = (int) (ecgCenterY - ecgBuffer[oscWriteHead] * ecgAmp);
+        g.fill(headX - 1, headY - 1, headX + 2, headY + 2, 0xFFFFFFFF);
+    }
+
+    // ============================================================
+    // 七、鼠标交互事件处理
+    // ============================================================
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (microTomographyLimb != null && microTomographyAnim > 0.4f) {
+            // 点击 < 或 > 切换 CT 层
+            if (mouseY >= layerBtnY && mouseY <= layerBtnY + layerBtnH) {
+                if (mouseX >= layerBtnPrevX && mouseX <= layerBtnPrevX + layerBtnW) {
+                    dcmLayer = Math.floorMod(dcmLayer - 1, DICOM_LAYER_NAMES.length);
+                    dcmWipeStartMs = System.currentTimeMillis();
+                    MedicalSoundHelper.playLimbSelectSound();
+                    return true;
+                }
+                if (mouseX >= layerBtnNextX && mouseX <= layerBtnNextX + layerBtnW) {
+                    dcmLayer = Math.floorMod(dcmLayer + 1, DICOM_LAYER_NAMES.length);
+                    dcmWipeStartMs = System.currentTimeMillis();
+                    MedicalSoundHelper.playLimbSelectSound();
+                    return true;
+                }
+            }
+            microTomographyLimb = null;
+            MedicalSoundHelper.playCloseSound();
+            return true;
+        }
+
+        if (mouseX >= ctBtnX && mouseX <= ctBtnX + ctBtnW && mouseY >= ctBtnY && mouseY <= ctBtnY + ctBtnH) {
+            microTomographyLimb = (selectedLimb != null) ? selectedLimb : MedicalData.Limb.CHEST;
+            dcmLayer = 0;
+            dcmWipeStartMs = System.currentTimeMillis();
+            MedicalSoundHelper.playLimbSelectSound();
+            return true;
+        }
+
+        if (selectedLimb == MedicalData.Limb.HEAD && brainScanRenderer.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (selectedLimb != MedicalData.Limb.HEAD && detailPanelRenderer.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+
+        for (MedicalData.Limb limb : MedicalData.Limb.values()) {
+            int[] b = limbScreenBounds.get(limb);
+            if (b != null && mouseX >= b[0] && mouseX <= b[0] + b[2] && mouseY >= b[1] && mouseY <= b[1] + b[3]) {
+                rippleManager.addRipple((float) mouseX, (float) mouseY, 48.0f, themePrimaryColor);
+                MedicalSoundHelper.playLimbSelectSound();
+
+                if (button == 1) {
+                    selectedLimb = limb;
+                    microTomographyLimb = limb;
+                    dcmLayer = 0;
+                    dcmWipeStartMs = System.currentTimeMillis();
+                } else {
+                    selectedLimb = (selectedLimb == limb) ? null : limb;
+                }
+                return true;
+            }
+        }
+
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (microTomographyLimb == null && selectedLimb == MedicalData.Limb.HEAD) {
+            if (brainScanRenderer.mouseDragged(mouseX, mouseY, button, dragX, dragY)) {
+                return true;
+            }
+        }
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double deltaX, double deltaY) {
+        if (microTomographyLimb != null && microTomographyAnim > 0.4f) {
+            if (deltaY != 0) {
+                dcmLayer = Math.floorMod(dcmLayer + (deltaY > 0 ? 1 : -1), DICOM_LAYER_NAMES.length);
+                dcmWipeStartMs = System.currentTimeMillis();
+                MedicalSoundHelper.playLimbSelectSound();
+            }
+            return true;
+        }
+
+        if (selectedLimb == MedicalData.Limb.HEAD && brainScanRenderer.mouseScrolled(mouseX, mouseY, deltaY)) {
+            return true;
+        }
+        if (selectedLimb != MedicalData.Limb.HEAD && detailPanelRenderer.mouseScrolled(mouseX, mouseY, deltaY)) {
+            return true;
+        }
+
+        return super.mouseScrolled(mouseX, mouseY, deltaX, deltaY);
+    }
+
+    // ============================================================
+    // 八、通用视觉与本地化辅助方法
+    // ============================================================
+    private void drawCyberCard(GuiGraphics g, int x, int y, int w, int h, String title, int accentColor) {
+        HudRenderHelper.drawSciFiCard(g, x, y, w, h, 6, themeCardBgColor, withAlpha(accentColor, 0.72f));
+        HudRenderHelper.drawCardCorners(g, x, y, w, h, 10, accentColor);
+
+        g.fillGradient(x + 2, y + 2, x + w - 2, y + 20, withAlpha(accentColor, 0.25f), withAlpha(accentColor, 0.02f));
+        g.fill(x + 6, y + 20, x + w - 6, y + 21, withAlpha(accentColor, 0.38f));
+        HudRenderHelper.drawGlowingString(g, this.font, title, x + 10, y + 6, accentColor, withAlpha(accentColor, 0.35f));
+    }
+
+    private int getLimbColor(MedicalData.LimbData ld) {
+        if (ld == null) return LIMB_HEALTHY;
+        if (ld.isAmputated()) return LIMB_AMPUTATED;
+        int hp = BrainScan3DRenderer.computeLimbHealthPercent(ld);
+        if (ld.getBleeding() > 200 || ld.getInternalBleedingRate() > 200 || hp <= 25) {
+            return LIMB_CRITICAL;
+        }
+        if (ld.getBleeding() > 50 || ld.getInternalBleedingRate() > 60 || ld.hasFracture() || hp <= 60) {
+            return LIMB_MODERATE;
+        }
+        if (ld.getBleeding() > 0 || ld.getInternalBleedingRate() > 0 || ld.getPainLevel() > 0 || ld.getInfection() > 0 || hp < 95) {
+            return LIMB_MINOR;
+        }
+        return LIMB_HEALTHY;
+    }
+
+    private int[] packAllLimbBoxes() {
+        MedicalData.Limb[] limbs = MedicalData.Limb.values();
+        int[] packed = new int[limbs.length * 4];
+        for (int i = 0; i < limbs.length; i++) {
+            int[] b = limbScreenBounds.get(limbs[i]);
+            if (b != null) {
+                packed[i * 4] = b[0];
+                packed[i * 4 + 1] = b[1];
+                packed[i * 4 + 2] = b[2];
+                packed[i * 4 + 3] = b[3];
+            }
+        }
+        return packed;
+    }
+
+    private String getLimbFullName(MedicalData.Limb limb) {
+        if (limb == null) return "";
+        return switch (limb) {
+            case HEAD -> tr("medical.limb.head");
+            case CHEST -> tr("medical.limb.chest");
+            case LEFT_ARM -> tr("medical.limb.left_arm");
+            case RIGHT_ARM -> tr("medical.limb.right_arm");
+            case LEFT_LEG -> tr("medical.limb.left_leg");
+            case RIGHT_LEG -> tr("medical.limb.right_leg");
+        };
+    }
+
+    private static String tr(String key) {
+        return I18N_CACHE.computeIfAbsent(key, k -> Component.translatable(k).getString());
+    }
+
+    // =========================================================================
+    // 内嵌式 3A 右侧诊断面板自适应与滚动兼容引擎
+    // =========================================================================
+    private static class EmbeddedDetailPanelRenderer {
+
+        @FunctionalInterface
+        public interface OscilloscopeDrawer {
+            void draw(GuiGraphics graphics, int x, int y, int width, int height, MedicalData data);
+        }
+
+        private float scrollOffset = 0.0f;
+        private float scrollTarget = 0.0f;
+        private float maxScroll = 0.0f;
+        private long lastFrameMs = 0L;
+
+        private boolean compactTwoColumn = true;
+        private boolean ecgCollapsed = false;
+        private MedicalData.Limb lastLimb = null;
+
+        private int viewportX, viewportY, viewportW, viewportH;
+        private int btnCompactX, btnCompactY, btnCompactW, btnCompactH;
+        private int btnEcgX, btnEcgY, btnEcgW, btnEcgH;
+
+        public void renderLimbOrOverviewPanel(GuiGraphics g, Font font,
+                                              int panelX, int panelY, int panelWidth, int panelHeight,
+                                              MedicalData data, MedicalData.Limb selectedLimb,
+                                              int mouseX, int mouseY, long now, int themeAccent,
+                                              OscilloscopeDrawer ecgDrawer) {
+            if (lastLimb != selectedLimb) {
+                lastLimb = selectedLimb;
+                scrollOffset = 0.0f;
+                scrollTarget = 0.0f;
+            }
+
+            if (lastFrameMs == 0L) lastFrameMs = now;
+            float dt = Mth.clamp((now - lastFrameMs) / 1000.0f, 0.001f, 0.1f);
+            lastFrameMs = now;
+
+            scrollTarget = Mth.clamp(scrollTarget, 0.0f, maxScroll);
+            scrollOffset = Mth.lerp(Math.min(1.0f, dt * 14.0f), scrollOffset, scrollTarget);
+
+            drawHeaderControls(g, font, panelX, panelY, panelWidth, mouseX, mouseY, themeAccent);
+
+            int bottomPad = 10;
+            int desiredEcgH = ecgCollapsed ? 18 : Math.min(92, Math.max(58, (int) (panelHeight * 0.34f)));
+            if (panelHeight < 155) {
+                desiredEcgH = 18;
+            }
+
+            int ecgY = panelY + panelHeight - desiredEcgH - bottomPad;
+            int contentX = panelX + 14;
+            int contentW = panelWidth - 28;
+
+            this.viewportX = contentX;
+            this.viewportY = panelY + 26;
+            this.viewportW = contentW;
+            this.viewportH = Math.max(36, ecgY - this.viewportY - 6);
+
+            g.enableScissor(viewportX, viewportY, viewportX + viewportW, viewportY + viewportH);
+
+            int innerW = viewportW - 7;
+            int startY = (int) (viewportY - scrollOffset);
+            int endY;
+
+            if (selectedLimb != null) {
+                endY = drawLimbTelemetryContent(g, font, data, selectedLimb, viewportX, startY, innerW, themeAccent);
+            } else {
+                endY = drawSystemOverviewContent(g, font, data, viewportX, startY, innerW, themeAccent);
+            }
+
+            int totalContentH = endY - startY;
+            this.maxScroll = Math.max(0.0f, totalContentH - viewportH + 4);
+
+            g.disableScissor();
+
+            if (this.maxScroll > 1.0f) {
+                BrainScan3DRenderer.drawHolographicScrollbar(
+                        g, viewportX + viewportW - 3, viewportY, 3, viewportH,
+                        scrollOffset, maxScroll, totalContentH
+                );
+                if (scrollOffset > 2.0f) {
+                    g.fillGradient(viewportX, viewportY, viewportX + innerW, viewportY + 8, 0xCC050B12, 0x00050B12);
+                }
+                if (scrollOffset < maxScroll - 2.0f) {
+                    g.fillGradient(viewportX, viewportY + viewportH - 8, viewportX + innerW, viewportY + viewportH, 0x00050B12, 0xCC050B12);
+                }
+            }
+
+            if (desiredEcgH >= 48 && ecgDrawer != null) {
+                ecgDrawer.draw(g, contentX, ecgY, contentW, desiredEcgH, data);
+            } else {
+                drawCollapsedEcgStrip(g, font, contentX, ecgY, contentW, desiredEcgH, data, themeAccent);
+            }
+        }
+
+        private void drawHeaderControls(GuiGraphics g, Font font, int panelX, int panelY, int panelW,
+                                        int mouseX, int mouseY, int themeAccent) {
+            int btnY = panelY + 5;
+            int btnH = 13;
+
+            String ecgLabel = ecgCollapsed ? "ECG ▲" : "ECG ▼";
+            this.btnEcgW = font.width(ecgLabel) + 10;
+            this.btnEcgH = btnH;
+            this.btnEcgX = panelX + panelW - btnEcgW - 10;
+            this.btnEcgY = btnY;
+
+            boolean hovEcg = mouseX >= btnEcgX && mouseX <= btnEcgX + btnEcgW && mouseY >= btnEcgY && mouseY <= btnEcgY + btnEcgH;
+            HudRenderHelper.drawSciFiCard(g, btnEcgX, btnEcgY, btnEcgW, btnEcgH, 2,
+                    !ecgCollapsed ? withAlpha(themeAccent, 0.35f) : 0x66050E17,
+                    hovEcg ? themeAccent : withAlpha(themeAccent, 0.5f));
+            g.drawString(font, ecgLabel, btnEcgX + 5, btnEcgY + 3, !ecgCollapsed ? themeAccent : 0xFF90A4AE, false);
+
+            String gridLabel = compactTwoColumn ? "2-COL // 双列" : "1-COL // 单列";
+            this.btnCompactW = font.width(gridLabel) + 10;
+            this.btnCompactH = btnH;
+            this.btnCompactX = btnEcgX - btnCompactW - 4;
+            this.btnCompactY = btnY;
+
+            if (this.btnCompactX > panelX + 150) {
+                boolean hovGrid = mouseX >= btnCompactX && mouseX <= btnCompactX + btnCompactW && mouseY >= btnCompactY && mouseY <= btnCompactY + btnCompactH;
+                HudRenderHelper.drawSciFiCard(g, btnCompactX, btnCompactY, btnCompactW, btnCompactH, 2,
+                        compactTwoColumn ? withAlpha(themeAccent, 0.35f) : 0x66050E17,
+                        hovGrid ? themeAccent : withAlpha(themeAccent, 0.5f));
+                g.drawString(font, gridLabel, btnCompactX + 5, btnCompactY + 3, compactTwoColumn ? 0xFFFFFFFF : 0xFF90A4AE, false);
+            }
+        }
+
+        private int drawLimbTelemetryContent(GuiGraphics g, Font font, MedicalData data, MedicalData.Limb limb,
+                                             int x, int y, int w, int themeAccent) {
+            MedicalData.LimbData ld = data.getLimb(limb);
+            if (ld == null) return y;
+
+            int health = BrainScan3DRenderer.computeLimbHealthPercent(ld);
+            int hc = getHealthColor(health / 100.0f);
+            g.drawString(font, limb.name() + " INTEGRITY // 部位完整度", x, y, themeAccent, false);
+            String hpStr = health + "%";
+            g.drawString(font, hpStr, x + w - font.width(hpStr), y, hc, false);
+            y += 11;
+            HudRenderHelper.drawSciFiProgressBar(g, x, y, w, 6, health / 100.0f, hc, 0xFF0A1824);
+            y += 12;
+
+            int bleed = ld.getBleeding();
+            int inBleed = ld.getInternalBleedingRate();
+            int pain = ld.getPainLevel();
+            int inf = ld.getInfection();
+
+            if (compactTwoColumn && w >= 180) {
+                int colW = (w - 6) / 2;
+                drawMetricCard(g, font, x, y, colW, tr("medical.detail.bleeding_rate"), bleed + " mL/m",
+                        Math.min(1f, bleed / 500f), bleed > 0 ? C_ALERT_RED : 0xFF37474F);
+                drawMetricCard(g, font, x + colW + 6, y, colW, tr("medical.detail.internal_bleeding_rate"), inBleed + " mL/m",
+                        Math.min(1f, inBleed / 300f), inBleed > 0 ? 0xFFE040FB : 0xFF37474F);
+                y += 24;
+
+                drawMetricCard(g, font, x, y, colW, tr("medical.detail.pain_level"), pain + " / 10",
+                        pain / 10f, pain > 0 ? C_VITAL_PAIN : 0xFF37474F);
+                drawMetricCard(g, font, x + colW + 6, y, colW, tr("medical.detail.infection"), inf + " %",
+                        inf / 100f, inf > 0 ? C_WARN_YELLOW : 0xFF37474F);
+                y += 24;
+            } else {
+                if (bleed > 0) {
+                    y = drawFullRow(g, font, x, y, w, tr("medical.detail.bleeding_rate"), bleed + " mL/min",
+                            Math.min(1f, bleed / 500f), C_ALERT_RED);
+                }
+                if (inBleed > 0) {
+                    y = drawFullRow(g, font, x, y, w, tr("medical.detail.internal_bleeding_rate"), inBleed + " mL/min",
+                            Math.min(1f, inBleed / 300f), 0xFFE040FB);
+                }
+                y = drawFullRow(g, font, x, y, w, tr("medical.detail.pain_level"), pain + " / 10",
+                        pain / 10f, pain > 0 ? C_VITAL_PAIN : 0xFF455A64);
+                y = drawFullRow(g, font, x, y, w, tr("medical.detail.infection"), inf + " %",
+                        inf / 100f, inf > 0 ? C_WARN_YELLOW : 0xFF455A64);
+            }
+
+            if (ld.hasFracture() && ld.hasSplint() && ld.getFractureTimer() > 0) {
+                y = drawFullRow(g, font, x, y, w, tr("medical.detail.fracture_healing"), ld.getFractureTimer() + "s",
+                        Mth.clamp(1.0f - ld.getFractureTimer() / 300.0f, 0.0f, 1.0f), C_SAFE_GREEN);
+            }
+            if (ld.hasBurn()) {
+                y = drawFullRow(g, font, x, y, w, "烧伤创面 BURN (" + ld.getBurnDegree() + "°)",
+                        String.format("%.1f%%", ld.getBurnArea()), Mth.clamp(ld.getBurnArea() / 25.0f, 0.0f, 1.0f), 0xFFFF6D00);
+            }
+
+            y = drawLimbStatusPills(g, font, x, y + 2, w, ld);
+
+            if (limb == MedicalData.Limb.CHEST) {
+                y += 4;
+                g.fill(x, y + 8, x + w, y + 9, withAlpha(themeAccent, 0.35f));
+                g.drawString(font, "THORACIC & HEMODYNAMICS // 胸腔与血流动力学", x, y, themeAccent, false);
+                y += 12;
+
+                float chestBlood = data.getChestBloodAccumulation();
+                int hemoLv = data.getHemothoraxLevel();
+                float lungContusion = data.getLungContusion();
+                int sirsLv = data.getSirsLevel();
+
+                if (compactTwoColumn && w >= 180) {
+                    int colW = (w - 6) / 2;
+                    drawMetricCard(g, font, x, y, colW, tr("medical.detail.chest_blood_accumulation"),
+                            String.format("%.0f mL (LV.%d)", chestBlood, hemoLv),
+                            Math.min(1f, chestBlood / 2000f), hemoLv > 0 ? C_ALERT_RED : 0xFF37474F);
+                    drawMetricCard(g, font, x + colW + 6, y, colW, tr("medical.detail.lung_contusion"),
+                            String.format("%.0f%%", lungContusion),
+                            Mth.clamp(lungContusion / 100f, 0f, 1f), lungContusion > 0 ? C_WARN_YELLOW : 0xFF37474F);
+                    y += 24;
+
+                    drawMetricCard(g, font, x, y, colW, tr("medical.detail.blood_pressure"),
+                            data.getSystolicBP() + "/" + data.getDiastolicBP() + " (MAP " + (int) data.getMeanArterialPressure() + ")",
+                            Mth.clamp(data.getMeanArterialPressure() / 130f, 0f, 1f), C_VITAL_BP);
+                    drawMetricCard(g, font, x + colW + 6, y, colW, "CO / TPR / SIRS",
+                            String.format("%.1fL | %.2f | S%d", data.getCardiacOutput(), data.getPeripheralResistance(), sirsLv),
+                            Mth.clamp(data.getCardiacOutput() / 8.0f, 0f, 1f), sirsLv > 0 ? C_ALERT_RED : themeAccent);
+                    y += 24;
+                } else {
+                    y = drawFullRow(g, font, x, y, w, tr("medical.detail.chest_blood_accumulation"),
+                            String.format("%.0f mL (LV.%d)", chestBlood, hemoLv), Math.min(1f, chestBlood / 2000f),
+                            hemoLv > 0 ? C_ALERT_RED : 0xFF455A64);
+                    y = drawFullRow(g, font, x, y, w, tr("medical.detail.blood_pressure"),
+                            data.getSystolicBP() + "/" + data.getDiastolicBP() + " mmHg (MAP " + (int) data.getMeanArterialPressure() + ")",
+                            Mth.clamp(data.getMeanArterialPressure() / 130f, 0f, 1f), C_VITAL_BP);
+                    y = drawFullRow(g, font, x, y, w, tr("medical.detail.cardiac_output") + " / TPR",
+                            String.format("CO %.2f L/m | TPR %.2f", data.getCardiacOutput(), data.getPeripheralResistance()),
+                            Mth.clamp(data.getCardiacOutput() / 8.0f, 0f, 1f), themeAccent);
+                    if (sirsLv > 0) {
+                        y = drawFullRow(g, font, x, y, w, tr("medical.detail.sirs_level"),
+                                "STAGE " + sirsLv + " / 4", sirsLv / 4.0f, C_ALERT_RED);
+                    }
+                }
+            }
+
+            return y;
+        }
+
+        private int drawSystemOverviewContent(GuiGraphics g, Font font, MedicalData data, int x, int y, int w, int themeAccent) {
+            g.drawString(font, "SYSTEMIC TELEMETRY // 全身生命体征总览", x, y, themeAccent, false);
+            y += 13;
+
+            int totalBleed = 0;
+            for (MedicalData.Limb limb : MedicalData.Limb.values()) {
+                MedicalData.LimbData ld = data.getLimb(limb);
+                if (ld != null) {
+                    if (!ld.isBandaged() && !ld.isTourniqueted()) totalBleed += ld.getBleeding();
+                    totalBleed += ld.getInternalBleedingRate();
+                }
+            }
+
+            if (compactTwoColumn && w >= 180) {
+                int colW = (w - 6) / 2;
+                drawMetricCard(g, font, x, y, colW, tr("medical.detail.blood_volume"),
+                        data.getBloodVolume() + " / " + data.getMaxBloodVolume() + " mL",
+                        data.getBloodVolume() / (float) Math.max(1, data.getMaxBloodVolume()), C_VITAL_HEART);
+                drawMetricCard(g, font, x + colW + 6, y, colW, tr("medical.detail.total_bleeding_rate"),
+                        totalBleed + " mL/min",
+                        Math.min(1f, totalBleed / 600f), totalBleed > 0 ? C_ALERT_RED : C_SAFE_GREEN);
+                y += 24;
+
+                drawMetricCard(g, font, x, y, colW, tr("medical.detail.brain_health"),
+                        data.getBrainHealth() + "%", data.getBrainHealth() / 100f,
+                        getHealthColor(data.getBrainHealth() / 100f));
+                drawMetricCard(g, font, x + colW + 6, y, colW, tr("medical.detail.consciousness"),
+                        data.getConsciousness() + "%", data.getConsciousness() / 100f,
+                        getHealthColor(data.getConsciousness() / 100f));
+                y += 24;
+
+                drawMetricCard(g, font, x, y, colW, tr("medical.detail.blood_pressure"),
+                        data.getSystolicBP() + "/" + data.getDiastolicBP() + " (MAP " + (int) data.getMeanArterialPressure() + ")",
+                        Mth.clamp(data.getMeanArterialPressure() / 130f, 0f, 1f), C_VITAL_BP);
+                drawMetricCard(g, font, x + colW + 6, y, colW, tr("medical.detail.perceived_pain"),
+                        data.getPerceivedPain() + " / 55",
+                        Mth.clamp(data.getPerceivedPain() / 55f, 0f, 1f), C_VITAL_PAIN);
+                y += 24;
+
+                drawMetricCard(g, font, x, y, colW, tr("medical.detail.respiration") + " / SpO2",
+                        data.getRespirationRate() + " rpm | " + data.getBloodOxygen() + "%",
+                        data.getBloodOxygen() / 100f, C_VITAL_OXYGEN);
+                drawMetricCard(g, font, x + colW + 6, y, colW, "SIRS / BURN TBSA",
+                        "SIRS " + data.getSirsLevel() + " | " + String.format("%.1f%%", data.getBurnTBSA()),
+                        Math.max(data.getSirsLevel() / 4f, data.getBurnTBSA() / 100f),
+                        (data.getSirsLevel() > 0 || data.getBurnTBSA() > 0) ? C_WARN_YELLOW : 0xFF37474F);
+                y += 24;
+            } else {
+                y = drawFullRow(g, font, x, y, w, tr("medical.detail.blood_volume"),
+                        data.getBloodVolume() + " mL", data.getBloodVolume() / 5000f, C_VITAL_HEART);
+                y = drawFullRow(g, font, x, y, w, tr("medical.detail.total_bleeding_rate"),
+                        totalBleed + " mL/min", Math.min(1f, totalBleed / 600f), totalBleed > 0 ? C_ALERT_RED : 0xFF455A64);
+                y = drawFullRow(g, font, x, y, w, tr("medical.detail.brain_health"),
+                        data.getBrainHealth() + "%", data.getBrainHealth() / 100f, getHealthColor(data.getBrainHealth() / 100f));
+                y = drawFullRow(g, font, x, y, w, tr("medical.detail.consciousness"),
+                        data.getConsciousness() + "%", data.getConsciousness() / 100f, getHealthColor(data.getConsciousness() / 100f));
+                y = drawFullRow(g, font, x, y, w, tr("medical.detail.perceived_pain"),
+                        data.getPerceivedPain() + " / 55", data.getPerceivedPain() / 55f, C_VITAL_PAIN);
+                y = drawFullRow(g, font, x, y, w, tr("medical.detail.blood_pressure"),
+                        data.getSystolicBP() + "/" + data.getDiastolicBP() + " mmHg", data.getMeanArterialPressure() / 130f, C_VITAL_BP);
+            }
+
+            return y;
+        }
+
+        private void drawMetricCard(GuiGraphics g, Font font, int x, int y, int w,
+                                    String label, String val, float pct, int color) {
+            pct = Mth.clamp(pct, 0.0f, 1.0f);
+            g.fill(x, y, x + w, y + 21, 0x88071320);
+            g.fill(x, y, x + 2, y + 21, color);
+            g.drawString(font, label, x + 5, y + 2, 0xFFB0BEC5, false);
+            int vw = font.width(val);
+            g.drawString(font, val, x + w - vw - 3, y + 2, color, false);
+            HudRenderHelper.drawSciFiProgressBar(g, x + 5, y + 13, w - 8, 5, pct, color, 0xFF050C14);
+        }
+
+        private int drawFullRow(GuiGraphics g, Font font, int x, int y, int w,
+                                String label, String val, float pct, int color) {
+            pct = Mth.clamp(pct, 0.0f, 1.0f);
+            g.drawString(font, label, x, y, 0xFFB0BEC5, false);
+            int vw = font.width(val);
+            g.drawString(font, val, x + w - vw, y, color, false);
+            HudRenderHelper.drawSciFiProgressBar(g, x, y + 10, w, 5, pct, color, 0xFF07121E);
+            return y + 18;
+        }
+
+        private int drawLimbStatusPills(GuiGraphics g, Font font, int x, int y, int w, MedicalData.LimbData ld) {
+            int px = x;
+            int py = y;
+            int rightEdge = x + w;
+            boolean abnormal = false;
+
+            if (ld.isAmputated()) {
+                drawPill(g, font, px, py, tr("medical.status.amputated"), 0xFFFF1744);
+                return py + 14;
+            }
+            if (ld.isBandaged()) {
+                px = drawWrappedPill(g, font, x, px, py, rightEdge, tr("medical.status.bandaged"), 0xFF00E676);
+                if (px < 0) { py += 14; px = drawWrappedPill(g, font, x, x, py, rightEdge, tr("medical.status.bandaged"), 0xFF00E676); }
+            }
+            if (ld.isTourniqueted()) {
+                int nx = drawWrappedPill(g, font, x, px, py, rightEdge, tr("medical.status.tourniquet"), 0xFFFF9100);
+                if (nx < 0) { py += 14; px = drawWrappedPill(g, font, x, x, py, rightEdge, tr("medical.status.tourniquet"), 0xFFFF9100); } else px = nx;
+            }
+            if (ld.getInternalBleedingRate() > 0) {
+                abnormal = true;
+                int nx = drawWrappedPill(g, font, x, px, py, rightEdge, tr("medical.status.internal_bleeding"), 0xFFE040FB);
+                if (nx < 0) { py += 14; px = drawWrappedPill(g, font, x, x, py, rightEdge, tr("medical.status.internal_bleeding"), 0xFFE040FB); } else px = nx;
+            }
+            if (ld.hasFracture()) {
+                abnormal = true;
+                String fTxt = ld.isOpenFracture() ? tr("medical.status.open_fracture")
+                        : (ld.hasSplint() ? tr("medical.status.fracture_splinted") : tr("medical.status.fracture"));
+                int nx = drawWrappedPill(g, font, x, px, py, rightEdge, fTxt, 0xFFFF1744);
+                if (nx < 0) { py += 14; px = drawWrappedPill(g, font, x, x, py, rightEdge, fTxt, 0xFFFF1744); } else px = nx;
+            }
+            if (ld.hasDislocation()) {
+                abnormal = true;
+                int nx = drawWrappedPill(g, font, x, px, py, rightEdge, tr("medical.status.dislocation"), 0xFFFFD600);
+                if (nx < 0) { py += 14; px = drawWrappedPill(g, font, x, x, py, rightEdge, tr("medical.status.dislocation"), 0xFFFFD600); } else px = nx;
+            }
+            if (ld.getInfection() > 0) {
+                abnormal = true;
+                String iTxt = ld.getInfection() <= 25 ? tr("medical.status.mild_infection")
+                        : ld.getInfection() <= 50 ? tr("medical.status.moderate_infection")
+                        : ld.getInfection() <= 75 ? tr("medical.status.severe_infection")
+                        : tr("medical.status.critical_infection");
+                int nx = drawWrappedPill(g, font, x, px, py, rightEdge, iTxt, 0xFFFFB300);
+                if (nx < 0) { py += 14; px = drawWrappedPill(g, font, x, x, py, rightEdge, iTxt, 0xFFFFB300); } else px = nx;
+            }
+            if (!abnormal && !ld.isBandaged() && !ld.isTourniqueted() && ld.getBleeding() <= 0) {
+                drawPill(g, font, px, py, tr("medical.status.healthy"), 0xFF00E676);
+            }
+            return py + 14;
+        }
+
+        private int drawWrappedPill(GuiGraphics g, Font font, int startX, int curX, int curY, int rightEdge, String text, int color) {
+            int pw = font.width(text) + 8;
+            if (curX > startX && curX + pw > rightEdge) return -1;
+            drawPill(g, font, curX, curY, text, color);
+            return curX + pw + 4;
+        }
+
+        private void drawPill(GuiGraphics g, Font font, int x, int y, String text, int color) {
+            int pw = font.width(text) + 8;
+            g.fill(x, y, x + pw, y + 11, withAlpha(color, 0.22f));
+            g.fill(x, y, x + 2, y + 11, color);
+            g.drawString(font, text, x + 4, y + 2, color, false);
+        }
+
+        private void drawCollapsedEcgStrip(GuiGraphics g, Font font, int x, int y, int w, int h, MedicalData data, int themeAccent) {
+            HudRenderHelper.drawSciFiCard(g, x, y, w, h, 2, 0xAA040C14, withAlpha(themeAccent, 0.45f));
+            String info = String.format("ECG MONITOR // HR: %d BPM  |  BP: %d/%d mmHg  |  SpO2: %d%%",
+                    data.getHeartRate(), data.getSystolicBP(), data.getDiastolicBP(), data.getBloodOxygen());
+            g.drawString(font, info, x + 6, y + 5, themeAccent, false);
+        }
+
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (mouseX >= btnEcgX && mouseX <= btnEcgX + btnEcgW && mouseY >= btnEcgY && mouseY <= btnEcgY + btnEcgH) {
+                this.ecgCollapsed = !this.ecgCollapsed;
+                MedicalSoundHelper.playLimbSelectSound();
+                return true;
+            }
+            if (mouseX >= btnCompactX && mouseX <= btnCompactX + btnCompactW && mouseY >= btnCompactY && mouseY <= btnCompactY + btnCompactH) {
+                this.compactTwoColumn = !this.compactTwoColumn;
+                this.scrollTarget = 0.0f;
+                MedicalSoundHelper.playLimbSelectSound();
+                return true;
+            }
+            return false;
+        }
+
+        public boolean mouseScrolled(double mouseX, double mouseY, double deltaY) {
+            if (viewportW > 0 && mouseX >= viewportX && mouseX <= viewportX + viewportW
+                    && mouseY >= viewportY && mouseY <= viewportY + viewportH && maxScroll > 0.5f) {
+                scrollTarget = Mth.clamp(scrollTarget - (float) deltaY * 18.0f, 0.0f, maxScroll);
+                return true;
+            }
+            return false;
         }
     }
 }

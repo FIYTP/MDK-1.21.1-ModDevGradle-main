@@ -6,14 +6,14 @@ import com.FIYTP.realmedicalmod.loop.AttributeArbiter.Dimension;
 import net.minecraft.server.level.ServerPlayer;
 
 /**
- * 疼痛影响评估模块（影响评估层）
+ * 疼痛影响评估模块（3A 视觉去粗糙化升级版）
  *
- * 替换旧 PainSuggestionModule 的离散查表（疼痛1~10 → 药水1~3级），
- * 改为连续线性插值：部位疼痛 p 直接换算成能力倍率 1 - slope*p。
- *
- * 体感疼痛（getPerceivedPain，0~55）是全部部位疼痛之和，
- * 作为全身性感知阈值（重度疼到眼冒金星/反胃）的来源；
- * 部位疼痛（getPain，0~10）决定各部位专属的能力衰减。
+ * 核心改动说明：
+ * 原版 Minecraft 的 BLINDNESS（5格纯黑浓雾墙）与 CONFUSION（反胃地狱门式大幅度绿幕旋转扭曲）
+ * 观感极其粗糙且破坏射击/操作体验。
+ * 现已将疼痛的视觉压迫（动脉重搏红晕、部位感知充血、RGB 色差分离、毛细血管神经丝、3D 镜头微颤与受击偏转）
+ * 全部交由客户端 3A 级渲染层 (PainVisualOverlay + PainShockOverlay) 处理；
+ * 本服务端模块专注负责部位疼痛对移动速度、攻击伤害、攻击速度与重度手臂剧痛挖掘效率的连续物理属性衰减。
  */
 public class PainEffectModule implements UpdateModule {
 
@@ -28,10 +28,8 @@ public class PainEffectModule implements UpdateModule {
         float legSlope = MedicalConfig.PAIN_LEG_SPEED_SLOPE.get().floatValue();
         float armAttackSlope = MedicalConfig.PAIN_ARM_ATTACK_SLOPE.get().floatValue();
         float armSpeedSlope = MedicalConfig.PAIN_ARM_SPEED_SLOPE.get().floatValue();
-        float headBlindSlope = MedicalConfig.PAIN_HEAD_BLINDNESS_SLOPE.get().floatValue();
-        float chestNauseaSlope = MedicalConfig.PAIN_CHEST_NAUSEA_SLOPE.get().floatValue();
 
-        // 1. 各部位疼痛 → 连续能力倍率（多肢体独立提交，天然区分单/双侧）
+        // 各部位疼痛 -> 连续物理能力倍率（不再乱塞原版失明/反胃药水破坏画面）
         for (MedicalData.Limb limb : MedicalData.Limb.values()) {
             MedicalData.LimbData limbData = data.getLimb(limb);
             if (limbData == null) continue;
@@ -51,38 +49,10 @@ public class PainEffectModule implements UpdateModule {
                     AttributeArbiter.suggest(player, Dimension.ATTACK_SPEED, src,
                             1.0f - armSpeedSlope * p);
                 }
-                case HEAD -> {
-                    // 头痛 → 失明药水连续插值（0~10 疼痛 → 0~1.5 级）
-                    float levelF = headBlindSlope * p;
-                    if (levelF >= 1.0f) {
-                        buffManager.suggest(player, "blindness", (int) levelF);
-                    }
-                }
-                case CHEST -> {
-                    // 胸痛 → 反胃药水连续插值（重度胸痛引发干呕感）
-                    float levelF = chestNauseaSlope * p;
-                    if (levelF >= 1.0f) {
-                        buffManager.suggest(player, "nausea", (int) levelF);
-                    }
-                }
                 default -> {
+                    // HEAD 与 CHEST 的疼痛视觉表现由客户端 PainVisualOverlay 定向充血与色散接管
                 }
             }
-        }
-
-        // 2. 全身体感疼痛 → 感知阈值插值（眼冒金星/反胃）
-        int perceived = data.getPerceivedPain();
-        int blindnessThreshold = MedicalConfig.PERCEIVED_PAIN_BLINDNESS_THRESHOLD.get();
-        int nauseaThreshold = MedicalConfig.PERCEIVED_PAIN_NAUSEA_THRESHOLD.get();
-
-        if (perceived >= blindnessThreshold) {
-            // 阈值 → 等级1，每超阈值 10 点升一级，上限 4
-            int level = 1 + (perceived - blindnessThreshold) / 10;
-            buffManager.suggest(player, "blindness", Math.min(level, 4));
-        }
-        if (perceived >= nauseaThreshold) {
-            int level = 1 + (perceived - nauseaThreshold) / 10;
-            buffManager.suggest(player, "nausea", Math.min(level, 4));
         }
     }
 }
