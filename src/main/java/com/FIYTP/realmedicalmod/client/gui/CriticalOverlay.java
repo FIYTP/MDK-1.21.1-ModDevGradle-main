@@ -305,7 +305,7 @@ public class CriticalOverlay {
         int headerAlpha = (int) (blink * 160.0f);
         g.fill(cardX + 2, cardY + 2, cardX + cardW - 2, cardY + 16, (headerAlpha << 24) | 0x880015);
 
-        String title = Component.translatable("medical.warning.cardiac_arrest").getString() + " // ASYSTOLE [0 BPM]";
+        String title = Component.translatable("medical.warning.cardiac_arrest").getString() + " [0 BPM]";
         HudRenderHelper.drawCenteredGlowingString(g, font, title, cardX + cardW / 2, cardY + 5, 0xFFFFFFFF, C_ALERT_RED);
 
         // 中部：真实医疗监护仪“长鸣平线 (Flatline)”动态扫描视窗
@@ -331,7 +331,7 @@ public class CriticalOverlay {
         }
         // 扫描激光亮点
         g.fill(cursorX - 1, flatY - 2, cursorX + 2, flatY + 3, 0xFFFFFFFF);
-        g.drawString(font, "LEAD II // 0.0mV FLATLINE", scopeX + 4, scopeY + 2, 0xAAFF5252, false);
+        g.drawString(font, "0.0mV 平线", scopeX + 4, scopeY + 2, 0xAAFF5252, false);
 
         // 底部：脑存活度 (BRAIN HEALTH) 与血氧 (SpO2) 衰竭倒数条
         int barY = cardY + 46;
@@ -339,7 +339,7 @@ public class CriticalOverlay {
         int bh = data.getBrainHealth();
         int spo2 = data.getBloodOxygen();
 
-        g.drawString(font, "BRAIN: " + bh + "%", scopeX, barY, C_ALERT_RED, false);
+        g.drawString(font, "脑健康: " + bh + "%", scopeX, barY, C_ALERT_RED, false);
         HudRenderHelper.drawSciFiProgressBar(g, scopeX, barY + 10, halfW, 5, bh / 100.0f, C_ALERT_RED, 0xFF1A0508);
 
         int rx = scopeX + halfW + 8;
@@ -412,7 +412,7 @@ public class CriticalOverlay {
         HudRenderHelper.drawSciFiCard(g, cardX, cardY, cardW, cardH, 5, 0xE00A040C, 0xFFFF1744);
         HudRenderHelper.drawCardCorners(g, cardX, cardY, cardW, cardH, 9, C_NEON_CYAN);
 
-        String vfibTitle = Component.translatable("medical.warning.vfib").getString() + " // VENTRICULAR FIBRILLATION";
+        String vfibTitle = Component.translatable("medical.warning.vfib").getString();
         HudRenderHelper.drawCenteredGlowingString(g, font, vfibTitle, cardX + cardW / 2, cardY + 5, 0xFFFFD000, C_ALERT_RED);
 
         // 实时绘制高频乱颤的 VFib 心电图波形框
@@ -446,7 +446,7 @@ public class CriticalOverlay {
         RenderSystem.defaultBlendFunc();
 
         // 底部生命体征状态行
-        String telemetry = String.format("SpO2: %d%% (-2%%/s)  |  BRAIN: %d%% (-2%%/s)  |  MAP: %.0f mmHg",
+        String telemetry = String.format("SpO2: %d%%  |  脑健康: %d%%  |  MAP: %.0f mmHg",
                 data.getBloodOxygen(), data.getBrainHealth(), data.getMeanArterialPressure());
         g.drawString(font, telemetry, scopeX + 2, cardY + 48, 0xFFFF8A80, false);
 
@@ -608,8 +608,8 @@ public class CriticalOverlay {
         g.fill(bx, by + 2, bx + 3, by + bh - 2, accent);
 
         String title = (vfibTimer > 0)
-                ? "⚠ VFIB OVERLOAD // 室颤临界: " + hr + " BPM"
-                : "TACHYCARDIA // 心动过速: " + hr + " BPM";
+                ? "⚠ 室颤临界: " + hr + " BPM"
+                : "心动过速: " + hr + " BPM";
         g.drawString(font, title, bx + 7, by + 4, accent, false);
 
         if (vfibTimer > 0) {
@@ -697,7 +697,7 @@ public class CriticalOverlay {
 
         // 中央右侧：失血量与平均动脉压 MAP 临床遥测
         int infoX = boxX + 92;
-        String bloodInfo = String.format("BLOOD: %d / 3000 mL", data.getBloodVolume());
+        String bloodInfo = String.format("血量: %d / 3000 mL", data.getBloodVolume());
         String mapInfo = String.format("BP: %d/%d (MAP %.0f)",
                 data.getSystolicBP(), data.getDiastolicBP(), data.getMeanArterialPressure());
         g.drawString(font, bloodInfo, infoX, boxY + 19, 0xFFFF5252, false);

@@ -95,6 +95,10 @@ public class MedicalConfig {
     // ================= 疼痛 (pain) =================
     public static final ModConfigSpec.IntValue PAIN_DECAY_INTERVAL;
     public static final ModConfigSpec.IntValue MAX_PAIN_LEVEL;
+    public static final ModConfigSpec.IntValue MAX_PERCEIVED_PAIN;
+    public static final ModConfigSpec.DoubleValue PAIN_LIMB_EXPONENT;
+    public static final ModConfigSpec.DoubleValue PAIN_DOMINANT_LIMB_WEIGHT;
+    public static final ModConfigSpec.DoubleValue PAIN_SECONDARY_LIMB_WEIGHT;
     // 疼痛视觉：红晕血管搏动 vignette
     public static final ModConfigSpec.BooleanValue PAIN_VIGNETTE_ENABLED;
     public static final ModConfigSpec.IntValue PAIN_VIGNETTE_START_THRESHOLD;
@@ -390,6 +394,13 @@ public class MedicalConfig {
     public static final ModConfigSpec.DoubleValue PAIN_ARM_SPEED_SLOPE;
     public static final ModConfigSpec.DoubleValue PAIN_HEAD_BLINDNESS_SLOPE;
     public static final ModConfigSpec.DoubleValue PAIN_CHEST_NAUSEA_SLOPE;
+    public static final ModConfigSpec.DoubleValue PAIN_ACTION_EXPONENT;
+    public static final ModConfigSpec.DoubleValue PAIN_LEG_MAX_SPEED_PENALTY;
+    public static final ModConfigSpec.DoubleValue PAIN_ARM_MAX_ATTACK_PENALTY;
+    public static final ModConfigSpec.DoubleValue PAIN_ARM_MAX_SPEED_PENALTY;
+    public static final ModConfigSpec.DoubleValue PAIN_SYSTEMIC_MAX_SPEED_PENALTY;
+    public static final ModConfigSpec.DoubleValue PAIN_SYSTEMIC_MAX_ACTION_PENALTY;
+    public static final ModConfigSpec.IntValue PAIN_SPRINT_LOCK_THRESHOLD;
     // 失血与血氧
     public static final ModConfigSpec.DoubleValue BLOOD_LOSS_SPEED_SLOPE;
     public static final ModConfigSpec.DoubleValue BLOOD_LOSS_ATTACK_SLOPE;
@@ -497,20 +508,20 @@ public class MedicalConfig {
         builder.comment("出血与自然凝血系统配置").push("bleeding");
         BLEED_TO_BLOOD_RATIO = builder
                 .comment("每秒失血换算系数（将 mL/min 出血速率转换为每秒实际扣除的失血量，默认 1/60 即约 0.01667）",
-                         "影响范围: 所有外出血扣减血容量",
-                         "推荐范围: [0.005, 0.1]")
+                        "影响范围: 所有外出血扣减血容量",
+                        "推荐范围: [0.005, 0.1]")
                 .defineInRange("bleedToBloodRatio", 1.0 / 60.0, 0.0, 1.0);
         NATURAL_CLOTTING_THRESHOLD = builder
                 .comment("自然止血最大外出血阈值 (mL/min)。低于或等于此数值的创口在未包扎状态下可随时间自然凝血止血",
-                         "推荐范围: [10, 100]")
+                        "推荐范围: [10, 100]")
                 .defineInRange("naturalClottingThreshold", 50, 0, 500);
         NATURAL_CLOTTING_MIN_TIME = builder
                 .comment("轻微出血 (1 mL/min) 自然止血所需最短时间 (秒)",
-                         "推荐范围: [30, 300]")
+                        "推荐范围: [30, 300]")
                 .defineInRange("naturalClottingMinTime", 60, 1, 3600);
         NATURAL_CLOTTING_MAX_TIME = builder
                 .comment("中度出血 (50 mL/min) 自然止血所需最长时间 (秒)",
-                         "推荐范围: [60, 600]")
+                        "推荐范围: [60, 600]")
                 .defineInRange("naturalClottingMaxTime", 300, 1, 3600);
         builder.pop();
 
@@ -521,12 +532,12 @@ public class MedicalConfig {
                 .define("enableBloodVolumeRegen", true);
         BLOOD_REGEN_RATE = builder
                 .comment("血容量每秒回升速率 (mL/s)",
-                         "影响范围: 满足条件时的血容量恢复速度",
-                         "推荐范围: [1, 20]")
+                        "影响范围: 满足条件时的血容量恢复速度",
+                        "推荐范围: [1, 20]")
                 .defineInRange("bloodRegenRate", 5.0, 0.0, 100.0);
         BLOOD_REGEN_FOOD_THRESHOLD = builder
                 .comment("触发回升所需的最低饱食度 (0~20)",
-                         "推荐范围: [6, 20]")
+                        "推荐范围: [6, 20]")
                 .defineInRange("bloodRegenFoodThreshold", 14, 0, 20);
         builder.pop();
 
@@ -534,31 +545,31 @@ public class MedicalConfig {
         builder.comment("血氧动态衰减与代偿系统配置").push("blood_oxygen");
         CARDIAC_ARREST_OXYGEN_LOSS = builder
                 .comment("心脏骤停发生时每秒硬性扣除的血氧百分比 (%)",
-                         "推荐范围: [10, 50]")
+                        "推荐范围: [10, 50]")
                 .defineInRange("cardiacArrestOxygenLoss", 20, 0, 100);
         VFIB_OXYGEN_LOSS = builder
                 .comment("心室纤颤发生时每秒硬性扣除的血氧百分比 (%)",
-                         "推荐范围: [5, 30]")
+                        "推荐范围: [5, 30]")
                 .defineInRange("vfibOxygenLoss", 10, 0, 100);
         OXYGEN_CHANGE_RATIO_70 = builder
                 .comment("血容量 > 70% 时的每秒基础血氧恢复率 (%/s)",
-                         "推荐范围: [0.1, 2.0]")
+                        "推荐范围: [0.1, 2.0]")
                 .defineInRange("oxygenChangeRatio70", 0.5, -10.0, 10.0);
         OXYGEN_CHANGE_RATIO_50 = builder
                 .comment("血容量在 50% ~ 70% 时的每秒基础血氧变化率 (%/s)",
-                         "推荐范围: [-1.0, 0.0]")
+                        "推荐范围: [-1.0, 0.0]")
                 .defineInRange("oxygenChangeRatio50", -0.2, -10.0, 10.0);
         OXYGEN_CHANGE_RATIO_30 = builder
                 .comment("血容量在 30% ~ 50% 时的每秒基础血氧变化率 (%/s)",
-                         "推荐范围: [-2.0, 0.0]")
+                        "推荐范围: [-2.0, 0.0]")
                 .defineInRange("oxygenChangeRatio30", -0.5, -10.0, 10.0);
         OXYGEN_CHANGE_RATIO_10 = builder
                 .comment("血容量在 10% ~ 30% 时的每秒基础血氧变化率 (%/s)",
-                         "推荐范围: [-5.0, 0.0]")
+                        "推荐范围: [-5.0, 0.0]")
                 .defineInRange("oxygenChangeRatio10", -1.0, -10.0, 10.0);
         OXYGEN_CHANGE_RATIO_LOW = builder
                 .comment("血容量 <= 10% 时的每秒基础血氧变化率 (%/s)",
-                         "推荐范围: [-10.0, 0.0]")
+                        "推荐范围: [-10.0, 0.0]")
                 .defineInRange("oxygenChangeRatioLow", -2.0, -10.0, 10.0);
         OXYGEN_LOSS_RESP_STOP_HIGH = builder
                 .comment("呼吸停止时血氧 > 70% 的每秒下降速率")
@@ -587,24 +598,24 @@ public class MedicalConfig {
                 .defineInRange("oxygenRecoveryRateCrit", 0.2, 0.0, 10.0);
 
         RESPIRATION_EFFECT_PER_RATE = builder
-            .comment("呼吸频率每偏离基准 1 次/分的血氧变化率")
-            .defineInRange("respirationEffectPerRate", 0.3, 0.0, 5.0);
+                .comment("呼吸频率每偏离基准 1 次/分的血氧变化率")
+                .defineInRange("respirationEffectPerRate", 0.3, 0.0, 5.0);
 
         RESPIRATION_BASELINE = builder
-            .comment("呼吸频率的血氧平衡基准（呼吸 = 此值时血氧不变）")
-            .defineInRange("respirationBaseline", 10.0, 5.0, 20.0);
+                .comment("呼吸频率的血氧平衡基准（呼吸 = 此值时血氧不变）")
+                .defineInRange("respirationBaseline", 10.0, 5.0, 20.0);
 
         RESPIRATION_STOP_EFFECT = builder
-            .comment("呼吸完全停止时每秒的血氧下降速率")
-            .defineInRange("respirationStopEffect", -5.0, -20.0, 0.0);
+                .comment("呼吸完全停止时每秒的血氧下降速率")
+                .defineInRange("respirationStopEffect", -5.0, -20.0, 0.0);
 
         UNDERWATER_BREATH_HOLD_TIME = builder
-            .comment("水下屏息缓冲时间 (秒，在此时间内肺部存氧可维持血氧，不发生剧烈缺氧)")
-            .defineInRange("underwaterBreathHoldTime", 15, 0, 60);
+                .comment("水下屏息缓冲时间 (秒，在此时间内肺部存氧可维持血氧，不发生剧烈缺氧)")
+                .defineInRange("underwaterBreathHoldTime", 15, 0, 60);
 
         BREATH_HOLD_OXYGEN_LOSS = builder
-            .comment("水下屏息期间每秒的血氧基础消耗率")
-            .defineInRange("breathHoldOxygenLoss", 0.2, 0.0, 2.0);
+                .comment("水下屏息期间每秒的血氧基础消耗率")
+                .defineInRange("breathHoldOxygenLoss", 0.2, 0.0, 2.0);
 
         builder.pop();
 
@@ -612,35 +623,35 @@ public class MedicalConfig {
         builder.comment("脑健康度消耗与缓慢自愈机制").push("brain_health");
         CARDIAC_ARREST_BRAIN_LOSS = builder
                 .comment("心脏骤停发生时每秒扣除的脑健康点数 (%)",
-                         "推荐范围: [2, 20]")
+                        "推荐范围: [2, 20]")
                 .defineInRange("cardiacArrestBrainLoss", 5, 0, 100);
         VFIB_BRAIN_LOSS = builder
                 .comment("心室纤颤发生时每秒扣除的脑健康点数 (%)",
-                         "推荐范围: [1, 10]")
+                        "推荐范围: [1, 10]")
                 .defineInRange("vfibBrainLoss", 2, 0, 100);
         BRAIN_HEALTH_REGEN_INTERVAL = builder
                 .comment("脑健康无条件自然恢复的触发间隔周期 (秒，默认 60s 恢复 1 点)",
-                         "推荐范围: [10, 300]")
+                        "推荐范围: [10, 300]")
                 .defineInRange("brainHealthRegenInterval", 60, 1, 3600);
         BRAIN_HEALTH_REGEN_AMOUNT = builder
                 .comment("每次自然恢复触发时回复的脑健康数值 (%)",
-                         "推荐范围: [1, 5]")
+                        "推荐范围: [1, 5]")
                 .defineInRange("brainHealthRegenAmount", 1, 1, 100);
         BRAIN_LOSS_OXYGEN_90 = builder
                 .comment("血氧 >= 90% 且供血充盈时的脑健康微量恢复速率 (%/s)",
-                         "推荐范围: [0.0, 1.0]")
+                        "推荐范围: [0.0, 1.0]")
                 .defineInRange("brainLossOxygen90", 0.1, -10.0, 10.0);
         BRAIN_LOSS_OXYGEN_50 = builder
                 .comment("血氧在 50% ~ 70% 时的脑健康每秒消耗速率 (%/s)",
-                         "推荐范围: [-1.0, 0.0]")
+                        "推荐范围: [-1.0, 0.0]")
                 .defineInRange("brainLossOxygen50", -0.2, -10.0, 10.0);
         BRAIN_LOSS_OXYGEN_30 = builder
                 .comment("血氧在 30% ~ 50% 时的脑健康每秒消耗速率 (%/s)",
-                         "推荐范围: [-2.0, 0.0]")
+                        "推荐范围: [-2.0, 0.0]")
                 .defineInRange("brainLossOxygen30", -0.5, -10.0, 10.0);
         BRAIN_LOSS_OXYGEN_LOW = builder
                 .comment("血氧 < 30% 严重缺氧时的脑健康每秒消耗速率 (%/s)",
-                         "推荐范围: [-5.0, 0.0]")
+                        "推荐范围: [-5.0, 0.0]")
                 .defineInRange("brainLossOxygenLow", -1.0, -10.0, 10.0);
         builder.pop();
 
@@ -648,35 +659,35 @@ public class MedicalConfig {
         builder.comment("意识清醒度调控与呼吸/疼痛惩罚").push("consciousness");
         CONSCIOUSNESS_BASE_RECOVERY = builder
                 .comment("意识每秒自然恢复的基准量 (%)",
-                         "推荐范围: [0.5, 5.0]")
+                        "推荐范围: [0.5, 5.0]")
                 .defineInRange("consciousnessBaseRecovery", 1.0, 0.0, 10.0);
         PAIN_PENALTY_DIVISOR = builder
                 .comment("体感疼痛(0~55)换算为意识每秒惩罚的除数 (penalty = perceivedPain / divisor)",
-                         "推荐范围: [15.0, 50.0]")
+                        "推荐范围: [15.0, 50.0]")
                 .defineInRange("painPenaltyDivisor", 25.0, 1.0, 200.0);
         OXYGEN_PENALTY_90 = builder
                 .comment("血氧在 80% ~ 90% 区间时每秒扣除的意识点数 (%)",
-                         "推荐范围: [0.0, 2.0]")
+                        "推荐范围: [0.0, 2.0]")
                 .defineInRange("oxygenPenalty90", 0.0, 0.0, 10.0);
         OXYGEN_PENALTY_80 = builder
                 .comment("血氧在 70% ~ 80% 区间时每秒扣除的意识点数 (%)",
-                         "推荐范围: [0.0, 3.0]")
+                        "推荐范围: [0.0, 3.0]")
                 .defineInRange("oxygenPenalty80", 0.0, 0.0, 10.0);
         OXYGEN_PENALTY_70 = builder
                 .comment("血氧在 50% ~ 70% 区间时每秒扣除的意识点数 (%)",
-                         "推荐范围: [0.1, 2.0]")
+                        "推荐范围: [0.1, 2.0]")
                 .defineInRange("oxygenPenalty70", 0.5, 0.0, 10.0);
         OXYGEN_PENALTY_50 = builder
                 .comment("血氧在 30% ~ 50% 区间时每秒扣除的意识点数 (%)",
-                         "推荐范围: [0.5, 3.0]")
+                        "推荐范围: [0.5, 3.0]")
                 .defineInRange("oxygenPenalty50", 1.5, 0.0, 10.0);
         OXYGEN_PENALTY_30 = builder
                 .comment("血氧在 20% ~ 30% 区间时每秒扣除的意识点数 (%)",
-                         "推荐范围: [1.0, 5.0]")
+                        "推荐范围: [1.0, 5.0]")
                 .defineInRange("oxygenPenalty30", 3.0, 0.0, 20.0);
         OXYGEN_PENALTY_CRITICAL = builder
                 .comment("血氧 < 20% 严重缺氧区间时每秒扣除的意识点数 (%)",
-                         "推荐范围: [3.0, 10.0]")
+                        "推荐范围: [3.0, 10.0]")
                 .defineInRange("oxygenPenaltyCritical", 5.0, 0.0, 50.0);
         builder.pop();
 
@@ -684,23 +695,23 @@ public class MedicalConfig {
         builder.comment("心电动力学与窦性调节").push("heart_rate");
         RESTING_HEART_RATE = builder
                 .comment("健康人体基础静息心率 (bpm)",
-                         "推荐范围: [60, 90]")
+                        "推荐范围: [60, 90]")
                 .defineInRange("restingHeartRate", 75, 30, 120);
         MAX_HEART_RATE = builder
                 .comment("代偿性窦性心动过速的最大允许心率上限 (bpm)",
-                         "推荐范围: [180, 240]")
+                        "推荐范围: [180, 240]")
                 .defineInRange("maxHeartRate", 200, 150, 300);
         PAIN_HEART_RATE_MULTIPLIER = builder
                 .comment("全身疼痛等级对心率加速的加成系数 (bpm/级)",
-                         "推荐范围: [2.0, 8.0]")
+                        "推荐范围: [2.0, 8.0]")
                 .defineInRange("painHeartRateMultiplier", 4.0, 0.0, 20.0);
         RESP_MOD_STOP = builder
                 .comment("呼吸停止 (<=0) 时对心率的减慢修正值 (bpm)",
-                         "推荐范围: [-40.0, 0.0]")
+                        "推荐范围: [-40.0, 0.0]")
                 .defineInRange("respModStop", -20.0, -100.0, 100.0);
         RESP_MOD_SLOW = builder
                 .comment("呼吸过缓 (<8 次/分) 时对心率的减慢修正值 (bpm)",
-                         "推荐范围: [-20.0, 0.0]")
+                        "推荐范围: [-20.0, 0.0]")
                 .defineInRange("respModSlow", -10.0, -100.0, 100.0);
         builder.pop();
 
@@ -708,27 +719,27 @@ public class MedicalConfig {
         builder.comment("呼吸中枢与通气调节").push("respiration");
         BASE_RESPIRATION = builder
                 .comment("静息基础呼吸频率 (次/分)",
-                         "推荐范围: [12, 18]")
+                        "推荐范围: [12, 18]")
                 .defineInRange("baseRespiration", 14, 6, 30);
         MAX_RESPIRATION = builder
                 .comment("呼吸频率绝对上限 (次/分)",
-                         "推荐范围: [40, 80]")
+                        "推荐范围: [40, 80]")
                 .defineInRange("maxRespiration", 50, 20, 120);
         MAX_RUNNING_RESPIRATION_BONUS = builder
                 .comment("连续奔跑运动带来的最大呼吸频率增益 (次/分)",
-                         "推荐范围: [15.0, 40.0]")
+                        "推荐范围: [15.0, 40.0]")
                 .defineInRange("maxRunningRespirationBonus", 28.0, 0.0, 60.0);
         RUNNING_BONUS_MAX_TIME = builder
                 .comment("奔跑增益达到最大所需持续奔跑时间 (秒)",
-                         "推荐范围: [120, 600]")
+                        "推荐范围: [120, 600]")
                 .defineInRange("runningBonusMaxTime", 300, 10, 1200);
         EXTREME_RESP_LOW_THRESHOLD = builder
                 .comment("触发屏幕边缘全屏红框警告的呼吸过缓下限门槛 (次/分)",
-                         "推荐范围: [4, 8]")
+                        "推荐范围: [4, 8]")
                 .defineInRange("extremeRespLowThreshold", 6, 1, 15);
         EXTREME_RESP_HIGH_THRESHOLD = builder
                 .comment("触发屏幕边缘全屏红框警告的过度换气上限门槛 (次/分)",
-                         "推荐范围: [35, 55]")
+                        "推荐范围: [35, 55]")
                 .defineInRange("extremeRespHighThreshold", 40, 25, 80);
         builder.pop();
 
@@ -736,35 +747,35 @@ public class MedicalConfig {
         builder.comment("心脏急症与濒危状态阈值").push("cardiac_arrest");
         CRITICAL_BLOOD_VOLUME = builder
                 .comment("触发 5 秒濒危倒计时的失血性休克血容量门槛 (mL，人体总量 5000 mL)",
-                         "推荐范围: [2000, 3500]")
+                        "推荐范围: [2000, 3500]")
                 .defineInRange("criticalBloodVolume", 3000, 500, 4500);
         CRITICAL_TIMER_MAX = builder
                 .comment("濒危状态到心脏骤停的倒计时时长 (秒)",
-                         "推荐范围: [3, 10]")
+                        "推荐范围: [3, 10]")
                 .defineInRange("criticalTimerMax", 5, 1, 120);
         VFIB_THRESHOLD = builder
                 .comment("触发心室纤颤倒计时的恶性心动过速心率阈值 (bpm)",
-                         "推荐范围: [180, 230]")
+                        "推荐范围: [180, 230]")
                 .defineInRange("vfibThreshold", 190, 150, 240);
         VFIB_DURATION = builder
                 .comment("维持恶性心动过速触发室颤所需的持续秒数 (秒)",
-                         "推荐范围: [15, 60]")
+                        "推荐范围: [15, 60]")
                 .defineInRange("vfibDuration", 30, 5, 120);
         SEVERE_HYPOXIA_THRESHOLD = builder
                 .comment("触发缺氧性室颤倒计时的血氧饱和度极限阈值 (%)",
-                         "推荐范围: [10, 30]")
+                        "推荐范围: [10, 30]")
                 .defineInRange("severeHypoxiaThreshold", 20, 1, 50);
         SEVERE_HYPOXIA_DURATION = builder
                 .comment("血氧低于极限阈值持续该秒数后触发缺氧性室颤 (秒)",
-                         "推荐范围: [15, 60]")
+                        "推荐范围: [15, 60]")
                 .defineInRange("severeHypoxiaDuration", 30, 5, 120);
         BRADY_ARREST_THRESHOLD = builder
                 .comment("触发停搏倒计时的严重心动过缓心率阈值 (bpm)",
-                         "推荐范围: [20, 45]")
+                        "推荐范围: [20, 45]")
                 .defineInRange("bradyArrestThreshold", 40, 10, 60);
         BRADY_DURATION = builder
                 .comment("维持严重心动过缓触发心脏骤停所需的持续秒数 (秒)",
-                         "推荐范围: [15, 60]")
+                        "推荐范围: [15, 60]")
                 .defineInRange("bradyDuration", 30, 5, 120);
         builder.pop();
 
@@ -772,85 +783,95 @@ public class MedicalConfig {
         builder.comment("运动强度计算与体力活动").push("exercise");
         SPRINT_EXERCISE_INTENSITY = builder
                 .comment("疾跑冲刺时的目标运动强度 (0.0 ~ 1.0)",
-                         "推荐范围: [0.4, 0.8]")
+                        "推荐范围: [0.4, 0.8]")
                 .defineInRange("sprintExerciseIntensity", 0.6, 0.0, 1.0);
         JUMP_EXERCISE_INTENSITY = builder
                 .comment("跳跃与滞空时的最低目标运动强度 (0.0 ~ 1.0)",
-                         "推荐范围: [0.1, 0.4]")
+                        "推荐范围: [0.1, 0.4]")
                 .defineInRange("jumpExerciseIntensity", 0.2, 0.0, 1.0);
         ATTACK_TIMER_DURATION = builder
                 .comment("挥击攻击/破坏方块后激发交感神经兴奋维持的时间 (秒)",
-                         "推荐范围: [5, 20]")
+                        "推荐范围: [5, 20]")
                 .defineInRange("attackTimerDuration", 10, 1, 60);
         builder.pop();
 
         // 9. 疼痛
         builder.comment("疼痛感应与自然衰退").push("pain");
         PAIN_DECAY_INTERVAL = builder
-                .comment("各肢体疼痛等级自然衰退 1 级所需时间 (秒)",
-                         "推荐范围: [30, 180]")
+                .comment("各肢体疼痛等级自然衰退 1 级所需时间 (秒)", "推荐范围: [30, 180]")
                 .defineInRange("painDecayInterval", 60, 1, 600);
         MAX_PAIN_LEVEL = builder
-                .comment("单肢体最高允许记录的疼痛等级上限",
-                         "推荐范围: [10, 20]")
+                .comment("单肢体最高允许记录的疼痛等级上限", "推荐范围: [10, 20]")
                 .defineInRange("maxPainLevel", 10, 1, 20);
+        MAX_PERCEIVED_PAIN = builder
+                .comment("总体体感疼痛上限 (默认 100 百分制)")
+                .defineInRange("maxPerceivedPain", 100, 50, 500);
+        PAIN_LIMB_EXPONENT = builder
+                .comment("单肢体疼痛转总体疼痛的非线性幂指数 (p/maxPain)^exponent，越大则高痛部位占比越高")
+                .defineInRange("painLimbExponent", 2.2, 1.0, 4.0);
+        PAIN_DOMINANT_LIMB_WEIGHT = builder
+                .comment("最痛单个肢体满级时直接贡献的总体疼痛分值 (默认 70.0，即单肢10级直接达70分)")
+                .defineInRange("painDominantLimbWeight", 70.0, 10.0, 200.0);
+        PAIN_SECONDARY_LIMB_WEIGHT = builder
+                .comment("其余受伤肢体按非线性占比叠加的权重系数")
+                .defineInRange("painSecondaryLimbWeight", 30.0, 0.0, 200.0);
         // ---- 疼痛视觉：红晕血管搏动 vignette ----
         PAIN_VIGNETTE_ENABLED = builder
                 .comment("体感疼痛红晕血管搏动视觉层（频率绑定心率，痛越重心跳越快红晕搏动越急促）")
                 .define("painVignetteEnabled", true);
         PAIN_VIGNETTE_START_THRESHOLD = builder
-                .comment("红晕开始出现的体感疼痛阈值（0~55，低于此值不渲染）")
-                .defineInRange("painVignetteStartThreshold", 10, 0, 55);
+                .comment("红晕开始出现的体感疼痛阈值 (0~100，低于此值不渲染)")
+                .defineInRange("painVignetteStartThreshold", 12, 0, 500);
         PAIN_VIGNETTE_FULL_THRESHOLD = builder
-                .comment("红晕达到最大强度的体感疼痛阈值（与起始阈值之间线性插值）")
-                .defineInRange("painVignetteFullThreshold", 45, 1, 55);
+                .comment("红晕达到最大强度的体感疼痛阈值 (0~100，与起始阈值之间线性插值)")
+                .defineInRange("painVignetteFullThreshold", 68, 1, 500);
         PAIN_VIGNETTE_MAX_ALPHA = builder
                 .comment("红晕最大不透明度 (0~1，建议 0.2~0.45 保持可玩性)")
-                .defineInRange("painVignetteMaxAlpha", 0.35, 0.0, 1.0);
+                .defineInRange("painVignetteMaxAlpha", 0.45, 0.0, 1.0);
         // ---- 疼痛视觉：重度灰蓝色罩 ----
         PAIN_GRAY_WASH_THRESHOLD = builder
-                .comment("灰蓝色罩（痛到发灰）开始的体感疼痛阈值（0~55）")
-                .defineInRange("painGrayWashThreshold", 40, 0, 55);
+                .comment("灰蓝色罩（痛到发灰）开始的体感疼痛阈值 (0~100)")
+                .defineInRange("painGrayWashThreshold", 42, 0, 500);
         PAIN_GRAY_WASH_MAX_ALPHA = builder
                 .comment("灰蓝色罩最大不透明度 (0~1，建议不超过 0.2 避免遮挡战场信息)")
-                .defineInRange("painGrayWashMaxAlpha", 0.12, 0.0, 1.0);
+                .defineInRange("painGrayWashMaxAlpha", 0.18, 0.0, 1.0);
         // ---- 疼痛视觉：剧痛瞬发闪抖 ----
         PAIN_SHOCK_ENABLED = builder
                 .comment("剧痛瞬发效果：体感疼痛骤升（如骨折/烧伤瞬间）触发白闪定格+画面抖动+淡出")
                 .define("painShockEnabled", true);
         PAIN_SHOCK_JUMP_THRESHOLD = builder
-                .comment("单次判定窗口内体感疼痛跳变量达到此值触发闪抖 (0~55)")
-                .defineInRange("painShockJumpThreshold", 8, 1, 55);
+                .comment("单次判定窗口内体感疼痛跳变量达到此值触发闪抖 (0~100)")
+                .defineInRange("painShockJumpThreshold", 14, 1, 500);
         PAIN_SHOCK_SEVERE_THRESHOLD = builder
-                .comment("体感疼痛越过此绝对阈值时同样触发闪抖（0~55）")
-                .defineInRange("painShockSevereThreshold", 45, 1, 55);
+                .comment("体感疼痛越过此绝对阈值时同样触发闪抖 (0~100)")
+                .defineInRange("painShockSevereThreshold", 68, 1, 500);
         PAIN_SHOCK_COOLDOWN_TICKS = builder
-                .comment("闪抖触发冷却（tick，防止连续受伤刷屏；20 tick = 1 秒）")
+                .comment("闪抖触发冷却 (tick，防止连续受伤刷屏；20 tick = 1 秒)")
                 .defineInRange("painShockCooldownTicks", 100, 0, 1200);
         PAIN_SHOCK_WHITE_FLASH_ALPHA = builder
                 .comment("白闪最大不透明度 (0~1)")
                 .defineInRange("painShockWhiteFlashAlpha", 0.65, 0.0, 1.0);
         PAIN_SHOCK_MAX_OFFSET = builder
-                .comment("画面抖动最大位移（像素，0 = 关闭抖动只保留白闪）")
+                .comment("画面抖动最大位移 (像素，0 = 关闭抖动只保留白闪)")
                 .defineInRange("painShockMaxOffset", 6.0, 0.0, 30.0);
         // ---- 疼痛音效：心跳 ----
         HEARTBEAT_TRIGGER_PAIN = builder
-                .comment("体感疼痛达到此值时触发心跳音效（与血容量/心率触发条件并联）")
-                .defineInRange("heartbeatTriggerPain", 30, 0, 55);
+                .comment("体感疼痛达到此值时触发心跳音效 (0~100，与血容量/心率触发条件并联)")
+                .defineInRange("heartbeatTriggerPain", 42, 0, 500);
         HEARTBEAT_PAIN_VOLUME_BONUS = builder
-                .comment("疼痛时心跳音量加成（随疼痛强度线性叠加 0~此值）")
-                .defineInRange("heartbeatPainVolumeBonus", 0.3, 0.0, 1.0);
+                .comment("疼痛时心跳音量加成 (随疼痛强度线性叠加 0~此值)")
+                .defineInRange("heartbeatPainVolumeBonus", 0.35, 0.0, 1.0);
         builder.pop();
 
         // 10. 伤害
         builder.comment("创伤与跌落机制").push("damage");
         SAFE_FALL_DISTANCE = builder
                 .comment("安全坠落距离阈值 (格)。低于此值的坠落不产生骨折、出血或疼痛",
-                         "推荐范围: [3.0, 8.0]")
+                        "推荐范围: [3.0, 8.0]")
                 .defineInRange("safeFallDistance", 5.0, 0.0, 20.0);
         HEAD_BRAIN_DAMAGE_THRESHOLD = builder
                 .comment("头部遭受单次伤害触发脑损伤的最小伤害值",
-                         "推荐范围: [3.0, 10.0]")
+                        "推荐范围: [3.0, 10.0]")
                 .defineInRange("headBrainDamageThreshold", 5.0, 0.0, 20.0);
         builder.pop();
 
@@ -858,15 +879,15 @@ public class MedicalConfig {
         builder.comment("客户端视觉与粒子呈现").push("effects");
         BLEED_PARTICLE_THRESHOLD = builder
                 .comment("开始在玩家身周生成出血滴落粒子的全身出血速率门槛 (mL/min)",
-                         "推荐范围: [20, 100]")
+                        "推荐范围: [20, 100]")
                 .defineInRange("bleedParticleThreshold", 50, 0, 500);
         BRAIN_DAMAGE_FONT_THRESHOLD = builder
                 .comment("客户端文本开始出现字形乱码与抖动错位的脑健康阈值 (%)",
-                         "推荐范围: [70, 95]")
+                        "推荐范围: [70, 95]")
                 .defineInRange("brainDamageFontThreshold", 90, 10, 100);
         RESP_BORDER_THICKNESS = builder
                 .comment("极端呼吸异常触发的全屏边缘警告框像素宽度",
-                         "推荐范围: [8, 32]")
+                        "推荐范围: [8, 32]")
                 .defineInRange("respBorderThickness", 16, 1, 64);
 
         BRAIN_DAMAGE_TRIGGER_THRESHOLD = builder
@@ -905,7 +926,7 @@ public class MedicalConfig {
                 .define("enableCrisisSound", true);
         CRISIS_HEARTBEAT_VOLUME = builder
                 .comment("心跳音效全局音量加成倍数",
-                         "推荐范围: [0.5, 1.5]")
+                        "推荐范围: [0.5, 1.5]")
                 .defineInRange("crisisHeartbeatVolume", 1.0, 0.0, 2.0);
         HEARTBEAT_TRIGGER_BLOOD_VOLUME = builder
                 .comment("心跳音效触发的血容量上限阈值（低于此值触发）")
@@ -1291,41 +1312,41 @@ public class MedicalConfig {
         builder.comment("免疫治疗系统").push("immunity");
 
         IMMUNE_BASE_RATE = builder
-            .comment("基础免疫治疗速率（每秒降低的感染值）",
-                     "100 点感染值从满到 0 需要约 1/0.10 = 1000 秒 ≈ 17 分钟")
-            .defineInRange("immuneBaseRate", 0.10, 0.0, 5.0);
+                .comment("基础免疫治疗速率（每秒降低的感染值）",
+                        "100 点感染值从满到 0 需要约 1/0.10 = 1000 秒 ≈ 17 分钟")
+                .defineInRange("immuneBaseRate", 0.10, 0.0, 5.0);
 
         IMMUNE_HUNGER_HIGH_MULT = builder
-            .comment("饱食度 ≥ 18（饱腹）时的免疫治疗倍率")
-            .defineInRange("immuneHungerHighMult", 2.5, 0.0, 10.0);
+                .comment("饱食度 ≥ 18（饱腹）时的免疫治疗倍率")
+                .defineInRange("immuneHungerHighMult", 2.5, 0.0, 10.0);
 
         IMMUNE_HUNGER_MID_MULT = builder
-            .comment("饱食度 14~17 时的免疫治疗倍率")
-            .defineInRange("immuneHungerMidMult", 1.5, 0.0, 10.0);
+                .comment("饱食度 14~17 时的免疫治疗倍率")
+                .defineInRange("immuneHungerMidMult", 1.5, 0.0, 10.0);
 
         IMMUNE_HUNGER_LOW_MULT = builder
-            .comment("饱食度 8~13（正常）时的免疫治疗倍率")
-            .defineInRange("immuneHungerLowMult", 1.0, 0.0, 10.0);
+                .comment("饱食度 8~13（正常）时的免疫治疗倍率")
+                .defineInRange("immuneHungerLowMult", 1.0, 0.0, 10.0);
 
         IMMUNE_HUNGER_CRIT_MULT = builder
-            .comment("饱食度 3~7（饥饿）时的免疫治疗倍率")
-            .defineInRange("immuneHungerCritMult", 0.5, 0.0, 10.0);
+                .comment("饱食度 3~7（饥饿）时的免疫治疗倍率")
+                .defineInRange("immuneHungerCritMult", 0.5, 0.0, 10.0);
 
         IMMUNE_HUNGER_STARVE_MULT = builder
-            .comment("饱食度 < 3（濒饿）时的免疫治疗倍率")
-            .defineInRange("immuneHungerStarveMult", 0.2, 0.0, 10.0);
+                .comment("饱食度 < 3（濒饿）时的免疫治疗倍率")
+                .defineInRange("immuneHungerStarveMult", 0.2, 0.0, 10.0);
 
         DISINFECTANT_DURATION = builder
-            .comment("消毒剂效果持续秒数")
-            .defineInRange("disinfectantDuration", 60, 1, 600);
+                .comment("消毒剂效果持续秒数")
+                .defineInRange("disinfectantDuration", 60, 1, 600);
 
         DISINFECTANT_IMMUNE_MULT = builder
-            .comment("消毒剂生效期间的免疫治疗加速倍率")
-            .defineInRange("disinfectantImmuneMult", 2.0, 1.0, 10.0);
+                .comment("消毒剂生效期间的免疫治疗加速倍率")
+                .defineInRange("disinfectantImmuneMult", 2.0, 1.0, 10.0);
 
         DISINFECTANT_BLOCKS_GROWTH = builder
-            .comment("消毒剂生效期间是否完全阻止感染值增长")
-            .define("disinfectantBlocksGrowth", true);
+                .comment("消毒剂生效期间是否完全阻止感染值增长")
+                .define("disinfectantBlocksGrowth", true);
 
         builder.pop();
 
@@ -1668,6 +1689,27 @@ public class MedicalConfig {
         PAIN_CHEST_NAUSEA_SLOPE = builder
                 .comment("胸部疼痛每级对反胃药水等级的插值斜率")
                 .defineInRange("painChestNauseaSlope", 0.15, 0.0, 1.0);
+        PAIN_ACTION_EXPONENT = builder
+                .comment("肢体疼痛转化为行动力衰减的非线性幂指数 (p/maxPain)^exponent")
+                .defineInRange("painActionExponent", 2.2, 1.0, 4.0);
+        PAIN_LEG_MAX_SPEED_PENALTY = builder
+                .comment("单腿满级疼痛时的最大移速衰减比例 (0.82 = 满痛时移速降低82%)")
+                .defineInRange("painLegMaxSpeedPenalty", 0.82, 0.0, 0.95);
+        PAIN_ARM_MAX_ATTACK_PENALTY = builder
+                .comment("单臂满级疼痛时的最大攻击力衰减比例")
+                .defineInRange("painArmMaxAttackPenalty", 0.75, 0.0, 0.95);
+        PAIN_ARM_MAX_SPEED_PENALTY = builder
+                .comment("单臂满级疼痛时的最大攻速衰减比例")
+                .defineInRange("painArmMaxSpeedPenalty", 0.75, 0.0, 0.95);
+        PAIN_SYSTEMIC_MAX_SPEED_PENALTY = builder
+                .comment("总体体感疼痛满值时对全身移速的最大牵制比例 (即使双腿未受伤也会因全身剧痛减速)")
+                .defineInRange("painSystemicMaxSpeedPenalty", 0.65, 0.0, 0.95);
+        PAIN_SYSTEMIC_MAX_ACTION_PENALTY = builder
+                .comment("总体体感疼痛满值时对全身攻速与攻击力的最大牵制比例")
+                .defineInRange("painSystemicMaxActionPenalty", 0.55, 0.0, 0.95);
+        PAIN_SPRINT_LOCK_THRESHOLD = builder
+                .comment("强制禁止疾跑的总体体感疼痛阈值 (默认42，单肢8级疼痛即打断疾跑)")
+                .defineInRange("painSprintLockThreshold", 42, 0, 500);
         BLOOD_LOSS_SPEED_SLOPE = builder
                 .comment("失血每 1% 对移速的线性斜率（b 为失血百分比 0~100）")
                 .defineInRange("bloodLossSpeedSlope", 0.5, 0.0, 1.0);
@@ -1725,8 +1767,8 @@ public class MedicalConfig {
         builder.comment("中毒系统：poison 伤害转毒素条（0~100），全身性生理影响（呼吸/血氧/意识/血压/凝血/感染/心律）").push("toxin");
         TOXIN_ACCUMULATION_RATE = builder
                 .comment("每次 poison 伤害事件转毒素条的累加系数（毒素 += 伤害量 × 系数）",
-                         "原版 Poison I 每 1.25s 扣 1 点伤害，Poison II 0.6s 扣 1 点",
-                         "系数 6 时 Poison I 约 8 分钟充满，Poison II 约 4 分钟充满")
+                        "原版 Poison I 每 1.25s 扣 1 点伤害，Poison II 0.6s 扣 1 点",
+                        "系数 6 时 Poison I 约 8 分钟充满，Poison II 约 4 分钟充满")
                 .defineInRange("accumulationRate", 6.0, 0.0, 100.0);
         TOXIN_DECAY_RATE = builder
                 .comment("毒素自然代谢速率（每秒循环扣减，默认 0.25 = 15点/分钟）")
@@ -1779,7 +1821,7 @@ public class MedicalConfig {
         builder.comment("烧伤系统：火伤负荷累加→深度定型（I/浅II/深II/III度），TBSA 驱动渗漏休克/感染/凝血/代谢").push("burn");
         BURN_LOAD_PER_DAMAGE = builder
                 .comment("每次火伤事件的烧伤负荷累加系数（负荷 += 伤害量 × 系数；盔甲部位减半）",
-                         "原版着火 2伤/s、岩浆 8伤/s：系数1时烧10s≈III度、岩浆2.5s≈III度")
+                        "原版着火 2伤/s、岩浆 8伤/s：系数1时烧10s≈III度、岩浆2.5s≈III度")
                 .defineInRange("loadPerDamage", 1.0, 0.0, 10.0);
         BURN_CONVERSION_RATE = builder
                 .comment("热力期负荷缓冲转正速率（每秒转正的负荷点数，模拟余热持续损伤）")

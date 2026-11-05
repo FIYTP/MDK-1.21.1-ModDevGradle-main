@@ -126,16 +126,17 @@ public class PainVisualOverlay {
 
         heartPhase = (heartPhase + dt * (smoothHeartRate / 60.0f)) % 1.0f;
 
-        float targetHead = data.getLimb(MedicalData.Limb.HEAD).getPainLevel() / 10.0f;
-        float targetChest = data.getLimb(MedicalData.Limb.CHEST).getPainLevel() / 10.0f;
+        float maxLimbPain = Math.max(1.0f, MedicalConfig.MAX_PAIN_LEVEL.get().floatValue());
+        float targetHead = data.getLimb(MedicalData.Limb.HEAD).getPainLevel() / maxLimbPain;
+        float targetChest = data.getLimb(MedicalData.Limb.CHEST).getPainLevel() / maxLimbPain;
         float targetLeft = Math.max(
                 data.getLimb(MedicalData.Limb.LEFT_ARM).getPainLevel(),
                 data.getLimb(MedicalData.Limb.LEFT_LEG).getPainLevel()
-        ) / 10.0f;
+        ) / maxLimbPain;
         float targetRight = Math.max(
                 data.getLimb(MedicalData.Limb.RIGHT_ARM).getPainLevel(),
                 data.getLimb(MedicalData.Limb.RIGHT_LEG).getPainLevel()
-        ) / 10.0f;
+        ) / maxLimbPain;
 
         float limbLerp = Math.min(1.0f, dt * 4.0f);
         smoothHeadPain = Mth.lerp(limbLerp, smoothHeadPain, targetHead);
@@ -172,7 +173,8 @@ public class PainVisualOverlay {
 
         // ---------- 层级 1：重度剧痛边缘冷灰去饱和隧道暗角 ----------
         if (smoothPain >= grayThreshold) {
-            float grayFactor = Mth.clamp((smoothPain - grayThreshold) / Math.max(1.0f, 55.0f - grayThreshold), 0.0f, 1.0f);
+            float maxPerceived = Math.max(10.0f, MedicalConfig.MAX_PERCEIVED_PAIN.get().floatValue());
+        float grayFactor = Mth.clamp((smoothPain - grayThreshold) / Math.max(1.0f, maxPerceived - grayThreshold), 0.0f, 1.0f);
             float grayMaxAlpha = MedicalConfig.PAIN_GRAY_WASH_MAX_ALPHA.get().floatValue();
             float outerTunnelAlpha = Mth.clamp(grayFactor * grayMaxAlpha * 2.4f * consciousnessBudget, 0.0f, 0.65f);
             float centerTintAlpha = Mth.clamp(grayFactor * grayMaxAlpha * 0.28f * consciousnessBudget, 0.0f, 0.12f);

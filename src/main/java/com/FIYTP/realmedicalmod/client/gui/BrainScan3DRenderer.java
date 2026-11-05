@@ -23,55 +23,75 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * 3A 级全息脑部扫描与头部创伤综合诊断终端 (BrainScan3DRenderer)
+ * 3A 级全息脑部扫描与头部创伤综合诊断终端 (BrainScan3DRenderer - 零外部符号依赖自包含版)
  *
- * 核心升级亮点：
- * 1. 解剖级四分结构 3D 脑模型：
- *    包含左右大脑皮层半球 (额叶/顶叶/枕叶/颞叶生理解剖比例与多阶脑回沟壑)、后下方带水平叶片纹理的小脑 (Cerebellum)
- *    以及底部延髓脑干 (Brainstem)，共 1200+ 深度排序全息体素点与皮层拓扑网格线。
- * 2. 实时白质神经突触传导网 (Live Synaptic Connectome)：
- *    内部 42 条跨脑区神经纤维束，带有随心率与意识高速穿梭的动作电位光子脉冲；脑损伤或剧痛时触发异常红/紫神经电风暴。
- * 3. 3D 病理病灶空间映射 (3D Lesion & Hematoma Projection)：
- *    根据颅内积血量、头部外出血、头部内出血、感染与疼痛，在 3D 大脑对应空间位置实时渲染脉冲血肿云团与脑膜炎病灶信标。
- * 4. 补全头部 (HEAD) 全部缺失肢体指标：
- *    完整展示头部外出血、内出血、疼痛等级、感染值、烧伤、包扎/颅骨骨折状态徽标，以及脑健康、意识、颅内出血分级与脑灌注压。
- * 5. 多信息自适应兼容方案 (Multi-Mode + Hardware Scissor Scroll + 2-Col Grid)：
- *    - 支持 [SPLIT 分栏同屏] / [3D HOLO 全屏全息] / [CLINICAL 双列报表] 三种模式一键切换（点击右上角标签或滚轮滚动）。
- *    - 右侧指标舱内置 GuiGraphics.enableScissor 硬件裁剪视窗与丝滑阻尼滚动条，无论词条多少绝不溢出面板或挤压其它模块。
+ * 1. 解剖级四分结构 3D 脑模型（左右大脑皮层半球 + 小脑 + 脑干）与 44 条白质神经突触脉冲束
+ * 2. 3D 病理病灶空间映射（颅内血肿、头部外出血、内出血、脑膜炎病灶信标）
+ * 3. 完整补全头部 (HEAD) 缺失的外出血、内出血、疼痛、感染、烧伤、状态徽标与颅内专科指标
+ * 4. 内置 SPLIT / 3D HOLO / CLINICAL 三视图切换与硬件 Scissor 裁剪平滑滚轮滚动
  */
 public class BrainScan3DRenderer {
 
+    // 内置 3A 医疗全息语义配色表（彻底脱离外部 HudColors 符号差异）
+    public static final int C_NEON_CYAN = 0xFF00F0FF;
+    public static final int C_HOLO_BLUE = 0xFF00A0FF;
+    public static final int C_ALERT_RED = 0xFFFF2040;
+    public static final int C_WARN_YELLOW = 0xFFFFD000;
+    public static final int C_SAFE_GREEN = 0xFF00FF80;
+    public static final int C_VITAL_BP = 0xFFFF9900;
+    public static final int C_VITAL_PAIN = 0xFFFF0055;
+    public static final int C_VITAL_OXYGEN = 0xFF00D2FF;
+    public static final int C_VITAL_HEART = 0xFFFF2A55;
+    public static final int C_TEXT_LABEL = 0xFF00D2FF;
+
+    public static int withAlpha(int rgb, float alpha) {
+        int a = Mth.clamp((int) (alpha * 255.0f), 0, 255);
+        return (a << 24) | (rgb & 0x00FFFFFF);
+    }
+
+    public static int getHealthColor(float pct) {
+        pct = Mth.clamp(pct, 0.0f, 1.0f);
+        if (pct > 0.5f) {
+            return lerpColor(C_WARN_YELLOW, C_SAFE_GREEN, (pct - 0.5f) * 2.0f);
+        } else {
+            return lerpColor(C_ALERT_RED, C_WARN_YELLOW, pct * 2.0f);
+        }
+    }
+
+    private static int lerpColor(int c1, int c2, float t) {
+        int r1 = (c1 >> 16) & 0xFF, g1 = (c1 >> 8) & 0xFF, b1 = c1 & 0xFF;
+        int r2 = (c2 >> 16) & 0xFF, g2 = (c2 >> 8) & 0xFF, b2 = c2 & 0xFF;
+        int r = (int) (r1 + (r2 - r1) * t);
+        int g = (int) (g1 + (g2 - g1) * t);
+        int b = (int) (b1 + (b2 - b1) * t);
+        return 0xFF000000 | (r << 16) | (g << 8) | b;
+    }
+
     public enum ViewMode {
-        SPLIT("SPLIT // 全息+诊断"),
-        HOLO_FULL("3D HOLO // 沉浸脑图"),
-        CLINICAL_GRID("CLINICAL // 双列全表");
+        SPLIT("分屏"),
+        HOLO_FULL("全息"),
+        CLINICAL_GRID("列表");
 
         public final String label;
         ViewMode(String label) { this.label = label; }
     }
 
-    // 3D 脑部顶点结构
     private static class BrainVertex {
         final float x, y, z;
         final float nx, ny, nz;
-        final int region; // -1: 左大脑半球, 1: 右大脑半球, 2: 小脑, 3: 脑干
-        final float foldFactor; // 脑回凸起度 (0~1)
-        final int connectIndex; // 邻接拓扑点索引
+        final int region; // -1: 左半球, 1: 右半球, 2: 小脑, 3: 脑干
+        final float foldFactor;
+        final int connectIndex;
 
         BrainVertex(float x, float y, float z, float nx, float ny, float nz, int region, float foldFactor, int connectIndex) {
-            this.x = x;
-            this.y = y;
-            this.z = z;
-            this.nx = nx;
-            this.ny = ny;
-            this.nz = nz;
+            this.x = x; this.y = y; this.z = z;
+            this.nx = nx; this.ny = ny; this.nz = nz;
             this.region = region;
             this.foldFactor = foldFactor;
             this.connectIndex = connectIndex;
         }
     }
 
-    // 内部白质神经突触传导束
     private static class SynapseTract {
         final float x1, y1, z1;
         final float x2, y2, z2;
@@ -86,7 +106,6 @@ public class BrainScan3DRenderer {
         }
     }
 
-    // 环绕全息轨道粒子
     private static class OrbitParticle {
         float angle;
         final float speed;
@@ -107,16 +126,13 @@ public class BrainScan3DRenderer {
         }
     }
 
-    // 3D 脑区浮动锚点标签
     private static class BrainAnchorLabel {
         final String keyTitle;
         final float ox, oy, oz;
 
         BrainAnchorLabel(String keyTitle, float ox, float oy, float oz) {
             this.keyTitle = keyTitle;
-            this.ox = ox;
-            this.oy = oy;
-            this.oz = oz;
+            this.ox = ox; this.oy = oy; this.oz = oz;
         }
     }
 
@@ -125,19 +141,16 @@ public class BrainScan3DRenderer {
     private final List<OrbitParticle> orbitParticles = new ArrayList<>();
     private final List<BrainAnchorLabel> anchorLabels = new ArrayList<>();
 
-    // 视角与旋转控制
     private float yaw = -0.45f;
     private float pitch = 0.22f;
     private float autoRotateTimer = 0.0f;
     private long lastRenderTimeMs = 0L;
 
-    // 兼容方案：多视图切换与右侧诊断视窗平滑滚动状态
     private ViewMode currentMode = ViewMode.SPLIT;
     private float scrollOffset = 0.0f;
     private float scrollTarget = 0.0f;
     private float maxScroll = 0.0f;
 
-    // 缓存的交互热区坐标（供鼠标点击与滚轮判定）
     private int lastPanelX, lastPanelY, lastPanelW, lastPanelH;
     private int lastScrollAreaX, lastScrollAreaY, lastScrollAreaW, lastScrollAreaH;
     private int lastHoloAreaX, lastHoloAreaY, lastHoloAreaW, lastHoloAreaH;
@@ -149,56 +162,43 @@ public class BrainScan3DRenderer {
         initAnchorLabels();
     }
 
-    /**
-     * 构建高精解剖级 3D 大脑模型（左右大脑皮层半球 + 小脑 + 脑干）
-     */
     private void generateAnatomicalBrainMesh() {
         vertices.clear();
-
-        // 1. 左右大脑半球 (Cerebral Hemispheres)
         int latSteps = 22;
         int lonSteps = 34;
         for (int hemi = -1; hemi <= 1; hemi += 2) {
             int startIdx = vertices.size();
             for (int i = 1; i < latSteps; i++) {
                 float v = i / (float) latSteps;
-                float theta = v * (float) Math.PI; // 0 (顶) -> PI (底)
+                float theta = v * (float) Math.PI;
                 float sinTheta = Mth.sin(theta);
                 float cosTheta = Mth.cos(theta);
 
                 for (int j = 0; j < lonSteps; j++) {
                     float u = j / (float) lonSteps;
-                    // 每个半球覆盖半圆周并留出中央纵裂 (Longitudinal Fissure)
                     float phi = u * (float) Math.PI;
                     float sinPhi = Mth.sin(phi);
                     float cosPhi = Mth.cos(phi);
 
-                    // 基础椭球坐标：前后长 (Z: 1.18)，上下高 (Y: 0.88)，左右宽 (X: 0.78)
                     float rawX = hemi * (0.065f + sinTheta * sinPhi * 0.76f);
                     float rawY = -cosTheta * 0.86f;
                     float rawZ = sinTheta * cosPhi * 1.16f;
 
-                    // 解剖形态修正：
-                    // (a) 额叶 (Frontal Lobe, Z > 0.2) 略微饱满宽阔
                     if (rawZ > 0.2f) {
                         rawX *= 1.0f + 0.08f * (rawZ / 1.16f);
                     }
-                    // (b) 枕叶 (Occipital Lobe, Z < -0.4) 向后下方微尖突
                     if (rawZ < -0.4f) {
                         rawY += 0.08f * ((-rawZ - 0.4f) / 0.76f);
                     }
-                    // (c) 颞叶 (Temporal Lobe) 在中下部外侧明显隆起
                     float temporalMask = Math.max(0.0f, 1.0f - Math.abs(rawZ - 0.05f) * 1.6f)
                             * Math.max(0.0f, (rawY - 0.05f) * 1.4f);
                     rawX += hemi * temporalMask * 0.16f;
                     rawY += temporalMask * 0.08f;
 
-                    // (d) 底部平坦化（前颅窝/中颅窝底面收平）
                     if (rawY > 0.35f) {
                         rawY = 0.35f + (rawY - 0.35f) * 0.42f;
                     }
 
-                    // 多阶谐波模拟脑回 (Gyri) 与脑沟 (Sulci) 褶皱
                     float gyri1 = Mth.sin(rawX * 9.5f + rawZ * 7.2f) * Mth.cos(rawY * 8.4f - rawZ * 5.8f);
                     float gyri2 = Mth.sin(rawZ * 14.0f - rawY * 11.0f) * 0.5f;
                     float fold = Mth.clamp(0.5f + 0.38f * gyri1 + 0.22f * gyri2, 0.0f, 1.0f);
@@ -217,7 +217,6 @@ public class BrainScan3DRenderer {
                     vertices.add(new BrainVertex(fx, fy, fz, nx, ny, nz, hemi, fold, prevInRow));
                 }
             }
-            // 添加少量跨纬度纵向连接使网格呈现精致的脑皮层拓扑感
             int totalHemi = vertices.size() - startIdx;
             if (totalHemi > lonSteps) {
                 for (int k = startIdx + lonSteps; k < vertices.size(); k += 3) {
@@ -227,7 +226,7 @@ public class BrainScan3DRenderer {
             }
         }
 
-        // 2. 小脑 (Cerebellum)：位于枕叶下方后侧 (Y: 0.28~0.68, Z: -0.45~-1.05)
+        // 小脑 (Cerebellum)
         int cLat = 10;
         int cLon = 22;
         for (int hemi = -1; hemi <= 1; hemi += 2) {
@@ -238,8 +237,6 @@ public class BrainScan3DRenderer {
                     float cx = hemi * (0.04f + Mth.sin(theta) * Mth.sin(phi) * 0.46f);
                     float cy = 0.44f - Mth.cos(theta) * 0.24f;
                     float cz = -0.68f + Mth.sin(theta) * Mth.cos(phi) * 0.34f;
-
-                    // 小脑特征性的细密水平叶片纹 (Folia)
                     float folia = 0.5f + 0.5f * Mth.sin(cy * 32.0f);
                     int prev = (j > 0) ? (vertices.size() - 1) : -1;
                     vertices.add(new BrainVertex(cx, cy, cz, 0.0f, 0.3f, -0.9f, 2, folia, prev));
@@ -247,14 +244,13 @@ public class BrainScan3DRenderer {
             }
         }
 
-        // 3. 脑干 (Brainstem - 脑桥与延髓)：位于中央底部向下延伸 (Y: 0.35~0.98, Z: -0.15~-0.38)
+        // 脑干 (Brainstem)
         int stemRings = 9;
         int stemSegs = 14;
         for (int r = 0; r < stemRings; r++) {
             float t = r / (float) (stemRings - 1);
             float sy = 0.36f + t * 0.62f;
             float szCenter = -0.18f - t * 0.14f;
-            // 脑桥略微膨大，向下延髓收窄
             float radius = (0.19f - t * 0.06f) * (1.0f + 0.18f * Mth.sin(t * (float) Math.PI));
             for (int s = 0; s < stemSegs; s++) {
                 float ang = (s / (float) stemSegs) * ((float) Math.PI * 2.0f);
@@ -266,9 +262,6 @@ public class BrainScan3DRenderer {
         }
     }
 
-    /**
-     * 初始化内部白质神经纤维连接束 (Connectome Tracts)
-     */
     private void initSynapseConnectome() {
         synapseTracts.clear();
         Random rand = new Random(2077042L);
@@ -277,7 +270,6 @@ public class BrainScan3DRenderer {
         for (int i = 0; i < 44; i++) {
             BrainVertex a = vertices.get(rand.nextInt(vertices.size()));
             BrainVertex b = vertices.get(rand.nextInt(vertices.size()));
-            // 收缩至脑实质内部 75% 深度，模拟白质神经轴突束
             synapseTracts.add(new SynapseTract(
                     a.x * 0.78f, a.y * 0.78f, a.z * 0.78f,
                     b.x * 0.78f, b.y * 0.78f, b.z * 0.78f,
@@ -297,17 +289,14 @@ public class BrainScan3DRenderer {
 
     private void initAnchorLabels() {
         anchorLabels.clear();
-        anchorLabels.add(new BrainAnchorLabel("FRONTAL // 额叶皮层", -0.52f, -0.36f, 0.72f));
-        anchorLabels.add(new BrainAnchorLabel("PARIETAL // 顶叶中枢", 0.56f, -0.62f, -0.08f));
-        anchorLabels.add(new BrainAnchorLabel("TEMPORAL // 颞叶听觉", 0.78f, 0.12f, 0.18f));
-        anchorLabels.add(new BrainAnchorLabel("OCCIPITAL // 枕叶视觉", -0.45f, -0.10f, -0.92f));
-        anchorLabels.add(new BrainAnchorLabel("CEREBELLUM // 小脑运动", 0.38f, 0.48f, -0.78f));
-        anchorLabels.add(new BrainAnchorLabel("BRAINSTEM // 脑干生命中枢", 0.0f, 0.82f, -0.28f));
+        anchorLabels.add(new BrainAnchorLabel("额叶", -0.52f, -0.36f, 0.72f));
+        anchorLabels.add(new BrainAnchorLabel("顶叶", 0.56f, -0.62f, -0.08f));
+        anchorLabels.add(new BrainAnchorLabel("颞叶", 0.78f, 0.12f, 0.18f));
+        anchorLabels.add(new BrainAnchorLabel("枕叶", -0.45f, -0.10f, -0.92f));
+        anchorLabels.add(new BrainAnchorLabel("小脑", 0.38f, 0.48f, -0.78f));
+        anchorLabels.add(new BrainAnchorLabel("脑干", 0.0f, 0.82f, -0.28f));
     }
 
-    /**
-     * 兼容原版 8 参数签名调用，内部自动获取鼠标坐标与时间戳
-     */
     public void render(GuiGraphics graphics, Font font, int x, int y, int width, int height,
                        MedicalData data, float deltaSeconds) {
         Minecraft mc = Minecraft.getInstance();
@@ -316,9 +305,6 @@ public class BrainScan3DRenderer {
         render(graphics, font, x, y, width, height, data, deltaSeconds, mx, my, System.currentTimeMillis());
     }
 
-    /**
-     * 完整 11 参数渲染主入口
-     */
     public void render(GuiGraphics graphics, Font font, int x, int y, int width, int height,
                        MedicalData data, float deltaSeconds, int mouseX, int mouseY, long now) {
         if (data == null || width < 80 || height < 60) return;
@@ -328,16 +314,13 @@ public class BrainScan3DRenderer {
         this.lastPanelW = width;
         this.lastPanelH = height;
 
-        // 1. 计算真实帧间隔 dt，驱动丝滑动画与惯性滚动
         if (lastRenderTimeMs == 0L) lastRenderTimeMs = now;
         float dt = Mth.clamp((now - lastRenderTimeMs) / 1000.0f, 0.001f, 0.1f);
         lastRenderTimeMs = now;
 
-        // 滚轮平滑阻尼追赶
         scrollTarget = Mth.clamp(scrollTarget, 0.0f, maxScroll);
         scrollOffset = Mth.lerp(Math.min(1.0f, dt * 14.0f), scrollOffset, scrollTarget);
 
-        // 自动旋转（当鼠标未按住拖拽时缓慢优雅自转）
         if (autoRotateTimer > 0.0f) {
             autoRotateTimer = Math.max(0.0f, autoRotateTimer - dt);
         } else {
@@ -345,7 +328,6 @@ public class BrainScan3DRenderer {
             pitch = Mth.lerp(Math.min(1.0f, dt * 2.0f), pitch, 0.20f + 0.08f * Mth.sin(now * 0.0012f));
         }
 
-        // 2. 绘制右上角 3A 视图切换胶囊按钮栏 (View Mode Switcher)
         drawViewModeTabs(graphics, font, x, y, width, mouseX, mouseY);
 
         int contentTop = y + 24;
@@ -353,9 +335,7 @@ public class BrainScan3DRenderer {
         int contentX = x + 10;
         int contentW = width - 20;
 
-        // 若窗口宽度过窄 (< 220px)，自动回退或紧凑排列
         if (currentMode == ViewMode.HOLO_FULL) {
-            // 模式 2：100% 沉浸式 3D 全息脑扫描 + 四角战术微卡片展示头部外伤/内出血/疼痛/感染
             this.lastHoloAreaX = contentX;
             this.lastHoloAreaY = contentTop;
             this.lastHoloAreaW = contentW;
@@ -363,18 +343,16 @@ public class BrainScan3DRenderer {
             this.lastScrollAreaW = 0;
 
             render3DBrainViewport(graphics, font, contentX, contentTop, contentW, contentH, data, dt, now, true);
-            drawCornerTacticalOverlays(graphics, font, contentX, contentTop, contentW, contentH, data, now);
+            drawCornerTacticalOverlays(graphics, font, contentX, contentTop, contentW, contentH, data);
         } else if (currentMode == ViewMode.CLINICAL_GRID || contentW < 210) {
-            // 模式 3：双列高密度临床遥测全表（带硬件 Scissor 滚轮视窗 + 顶部小型脑扫描摘要条）
             this.lastHoloAreaW = 0;
             this.lastScrollAreaX = contentX;
             this.lastScrollAreaY = contentTop;
             this.lastScrollAreaW = contentW;
             this.lastScrollAreaH = contentH;
 
-            renderScrollableHeadTelemetry(graphics, font, contentX, contentTop, contentW, contentH, data, now, true);
+            renderScrollableHeadTelemetry(graphics, font, contentX, contentTop, contentW, contentH, data, true);
         } else {
-            // 模式 1 (默认 SPLIT)：左侧 46% 为 3D 全息脑部扫描舱，右侧 54% 为带硬件裁剪滚动的完整头部创伤 + 脑外科指标舱
             int holoW = (int) (contentW * 0.46f);
             int diagX = contentX + holoW + 8;
             int diagW = contentW - holoW - 8;
@@ -389,19 +367,14 @@ public class BrainScan3DRenderer {
             this.lastScrollAreaW = diagW;
             this.lastScrollAreaH = contentH;
 
-            // 左侧 3D 脑部全息舱底框
             HudRenderHelper.drawSciFiCard(graphics, contentX, contentTop, holoW, contentH, 4, 0x99040A12, 0x5500E5FF);
             render3DBrainViewport(graphics, font, contentX, contentTop, holoW, contentH, data, dt, now, false);
 
-            // 右侧可滚动完整头部诊断舱（包含原本缺失的外出血、内出血、疼痛、感染、状态药丸及颅内专科数据）
             HudRenderHelper.drawSciFiCard(graphics, diagX, contentTop, diagW, contentH, 4, 0x99040A12, 0x4400A0FF);
-            renderScrollableHeadTelemetry(graphics, font, diagX + 6, contentTop + 4, diagW - 12, contentH - 8, data, now, false);
+            renderScrollableHeadTelemetry(graphics, font, diagX + 6, contentTop + 4, diagW - 12, contentH - 8, data, false);
         }
     }
 
-    /**
-     * 绘制右上角三模式切换按钮栏
-     */
     private void drawViewModeTabs(GuiGraphics g, Font font, int panelX, int panelY, int panelW, int mouseX, int mouseY) {
         ViewMode[] modes = ViewMode.values();
         int tabH = 13;
@@ -412,14 +385,14 @@ public class BrainScan3DRenderer {
             ViewMode m = modes[i];
             int tw = font.width(m.label) + 10;
             int tx = curRight - tw;
-            if (tx < panelX + 140) break; // 防极窄分辨率下与标题重叠
+            if (tx < panelX + 140) break;
 
             boolean active = (this.currentMode == m);
             boolean hovered = mouseX >= tx && mouseX <= tx + tw && mouseY >= tabY && mouseY <= tabY + tabH;
 
             int bg = active ? 0xCC004D66 : (hovered ? 0x990A2233 : 0x66050E17);
-            int border = active ? HudColors.COLOR_NEON_CYAN : (hovered ? 0xAA00E5FF : 0x4400A0FF);
-            int txtColor = active ? 0xFFFFFFFF : (hovered ? HudColors.COLOR_NEON_CYAN : 0xFF90A4AE);
+            int border = active ? C_NEON_CYAN : (hovered ? 0xAA00E5FF : 0x4400A0FF);
+            int txtColor = active ? 0xFFFFFFFF : (hovered ? C_NEON_CYAN : 0xFF90A4AE);
 
             HudRenderHelper.drawSciFiCard(g, tx, tabY, tw, tabH, 2, bg, border);
             g.drawString(font, m.label, tx + 5, tabY + 3, txtColor, false);
@@ -428,9 +401,6 @@ public class BrainScan3DRenderer {
         }
     }
 
-    /**
-     * 渲染 3D 全息脑部扫描核心视窗
-     */
     private void render3DBrainViewport(GuiGraphics g, Font font, int vx, int vy, int vw, int vh,
                                        MedicalData data, float dt, long now, boolean fullMode) {
         g.enableScissor(vx + 1, vy + 1, vx + vw - 1, vy + vh - 1);
@@ -449,20 +419,15 @@ public class BrainScan3DRenderer {
         float cy = vy + vh * (fullMode ? 0.46f : 0.43f);
         float scale = Math.min(vw, vh) * (fullMode ? 0.34f : 0.36f);
 
-        // 1. 绘制全息极坐标雷达底盘与三轴陀螺校准环 (3D Gimbal Calibration Rings)
-        drawHologramGimbalRings(g, cx, cy, scale, now, brainHealth, icLevel);
+        drawHologramGimbalRings(g, cx, cy, scale, brainHealth, icLevel);
 
-        // 2. 计算 3D 旋转矩阵参量
         float cosYaw = Mth.cos(yaw);
         float sinYaw = Mth.sin(yaw);
         float cosPitch = Mth.cos(pitch);
         float sinPitch = Mth.sin(pitch);
 
-        // 周期性双轴 CT 激光扫描平面 (Y 轴水平断层 + Z 轴冠状断层)
         float scanCycle = (now % 3200L) / 3200.0f;
         float scanPlaneY = -1.05f + scanCycle * 2.10f;
-
-        // 脑损伤故障抖动系数
         float glitchIntensity = (brainHealth < 85) ? Mth.clamp((85 - brainHealth) / 85.0f, 0.0f, 1.0f) : 0.0f;
 
         Matrix4f pose = g.pose().last().pose();
@@ -471,23 +436,19 @@ public class BrainScan3DRenderer {
         RenderSystem.disableDepthTest();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
 
-        // 3. 绘制环绕全息光子流与内部白质神经突触网络
-        drawSynapseConnectomeAndPulses(pose, cx, cy, scale, cosYaw, sinYaw, cosPitch, sinPitch, dt, now, data, headPain);
+        drawSynapseConnectomeAndPulses(pose, cx, cy, scale, cosYaw, sinYaw, cosPitch, sinPitch, dt, data, headPain);
         drawOrbitingParticles(pose, cx, cy, scale, cosYaw, sinYaw, cosPitch, sinPitch, dt, brainHealth);
 
-        // 4. 绘制 3D 病理病灶云团（颅内血肿、头部内外出血破裂点、脑膜感染灶）
         if (icVol > 0.1f || headBleed > 0 || headInternal > 0 || headInf > 0) {
             draw3DPathologyLesions(pose, cx, cy, scale, cosYaw, sinYaw, cosPitch, sinPitch, now,
                     icVol, icLevel, headBleed, headInternal, headInf);
         }
 
-        // 5. 绘制解剖级四分结构 3D 大脑皮层网格与体素点
         drawAnatomicalBrainMesh(pose, cx, cy, scale, cosYaw, sinYaw, cosPitch, sinPitch,
-                scanPlaneY, glitchIntensity, brainHealth, headPain, icLevel, now);
+                scanPlaneY, glitchIntensity, brainHealth, headPain, now);
 
         RenderSystem.defaultBlendFunc();
 
-        // 6. 绘制 CT 激光扫描横截面光带
         int scanScreenY = (int) (cy + scanPlaneY * scale * 0.85f);
         if (scanScreenY > vy + 10 && scanScreenY < vy + vh - 28) {
             int scanW = (int) (scale * 2.1f);
@@ -495,19 +456,13 @@ public class BrainScan3DRenderer {
             g.fillGradient((int) cx - scanW / 2, scanScreenY - 8, (int) cx + scanW / 2, scanScreenY, 0x0000F0FF, 0x3300F0FF);
         }
 
-        // 7. 绘制 3D 空间投影脑区浮动标签 (带背面深度剔除与打字机特效)
-        draw3DFloatingLabels(g, font, vx, vy, vw, vh, cx, cy, scale, cosYaw, sinYaw, cosPitch, sinPitch, data, now, fullMode);
-
-        // 8. 视窗底部固定绘制脑健康 & 意识双微缩遥测条 + 拖拽旋转提示
+        draw3DFloatingLabels(g, font, vx, vy, vw, vh, cx, cy, scale, cosYaw, sinYaw, cosPitch, sinPitch, data, fullMode);
         drawHoloFooterBar(g, font, vx, vy + vh - 26, vw, 24, brainHealth, consciousness);
 
         g.disableScissor();
     }
 
-    /**
-     * 绘制全息陀螺仪基准环与极坐标刻度
-     */
-    private void drawHologramGimbalRings(GuiGraphics g, float cx, float cy, float scale, long now, int brainHealth, int icLevel) {
+    private void drawHologramGimbalRings(GuiGraphics g, float cx, float cy, float scale, int brainHealth, int icLevel) {
         Matrix4f pose = g.pose().last().pose();
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
@@ -525,19 +480,16 @@ public class BrainScan3DRenderer {
         for (int i = 0; i <= segs; i++) {
             float ang = (i / (float) segs) * ((float) Math.PI * 2.0f);
             float px = cx + Mth.cos(ang) * ringR;
-            float py = cy + Mth.sin(ang) * ringR * 0.35f; // 透视椭圆环
+            float py = cy + Mth.sin(ang) * ringR * 0.35f;
             buf.addVertex(pose, px, py + scale * 0.72f, 0.0f).setColor(r, gr, b, 55);
         }
         MeshData mesh = buf.build();
         if (mesh != null) BufferUploader.drawWithShader(mesh);
     }
 
-    /**
-     * 绘制内部白质神经突触纤维与动作电位光脉冲
-     */
     private void drawSynapseConnectomeAndPulses(Matrix4f pose, float cx, float cy, float scale,
                                                 float cosYaw, float sinYaw, float cosPitch, float sinPitch,
-                                                float dt, long now, MedicalData data, int headPain) {
+                                                float dt, MedicalData data, int headPain) {
         if (synapseTracts.isEmpty()) return;
 
         float speedMul = (data.getConsciousness() / 100.0f) * (data.getHeartRate() / 75.0f);
@@ -550,15 +502,12 @@ public class BrainScan3DRenderer {
         for (SynapseTract tract : synapseTracts) {
             tract.phase = (tract.phase + dt * tract.speed * speedMul) % 1.0f;
 
-            // 投影起点与终点
             float[] p1 = project3D(tract.x1, tract.y1, tract.z1, cx, cy, scale, cosYaw, sinYaw, cosPitch, sinPitch);
             float[] p2 = project3D(tract.x2, tract.y2, tract.z2, cx, cy, scale, cosYaw, sinYaw, cosPitch, sinPitch);
 
-            // 神经轴突暗青色基底丝
             PainVisualOverlay.addQuadSegment(buf, pose, p1[0], p1[1], p2[0], p2[1], 0.45f,
                     0, 170, 230, 28, 28);
 
-            // 沿轴突高速移动的动作电位光子脉冲包
             float tHead = tract.phase;
             float tTail = Math.max(0.0f, tHead - 0.22f);
             float hx = Mth.lerp(tHead, p1[0], p2[0]);
@@ -576,9 +525,6 @@ public class BrainScan3DRenderer {
         if (mesh != null) BufferUploader.drawWithShader(mesh);
     }
 
-    /**
-     * 绘制环绕轨道发光光子
-     */
     private void drawOrbitingParticles(Matrix4f pose, float cx, float cy, float scale,
                                        float cosYaw, float sinYaw, float cosPitch, float sinPitch,
                                        float dt, int brainHealth) {
@@ -610,9 +556,6 @@ public class BrainScan3DRenderer {
         if (mesh != null) BufferUploader.drawWithShader(mesh);
     }
 
-    /**
-     * 绘制 3D 颅内血肿、头部内外出血破裂信标与感染病灶
-     */
     private void draw3DPathologyLesions(Matrix4f pose, float cx, float cy, float scale,
                                         float cosYaw, float sinYaw, float cosPitch, float sinPitch,
                                         long now, float icVol, int icLevel, int headBleed, int headInternal, int headInf) {
@@ -620,28 +563,21 @@ public class BrainScan3DRenderer {
         Tesselator tess = Tesselator.getInstance();
         BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
 
-        // 1. 颅内出血血肿 3D 核心云团 (位于右顶颞部硬膜下空间: x=0.42, y=-0.25, z=0.15)
         if (icVol > 0.1f || icLevel > 0) {
             float[] center = project3D(0.42f, -0.25f, 0.15f, cx, cy, scale, cosYaw, sinYaw, cosPitch, sinPitch);
             float radius = (6.0f + Math.min(18.0f, icVol * 0.12f) + icLevel * 3.0f) * (0.85f + 0.25f * pulse);
-            drawGlowDisc(buf, pose, center[0], center[1], radius, 255, 16, 48, (int) ((130 + 80 * pulse)));
+            drawGlowDisc(buf, pose, center[0], center[1], radius, 255, 16, 48, (int) (130 + 80 * pulse));
         }
-
-        // 2. 头部内出血病灶 (紫红色深层血管渗漏点: x=-0.38, y=-0.15, z=-0.20)
         if (headInternal > 0) {
             float[] center = project3D(-0.38f, -0.15f, -0.20f, cx, cy, scale, cosYaw, sinYaw, cosPitch, sinPitch);
             float radius = (5.0f + Math.min(12.0f, headInternal * 0.05f)) * (0.85f + 0.25f * pulse);
             drawGlowDisc(buf, pose, center[0], center[1], radius, 210, 30, 255, 175);
         }
-
-        // 3. 头部外出血创口信标 (额顶部表皮动脉破裂点: x=-0.45, y=-0.52, z=0.45)
         if (headBleed > 0) {
             float[] center = project3D(-0.45f, -0.52f, 0.45f, cx, cy, scale, cosYaw, sinYaw, cosPitch, sinPitch);
             float radius = (5.0f + Math.min(14.0f, headBleed * 0.04f)) * (0.8f + 0.3f * pulse);
             drawGlowDisc(buf, pose, center[0], center[1], radius, 255, 45, 20, 195);
         }
-
-        // 4. 头部创口感染/脑膜炎症信标 (琥珀黄绿生物告警点: x=0.25, y=0.10, z=0.55)
         if (headInf > 0) {
             float[] center = project3D(0.25f, 0.10f, 0.55f, cx, cy, scale, cosYaw, sinYaw, cosPitch, sinPitch);
             float radius = (4.5f + headInf * 0.10f) * (0.85f + 0.2f * pulse);
@@ -653,7 +589,6 @@ public class BrainScan3DRenderer {
     }
 
     private void drawGlowDisc(BufferBuilder buf, Matrix4f pose, float x, float y, float radius, int r, int g, int b, int centerAlpha) {
-        // 中心亮核 + 外扩光晕四边形
         float core = radius * 0.35f;
         buf.addVertex(pose, x - core, y - core, 0.0f).setColor(255, 220, 230, centerAlpha);
         buf.addVertex(pose, x + core, y - core, 0.0f).setColor(255, 220, 230, centerAlpha);
@@ -667,13 +602,10 @@ public class BrainScan3DRenderer {
         buf.addVertex(pose, x - radius, y + radius, 0.0f).setColor(r, g, b, haloAlpha);
     }
 
-    /**
-     * 绘制解剖级 3D 大脑皮层网格线与全息体素点（含脑回高亮、小脑分层着色、CT 扫描面增亮与疼痛神经波）
-     */
     private void drawAnatomicalBrainMesh(Matrix4f pose, float cx, float cy, float scale,
                                          float cosYaw, float sinYaw, float cosPitch, float sinPitch,
                                          float scanPlaneY, float glitchIntensity,
-                                         int brainHealth, int headPain, int icLevel, long now) {
+                                         int brainHealth, int headPain, long now) {
         int n = vertices.size();
         if (n == 0) return;
 
@@ -691,7 +623,6 @@ public class BrainScan3DRenderer {
             float vy = v.y;
             float vz = v.z;
 
-            // 脑损伤全息电磁毛刺错位
             if (glitchIntensity > 0.01f && ((i + (int) (now / 60L)) % 29 == 0)) {
                 vx += Mth.sin(now * 0.05f + i) * 0.14f * glitchIntensity;
             }
@@ -701,32 +632,25 @@ public class BrainScan3DRenderer {
             py[i] = proj[1];
             pz[i] = proj[2];
 
-            // 深度雾化因子 (前方顶点清晰明亮，背面顶点柔和暗化)
             float depthFactor = Mth.clamp((proj[2] + 1.35f) / 2.5f, 0.18f, 1.0f);
-            // 菲涅尔边缘增亮 (Fresnel Rim Light)
             float rim = 1.0f - Math.min(1.0f, Math.abs(proj[2]) * 0.75f);
             float foldBright = 0.55f + 0.45f * v.foldFactor + 0.25f * rim;
 
-            // 基础全息颜色：大脑皮层霓虹青、小脑全息天蓝、脑干翡翠青；脑健康低时向警报红渐变
             int r, g, b;
             if (v.region == 2) {
-                // 小脑
                 r = (int) Mth.lerp(healthPct, 255, 20);
                 g = (int) Mth.lerp(healthPct, 40, 175);
                 b = (int) Mth.lerp(healthPct, 80, 255);
             } else if (v.region == 3) {
-                // 脑干
                 r = (int) Mth.lerp(healthPct, 255, 0);
                 g = (int) Mth.lerp(healthPct, 80, 255);
                 b = (int) Mth.lerp(healthPct, 60, 180);
             } else {
-                // 左右大脑半球
                 r = (int) Mth.lerp(healthPct, 255, 0);
                 g = (int) Mth.lerp(healthPct, 30, 235);
                 b = (int) Mth.lerp(healthPct, 65, 255);
             }
 
-            // 头部疼痛神经冲击波染色：沿皮层表面传播的品红/亮红痛觉电弧
             if (headPain > 0) {
                 float painWave = Mth.sin(v.y * 6.0f - v.z * 4.0f + painWavePhase);
                 if (painWave > 0.75f) {
@@ -737,7 +661,6 @@ public class BrainScan3DRenderer {
                 }
             }
 
-            // CT 激光切面扫过时高亮为纯白青光
             float distToScan = Math.abs(v.y - scanPlaneY);
             float scanBoost = (distToScan < 0.09f) ? (1.0f - distToScan / 0.09f) : 0.0f;
             if (scanBoost > 0.0f) {
@@ -750,7 +673,6 @@ public class BrainScan3DRenderer {
             vColors[i] = (alpha << 24) | ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
         }
 
-        // A. 绘制脑回拓扑微连接线
         Tesselator tess = Tesselator.getInstance();
         BufferBuilder lineBuf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
         for (int i = 0; i < n; i++) {
@@ -773,7 +695,6 @@ public class BrainScan3DRenderer {
         MeshData lineMesh = lineBuf.build();
         if (lineMesh != null) BufferUploader.drawWithShader(lineMesh);
 
-        // B. 绘制高密度全息体素点
         BufferBuilder ptBuf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
         for (int i = 0; i < n; i++) {
             int c = vColors[i];
@@ -795,13 +716,10 @@ public class BrainScan3DRenderer {
         if (ptMesh != null) BufferUploader.drawWithShader(ptMesh);
     }
 
-    /**
-     * 绘制 3D 脑区引线浮动标签
-     */
     private void draw3DFloatingLabels(GuiGraphics g, Font font, int vx, int vy, int vw, int vh,
                                       float cx, float cy, float scale,
                                       float cosYaw, float sinYaw, float cosPitch, float sinPitch,
-                                      MedicalData data, long now, boolean fullMode) {
+                                      MedicalData data, boolean fullMode) {
         int maxLabels = fullMode ? anchorLabels.size() : 3;
         int shown = 0;
 
@@ -809,7 +727,6 @@ public class BrainScan3DRenderer {
             BrainAnchorLabel lbl = anchorLabels.get(i);
             float[] proj = project3D(lbl.ox, lbl.oy, lbl.oz, cx, cy, scale, cosYaw, sinYaw, cosPitch, sinPitch);
 
-            // 仅显示朝向镜头前方的脑区标签，避免线条杂乱交叉
             if (proj[2] < 0.12f) continue;
             shown++;
 
@@ -824,7 +741,7 @@ public class BrainScan3DRenderer {
             int labelX = rightSide ? Math.min(vx + vw - tw - 6, elbowX + 4) : Math.max(vx + 6, elbowX - tw - 4);
             int labelY = Mth.clamp(elbowY - 4, vy + 10, vy + vh - 38);
 
-            int color = (data.getBrainHealth() < 60) ? HudColors.COLOR_WARNING_YELLOW : HudColors.COLOR_NEON_CYAN;
+            int color = (data.getBrainHealth() < 60) ? C_WARN_YELLOW : C_NEON_CYAN;
             HudRenderHelper.drawLine(g, ax, ay, elbowX, elbowY, 0xAA00E5FF, 1);
             HudRenderHelper.drawDiamond(g, ax, ay, 2, color);
 
@@ -833,100 +750,82 @@ public class BrainScan3DRenderer {
         }
     }
 
-    /**
-     * 视窗底部绘制脑健康与意识双进度栏
-     */
     private void drawHoloFooterBar(GuiGraphics g, Font font, int x, int y, int w, int h, int brainHealth, int consciousness) {
         g.fill(x + 4, y, x + w - 4, y + h, 0xAA050D17);
         int halfW = (w - 20) / 2;
 
-        // 左：脑健康
-        int bhColor = HudColors.getHealthColor(brainHealth / 100.0f);
-        g.drawString(font, "BRAIN " + brainHealth + "%", x + 8, y + 3, bhColor, false);
+        int bhColor = getHealthColor(brainHealth / 100.0f);
+        g.drawString(font, "脑健康 " + brainHealth + "%", x + 8, y + 3, bhColor, false);
         HudRenderHelper.drawSciFiProgressBar(g, x + 8, y + 14, halfW, 5, brainHealth / 100.0f, bhColor, 0xFF0A1926);
 
-        // 右：意识清醒度
         int rx = x + 12 + halfW;
-        int csColor = HudColors.getHealthColor(consciousness / 100.0f);
-        g.drawString(font, "CONSC " + consciousness + "%", rx, y + 3, csColor, false);
+        int csColor = getHealthColor(consciousness / 100.0f);
+        g.drawString(font, "意识 " + consciousness + "%", rx, y + 3, csColor, false);
         HudRenderHelper.drawSciFiProgressBar(g, rx, y + 14, halfW, 5, consciousness / 100.0f, csColor, 0xFF0A1926);
     }
 
-    /**
-     * 全屏 3D 模式下的四角战术微卡片（保证全屏欣赏 3D 大脑时也能看到头部外出血/内出血/疼痛/感染/颅内压）
-     */
-    private void drawCornerTacticalOverlays(GuiGraphics g, Font font, int x, int y, int w, int h, MedicalData data, long now) {
+    private void drawCornerTacticalOverlays(GuiGraphics g, Font font, int x, int y, int w, int h, MedicalData data) {
         MedicalData.LimbData headLd = data.getLimb(MedicalData.Limb.HEAD);
         if (headLd == null) return;
 
         int cardW = Math.min(135, (w - 24) / 2);
         int topY = y + 6;
 
-        // 左上角：头部外伤出血与内出血微卡片
         int bleed = headLd.getBleeding();
         int inBleed = headLd.getInternalBleedingRate();
-        int c1 = (bleed > 0 || inBleed > 0) ? HudColors.COLOR_ALERT_RED : HudColors.COLOR_SAFE_GREEN;
+        int c1 = (bleed > 0 || inBleed > 0) ? C_ALERT_RED : C_SAFE_GREEN;
         HudRenderHelper.drawTacticalBadge(g, font, x + 6, topY, cardW, 24,
                 "外出血: " + bleed + " mL/m",
                 "内出血: " + inBleed + " mL/m",
                 c1, 0xCC06101A);
 
-        // 右上角：头部疼痛与感染微卡片
         int pain = headLd.getPainLevel();
         int inf = headLd.getInfection();
-        int c2 = (pain >= 5 || inf >= 25) ? HudColors.COLOR_WARNING_YELLOW : HudColors.COLOR_NEON_CYAN;
+        int c2 = (pain >= 5 || inf >= 25) ? C_WARN_YELLOW : C_NEON_CYAN;
         HudRenderHelper.drawTacticalBadge(g, font, x + w - cardW - 6, topY, cardW, 24,
                 "头部疼痛: " + pain + " / 10",
                 "头部感染: " + inf + "%",
                 c2, 0xCC06101A);
 
-        // 左下角（底栏上方）：颅内积血与分级
         int botY = y + h - 54;
         int icLevel = data.getIntracranialLevel();
         float icVol = data.getIntracranialAccumulation();
-        int c3 = icLevel > 0 ? 0xFFE040FB : HudColors.COLOR_HOLOGRAM_BLUE;
+        int c3 = icLevel > 0 ? 0xFFE040FB : C_HOLO_BLUE;
         HudRenderHelper.drawTacticalBadge(g, font, x + 6, botY, cardW, 24,
                 String.format("颅内积血: %.1f mL", icVol),
                 "颅内分级: LV." + icLevel + (data.getIntracranialOnsetTimer() > 0 && data.getIntracranialOnsetTimer() < 30 ? " (清醒期)" : ""),
                 c3, 0xCC06101A);
 
-        // 右下角：脑灌注血压与 MAP
         int sbp = data.getSystolicBP();
         int dbp = data.getDiastolicBP();
         float map = data.getMeanArterialPressure();
         HudRenderHelper.drawTacticalBadge(g, font, x + w - cardW - 6, botY, cardW, 24,
                 "血压: " + sbp + "/" + dbp + " mmHg",
                 String.format("脑灌注 MAP: %.0f mmHg", map),
-                HudColors.VITAL_BLOOD_PRESSURE, 0xCC06101A);
+                C_VITAL_BP, 0xCC06101A);
     }
 
-    /**
-     * 核心升级：带硬件 Scissor 裁剪视窗与双列自适应的头部完整诊断面板
-     * 完整补齐：头部健康度、头部外出血、头部内出血、头部疼痛、头部感染、头部烧伤、头部状态徽标 + 脑外科/颅内出血全部参数！
-     */
     private void renderScrollableHeadTelemetry(GuiGraphics g, Font font, int x, int y, int w, int h,
-                                               MedicalData data, long now, boolean forceTwoColumn) {
+                                               MedicalData data, boolean forceTwoColumn) {
         MedicalData.LimbData headLd = data.getLimb(MedicalData.Limb.HEAD);
         if (headLd == null) return;
 
-        int contentW = w - 8; // 预留右侧 6px 给全息滚动条
+        int contentW = w - 8;
         g.enableScissor(x, y, x + w, y + h);
 
         int drawY = (int) (y - scrollOffset);
         int startY = drawY;
 
-        // 1. 头部综合健康度顶栏
         int headHealth = computeLimbHealthPercent(headLd);
-        int hc = HudColors.getHealthColor(headHealth / 100.0f);
-        g.drawString(font, "CRANIAL INTEGRITY // 头部结构完整度", x, drawY, HudColors.TEXT_LABEL, false);
+        int hc = getHealthColor(headHealth / 100.0f);
+        g.drawString(font, "头部完整度", x, drawY, C_TEXT_LABEL, false);
         String hpText = headHealth + "%";
         g.drawString(font, hpText, x + contentW - font.width(hpText), drawY, hc, false);
         drawY += 11;
         HudRenderHelper.drawSciFiProgressBar(g, x, drawY, contentW, 6, headHealth / 100.0f, hc, 0xFF0A1824);
         drawY += 12;
 
-        // 2. 第一分区：头部基础创伤指标（外出血、内出血、疼痛、感染、烧伤 —— 以前缺失的部分全部补齐！）
-        drawSectionHeader(g, font, x, drawY, contentW, "HEAD TRAUMA METRICS // 头部创伤指标", 0xFF00E5FF);
+        drawSectionHeader(g, font, x, drawY, contentW, "头部创伤", 0xFF00E5FF);
         drawY += 13;
 
         int bleed = headLd.getBleeding();
@@ -937,58 +836,53 @@ public class BrainScan3DRenderer {
         boolean useTwoCol = forceTwoColumn || contentW >= 195;
         if (useTwoCol) {
             int colW = (contentW - 6) / 2;
-            // 行 1：外出血 | 内出血
             drawCompactMetricCard(g, font, x, drawY, colW,
                     tr("medical.detail.bleeding_rate"), bleed + " mL/m",
-                    Math.min(1.0f, bleed / 400.0f), bleed > 0 ? HudColors.COLOR_ALERT_RED : 0xFF37474F);
+                    Math.min(1.0f, bleed / 400.0f), bleed > 0 ? C_ALERT_RED : 0xFF37474F);
             drawCompactMetricCard(g, font, x + colW + 6, drawY, colW,
                     tr("medical.detail.internal_bleeding_rate"), inBleed + " mL/m",
                     Math.min(1.0f, inBleed / 250.0f), inBleed > 0 ? 0xFFE040FB : 0xFF37474F);
             drawY += 24;
 
-            // 行 2：头部疼痛 | 头部感染
             drawCompactMetricCard(g, font, x, drawY, colW,
                     tr("medical.detail.pain_level"), pain + " / 10",
-                    pain / 10.0f, pain > 0 ? HudColors.VITAL_PAIN : 0xFF37474F);
+                    pain / 10.0f, pain > 0 ? C_VITAL_PAIN : 0xFF37474F);
             drawCompactMetricCard(g, font, x + colW + 6, drawY, colW,
                     tr("medical.detail.infection"), inf + " %",
-                    inf / 100.0f, inf > 0 ? HudColors.COLOR_WARNING_YELLOW : 0xFF37474F);
+                    inf / 100.0f, inf > 0 ? C_WARN_YELLOW : 0xFF37474F);
             drawY += 24;
         } else {
             drawY = drawFullMetricRow(g, font, x, drawY, contentW,
-                    "外出血 BLEED", bleed + " mL/min",
-                    Math.min(1.0f, bleed / 400.0f), bleed > 0 ? HudColors.COLOR_ALERT_RED : 0xFF455A64);
+                    "外出血", bleed + " mL/min",
+                    Math.min(1.0f, bleed / 400.0f), bleed > 0 ? C_ALERT_RED : 0xFF455A64);
             drawY = drawFullMetricRow(g, font, x, drawY, contentW,
-                    "内出血 INTERNAL", inBleed + " mL/min",
+                    "内出血", inBleed + " mL/min",
                     Math.min(1.0f, inBleed / 250.0f), inBleed > 0 ? 0xFFE040FB : 0xFF455A64);
             drawY = drawFullMetricRow(g, font, x, drawY, contentW,
-                    "疼痛等级 PAIN", pain + " / 10",
-                    pain / 10.0f, pain > 0 ? HudColors.VITAL_PAIN : 0xFF455A64);
+                    "疼痛", pain + " / 10",
+                    pain / 10.0f, pain > 0 ? C_VITAL_PAIN : 0xFF455A64);
             drawY = drawFullMetricRow(g, font, x, drawY, contentW,
-                    "感染程度 INFECTION", inf + " %",
-                    inf / 100.0f, inf > 0 ? HudColors.COLOR_WARNING_YELLOW : 0xFF455A64);
+                    "感染", inf + " %",
+                    inf / 100.0f, inf > 0 ? C_WARN_YELLOW : 0xFF455A64);
         }
 
-        // 若有自然凝血进度或烧伤，动态展示
         if (bleed > 0 && bleed <= 50 && headLd.getNaturalClottingTimer() > 0) {
             float clotPct = Mth.clamp(headLd.getNaturalClottingTimer() / 180.0f, 0.0f, 1.0f);
             drawY = drawFullMetricRow(g, font, x, drawY, contentW,
                     tr("medical.detail.bleeding_progress"), (int) (clotPct * 100) + "%",
-                    clotPct, HudColors.COLOR_SAFE_GREEN);
+                    clotPct, C_SAFE_GREEN);
         }
         if (headLd.hasBurn()) {
             drawY = drawFullMetricRow(g, font, x, drawY, contentW,
-                    "头部烧伤 BURN (" + headLd.getBurnDegree() + "°)", String.format("%.1f%%", headLd.getBurnArea()),
+                    "烧伤 (" + headLd.getBurnDegree() + "°)", String.format("%.1f%%", headLd.getBurnArea()),
                     Mth.clamp(headLd.getBurnArea() / 20.0f, 0.0f, 1.0f), 0xFFFF6D00);
         }
 
-        // 3. 头部状态徽标栏 (STATUS FLAGS：包扎、骨折、开放性骨折、穿刺、内出血、感染等)
         drawY += 2;
         drawY = drawHeadStatusPills(g, font, x, drawY, contentW, headLd);
         drawY += 6;
 
-        // 4. 第二分区：脑外科与颅内血流动力学专科指标 (NEURO & ICP TELEMETRY)
-        drawSectionHeader(g, font, x, drawY, contentW, "NEURO & ICP // 颅内与脑灌注专科", 0xFFE040FB);
+        drawSectionHeader(g, font, x, drawY, contentW, "颅内与脑灌注", 0xFFE040FB);
         drawY += 13;
 
         int icRate = data.getIntracranialBleedRate();
@@ -996,12 +890,14 @@ public class BrainScan3DRenderer {
         int icLevel = data.getIntracranialLevel();
         int onset = data.getIntracranialOnsetTimer();
 
-        drawY = drawFullMetricRow(g, font, x, drawY, contentW,
-                tr("medical.detail.brain_health"), data.getBrainHealth() + "%",
-                data.getBrainHealth() / 100.0f, HudColors.getHealthColor(data.getBrainHealth() / 100.0f));
-        drawY = drawFullMetricRow(g, font, x, drawY, contentW,
-                tr("medical.detail.consciousness"), data.getConsciousness() + "%",
-                data.getConsciousness() / 100.0f, HudColors.getHealthColor(data.getConsciousness() / 100.0f));
+        if (forceTwoColumn) {
+            drawY = drawFullMetricRow(g, font, x, drawY, contentW,
+                    tr("medical.detail.brain_health"), data.getBrainHealth() + "%",
+                    data.getBrainHealth() / 100.0f, getHealthColor(data.getBrainHealth() / 100.0f));
+            drawY = drawFullMetricRow(g, font, x, drawY, contentW,
+                    tr("medical.detail.consciousness"), data.getConsciousness() + "%",
+                    data.getConsciousness() / 100.0f, getHealthColor(data.getConsciousness() / 100.0f));
+        }
         drawY = drawFullMetricRow(g, font, x, drawY, contentW,
                 tr("medical.detail.intracranial_rate"), icRate + " mL/min",
                 Math.min(1.0f, icRate / 100.0f), icRate > 0 ? 0xFFE040FB : 0xFF455A64);
@@ -1009,35 +905,31 @@ public class BrainScan3DRenderer {
                 tr("medical.detail.intracranial_accumulation"), String.format("%.1f / 150 mL", icAcc),
                 Math.min(1.0f, icAcc / 150.0f), icAcc > 0.1f ? 0xFFFF1744 : 0xFF455A64);
 
-        // 颅内压迫分级行
         String icStageStr = icLevel == 0 ? tr("medical.status.healthy")
                 : tr("medical.intracranial.level." + Mth.clamp(icLevel, 1, 4));
         if (icAcc > 0.1f && onset < 30) {
             icStageStr += " [" + tr("medical.detail.intracranial_lucid") + " " + (30 - onset) + "s]";
         }
         drawKeyValueLine(g, font, x, drawY, contentW, tr("medical.detail.intracranial_level"),
-                icStageStr, icLevel > 0 ? 0xFFFF4081 : HudColors.COLOR_SAFE_GREEN);
+                icStageStr, icLevel > 0 ? 0xFFFF4081 : C_SAFE_GREEN);
         drawY += 13;
 
-        // 脑灌注血压与平均动脉压 MAP
         String bpStr = data.getSystolicBP() + "/" + data.getDiastolicBP() + " mmHg (MAP " + (int) data.getMeanArterialPressure() + ")";
-        drawKeyValueLine(g, font, x, drawY, contentW, tr("medical.detail.blood_pressure"), bpStr, HudColors.VITAL_BLOOD_PRESSURE);
+        drawKeyValueLine(g, font, x, drawY, contentW, tr("medical.detail.blood_pressure"), bpStr, C_VITAL_BP);
         drawY += 14;
 
-        // 计算总内容高度并更新最大滚动范围
         int totalContentH = drawY - startY;
         this.maxScroll = Math.max(0.0f, totalContentH - h + 6);
 
         g.disableScissor();
 
-        // 5. 若内容超出视口高度，绘制右侧全息滚动条与上下渐变遮罩提示
         if (this.maxScroll > 1.0f) {
             drawHolographicScrollbar(g, x + w - 4, y, 3, h, scrollOffset, maxScroll, totalContentH);
         }
     }
 
     private void drawSectionHeader(GuiGraphics g, Font font, int x, int y, int w, String title, int color) {
-        g.fill(x, y + 9, x + w, y + 10, HudColors.withAlpha(color, 0.35f));
+        g.fill(x, y + 9, x + w, y + 10, withAlpha(color, 0.35f));
         g.fill(x, y + 1, x + 2, y + 8, color);
         g.drawString(font, title, x + 5, y, color, false);
     }
@@ -1127,17 +1019,14 @@ public class BrainScan3DRenderer {
     private int addPillWrap(GuiGraphics g, Font font, int lineStartX, int curX, int curY, int rightEdge, String text, int color) {
         int pw = font.width(text) + 8;
         if (curX > lineStartX && curX + pw > rightEdge) {
-            return -1; // 需要换行
+            return -1;
         }
-        g.fill(curX, curY, curX + pw, curY + 11, HudColors.withAlpha(color, 0.22f));
+        g.fill(curX, curY, curX + pw, curY + 11, withAlpha(color, 0.22f));
         g.fill(curX, curY, curX + 2, curY + 11, color);
         g.drawString(font, text, curX + 4, curY + 2, color, false);
         return curX + pw + 4;
     }
 
-    /**
-     * 绘制 3A 全息发光滚动条
-     */
     public static void drawHolographicScrollbar(GuiGraphics g, int x, int y, int w, int h,
                                                 float scrollOffset, float maxScroll, int totalContentH) {
         g.fill(x, y, x + w, y + h, 0x44004D66);
@@ -1146,13 +1035,10 @@ public class BrainScan3DRenderer {
         float progress = maxScroll > 0.001f ? Mth.clamp(scrollOffset / maxScroll, 0.0f, 1.0f) : 0.0f;
         int thumbY = y + (int) ((h - thumbH) * progress);
 
-        g.fill(x, thumbY, x + w, thumbY + thumbH, HudColors.COLOR_NEON_CYAN);
+        g.fill(x, thumbY, x + w, thumbY + thumbH, C_NEON_CYAN);
         g.fill(x, thumbY, x + w, thumbY + 2, 0xFFFFFFFF);
     }
 
-    /**
-     * 鼠标点击交互：支持切换 SPLIT / 3D HOLO / CLINICAL 三种视图模式
-     */
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         ViewMode[] modes = ViewMode.values();
         int tabH = 13;
@@ -1175,23 +1061,17 @@ public class BrainScan3DRenderer {
         return false;
     }
 
-    /**
-     * 鼠标拖拽交互：在 3D 全息脑部区域内按住拖拽可自由 360° 旋转大脑模型
-     */
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
         if (lastHoloAreaW > 0 && mouseX >= lastHoloAreaX && mouseX <= lastHoloAreaX + lastHoloAreaW
                 && mouseY >= lastHoloAreaY && mouseY <= lastHoloAreaY + lastHoloAreaH) {
             this.yaw += (float) dragX * 0.015f;
             this.pitch = Mth.clamp(this.pitch + (float) dragY * 0.015f, -1.1f, 1.1f);
-            this.autoRotateTimer = 4.0f; // 暂停自动旋转 4 秒
+            this.autoRotateTimer = 4.0f;
             return true;
         }
         return false;
     }
 
-    /**
-     * 鼠标滚轮交互：在诊断指标区滚动列表，在 3D 全息区滚动切换视图或旋转
-     */
     public boolean mouseScrolled(double mouseX, double mouseY, double deltaY) {
         if (lastScrollAreaW > 0 && mouseX >= lastScrollAreaX && mouseX <= lastScrollAreaX + lastScrollAreaW
                 && mouseY >= lastScrollAreaY && mouseY <= lastScrollAreaY + lastScrollAreaH) {
@@ -1210,14 +1090,11 @@ public class BrainScan3DRenderer {
 
     private float[] project3D(float x, float y, float z, float cx, float cy, float scale,
                               float cosYaw, float sinYaw, float cosPitch, float sinPitch) {
-        // 绕 Y 轴旋转 (Yaw)
         float rx = x * cosYaw - z * sinYaw;
         float rz = x * sinYaw + z * cosYaw;
-        // 绕 X 轴旋转 (Pitch)
         float ry = y * cosPitch - rz * sinPitch;
         float finalZ = y * sinPitch + rz * cosPitch;
 
-        // 透视投影系数
         float fov = 2.8f / (2.8f - finalZ * 0.45f);
         float sx = cx + rx * scale * fov;
         float sy = cy + ry * scale * fov;

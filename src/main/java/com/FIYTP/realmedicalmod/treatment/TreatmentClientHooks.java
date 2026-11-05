@@ -293,15 +293,26 @@ public class TreatmentClientHooks {
         drawTacticalCornerBrackets(g, px, py, panelW, panelH, themeColor);
 
         // 顶部标题栏：当前医疗用品名称与操作提示
-        String title = "TACTICAL LIMB TREATMENT // 战术肢体医疗终端";
+        String title = "部位施救";
         g.drawString(font, title, px + 10, py + 8, themeColor, false);
         g.fill(px + 8, py + 19, px + panelW - 8, py + 20, withAlpha(themeColor, 0.45f));
 
-        // 左侧实时渲染 3D 旋转医疗用品模型 (MedicalAssetLibrary) 与物品效力信息
-        MedicalAssetLibrary.render3DMedicalItem(g, px + 44.0f, py + 72.0f, 22.0f, stack, now);
+        // 左侧实时渲染 3D 旋转医疗用品模型 (MedicalAssetLibrary) 与物品剩余耐久/效力信息
+        MedicalAssetLibrary.render3DMedicalItem(g, px + 44.0f, py + 70.0f, 22.0f, stack, now);
         g.renderItem(stack, px + 10, py + 24);
-        String itemTitle = stack.getHoverName().getString() + " [" + assetType.name() + "]";
+        g.renderItemDecorations(font, stack, px + 10, py + 24);
+        String itemTitle = stack.getHoverName().getString();
         g.drawString(font, itemTitle, px + 30, py + 28, C_TEXT_WHITE, true);
+
+        if (stack.isDamageableItem() && stack.getMaxDamage() > 0) {
+            float remRatio = Mth.clamp((float) (stack.getMaxDamage() - stack.getDamageValue()) / stack.getMaxDamage(), 0.0f, 1.0f);
+            int barW = 68;
+            int barX = px + 10;
+            int barY = py + 103;
+            int durColor = remRatio > 0.5f ? C_SAFE_GREEN : (remRatio > 0.25f ? C_WARNING_YELLOW : C_ALERT_RED);
+            g.fill(barX, barY, barX + barW, barY + 4, 0xAA081522);
+            g.fill(barX, barY, barX + Math.round(barW * remRatio), barY + 4, durColor);
+        }
 
         List<String> summaries = TreatmentRouter.getItemEffectSummary(stack);
         int infoY = py + 112;
@@ -359,15 +370,14 @@ public class TreatmentClientHooks {
         String statusHint;
         int hintColor;
         if (hoveredLimb == null) {
-            statusHint = "按住左键移动准星至受伤部位即可包扎/治疗 | 松开左键退出";
+            statusHint = "移至受伤部位施救 | 松开左键退出";
             hintColor = C_TEXT_DIM;
         } else if (TreatmentRouter.canTreatLimb(stack, data, hoveredLimb)) {
             int pct = Mth.clamp((int) (channelProgress * 100.0f), 0, 100);
-            statusHint = "正在对 [" + getLimbDisplayName(hoveredLimb) + "] 使用 "
-                    + stack.getHoverName().getString() + " (" + pct + "%) — 松开左键可立即完成";
+            statusHint = "正在处理 [" + getLimbDisplayName(hoveredLimb) + "] " + pct + "% (松开立即完成)";
             hintColor = C_SAFE_GREEN;
         } else {
-            statusHint = "[" + getLimbDisplayName(hoveredLimb) + "] 当前无需使用该医疗用品";
+            statusHint = "[" + getLimbDisplayName(hoveredLimb) + "] 无需处理";
             hintColor = C_WARNING_YELLOW;
         }
         g.drawCenteredString(font, statusHint, (int) cx, footerY, hintColor);

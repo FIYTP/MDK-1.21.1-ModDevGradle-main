@@ -1,5 +1,6 @@
 package com.FIYTP.realmedicalmod.capability;
 
+import com.FIYTP.realmedicalmod.config.MedicalConfig;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.neoforged.neoforge.common.util.INBTSerializable;
@@ -44,7 +45,7 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
     private boolean bradycardiaActive = false;
     private boolean bradycardiaSevere = false;
 
-    // ====== 阿片类药物（预留） ======
+    // ====== 阿片类药物（保留） ======
     private int opioidConcentration = 0;
     private int addictionLevel = 0;
 
@@ -82,7 +83,7 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
     // ====== 中毒系统 ======
     private float toxinValue = 0.0f;
 
-    // ====== 烧伤系统（全身） ======
+    // ====== 烧伤系统 (全身) ======
     private float burnTBSA = 0.0f;
     private float burnEdema = 0.0f;
     private float inhalationInjury = 0.0f;
@@ -100,7 +101,7 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         }
     }
 
-    // ====== Getter / Setter（全部 synchronized） ======
+    // ====== Getter / Setter (全部 synchronized) ======
     @Override public synchronized int getBloodVolume() { return bloodVolume; }
     @Override public synchronized void setBloodVolume(int value) { this.bloodVolume = Math.max(0, value); }
     @Override public int getMaxBloodVolume() { return 5000; }
@@ -293,22 +294,31 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         return total;
     }
 
-    // ★★★★★ 体感疼痛（0~55）★★★★★
+    // ★★★★★ 体感疼痛 (0 ~ MAX_PERCEIVED_PAIN，由 MedicalConfig 驱动的非线性主痛源模型) ★★★★★
     @Override
     public synchronized int getPerceivedPain() {
-        int maxPain = 0;
-        int sumOther = 0;
+        double maxLimbPain = Math.max(1, MedicalConfig.MAX_PAIN_LEVEL.get());
+        int maxPerceivedCap = Math.max(10, MedicalConfig.MAX_PERCEIVED_PAIN.get());
+        double exponent = MedicalConfig.PAIN_LIMB_EXPONENT.get();
+        double dominantWeight = MedicalConfig.PAIN_DOMINANT_LIMB_WEIGHT.get();
+        double secondaryWeight = MedicalConfig.PAIN_SECONDARY_LIMB_WEIGHT.get();
+
+        double maxScore = 0.0;
+        double sumOtherScores = 0.0;
         for (LimbData ld : limbs.values()) {
             int pain = ld.getPainLevel();
-            if (pain > maxPain) {
-                sumOther += maxPain;  // 将旧的最大值计入“其他”总和
-                maxPain = pain;
+            if (pain <= 0) continue;
+            double norm = Math.min(1.0, Math.max(0.0, pain / maxLimbPain));
+            double score = Math.pow(norm, exponent);
+            if (score > maxScore) {
+                sumOtherScores += maxScore;
+                maxScore = score;
             } else {
-                sumOther += pain;
+                sumOtherScores += score;
             }
         }
-        // 体感疼痛 = 最高值 × 1.5 + 其余值之和 × 0.8
-        return (int)(maxPain * 1.5f + sumOther * 0.8f);
+        int result = (int) Math.round(maxScore * dominantWeight + sumOtherScores * secondaryWeight);
+        return Math.min(maxPerceivedCap, Math.max(0, result));
     }
 
     @Override public synchronized LimbData getLimb(Limb limb) { return limbs.get(limb); }
@@ -436,8 +446,6 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         tag.putBoolean("bradycardiaSevere", bradycardiaSevere);
         tag.putInt("opioidConcentration", opioidConcentration);
         tag.putInt("addictionLevel", addictionLevel);
-        tag.putBoolean("inCriticalState", inCriticalState);
-        tag.putInt("criticalTimer", criticalTimer);
         tag.putFloat("chestBloodAccumulation", chestBloodAccumulation);
         tag.putInt("hemothoraxLevel", hemothoraxLevel);
         tag.putInt("hemothoraxVomitTimer", hemothoraxVomitTimer);
@@ -456,6 +464,8 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         tag.putInt("sirsProgressionTimer", sirsProgressionTimer);
         tag.putInt("sirsRecoveryTimer", sirsRecoveryTimer);
         tag.putBoolean("sirsActive", sirsActive);
+        tag.putBoolean("inCriticalState", inCriticalState);
+        tag.putInt("criticalTimer", criticalTimer);
         tag.putFloat("toxinValue", toxinValue);
         tag.putInt("brainDamageTriggerTimer", brainDamageTriggerTimer);
         tag.putInt("brainDamageTriggerCooldown", brainDamageTriggerCooldown);
@@ -623,13 +633,13 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         private boolean amputated = false;
 
         // ====== 烧伤 ======
-        private float burnLoad = 0.0f;      // 热力期缓冲负荷（未定型）
-        private float burnConv = 0.0f;       // 已转正负荷（定型判定用）
-        private int burnDegree = 0;         // 0无 1=I度 2=浅II 3=深II 4=III度
-        private float burnArea = 0.0f;      // 该肢体烧伤面积占比 0-1
-        private int burnAge = 0;            // 伤龄（秒）
-        private int burnHeatTimer = 0;      // 热力期倒计时（可冷却冲洗）
-        private int burnHealTimer = 0;      // 愈合计时
+        private float burnLoad = 0.0f; // 热力缓冲负荷（未定型）
+        private float burnConv = 0.0f; // 已转正负荷（定型判定用）
+        private int burnDegree = 0; // 0无 1=I度 2=浅II 3=深II 4=III度
+        private float burnArea = 0.0f; // 该肢体烧伤面积占比 0-1
+        private int burnAge = 0; // 伤龄（秒）
+        private int burnHeatTimer = 0; // 热力期倒计时（可冷却冲洗）
+        private int burnHealTimer = 0; // 愈合计时
 
         @Override public synchronized int getBleeding() { return bleeding; }
         @Override public synchronized void setBleeding(int value) { this.bleeding = Math.max(0, value); }

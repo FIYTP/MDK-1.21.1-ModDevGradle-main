@@ -15,9 +15,9 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 /**
  * 模组医疗用品与专属创造模式物品栏注册器 (ModItems)
  *
- * 1. 注册「卷式绷带 (bandage)」与「加压绷带 (pressure_bandage)」。
- * 2. 注册「真实医疗系统」专属创造模式物品栏，并自动收录 ITEMS 注册表中的所有医疗用品（后续新增医疗用品无需重复手动添加）。
- * 3. 同时将医疗用品注入原版「工具与实用物品」和「战斗用品」标签页，方便随时取用。
+ * 耐久设计说明：
+ * - 卷式绷带 (bandage)：最大耐久 500（对应 500 mL 总止血容量），按实际吸收的出血量扣除对应耐久。
+ * - 加压绷带 (pressure_bandage)：最大耐久 1000（对应 1000 mL 总止血容量），按实际吸收的出血量扣除对应耐久。
  */
 public class ModItems {
 
@@ -26,19 +26,19 @@ public class ModItems {
     public static final DeferredRegister<CreativeModeTab> CREATIVE_MODE_TABS =
             DeferredRegister.create(Registries.CREATIVE_MODE_TAB, RealMedicalMod.MODID);
 
-    /** 卷式绷带：基础无菌包扎用品，默认可吸收 500mL/min 出血。 */
+    /** 卷式绷带：基础无菌包扎用品，总止血耐久 500 mL（按实际止血量扣耐久，未用完不会消失）。 */
     public static final DeferredItem<Item> BANDAGE = ITEMS.register("bandage",
             () -> new BandageItem(new Item.Properties()
-                    .stacksTo(16)
+                    .durability(500)
                     .component(
                             MedicalComponents.MEDICAL_POTENCY.get(),
                             MedicalPotency.of(MedicalItemTags.HEMOSTASIS.location(), 500.0f)
                     )));
 
-    /** 战术加压绷带：高弹加压无菌敷料，可吸收 1000mL/min 出血。 */
+    /** 战术加压绷带：高弹加压无菌敷料，总止血耐久 1000 mL（按实际止血量扣耐久，未用完不会消失）。 */
     public static final DeferredItem<Item> PRESSURE_BANDAGE = ITEMS.register("pressure_bandage",
             () -> new BandageItem(new Item.Properties()
-                    .stacksTo(16)
+                    .durability(1000)
                     .component(
                             MedicalComponents.MEDICAL_POTENCY.get(),
                             MedicalPotency.of(MedicalItemTags.HEMOSTASIS.location(), 1000.0f)

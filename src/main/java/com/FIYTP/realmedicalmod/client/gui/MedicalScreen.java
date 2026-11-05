@@ -2,6 +2,7 @@ package com.FIYTP.realmedicalmod.client.gui;
 
 import com.FIYTP.realmedicalmod.capability.MedicalData;
 import com.FIYTP.realmedicalmod.capability.MedicalDataCapability;
+import com.FIYTP.realmedicalmod.config.MedicalConfig;
 import com.FIYTP.realmedicalmod.client.sound.MedicalSoundHelper;
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -26,23 +27,7 @@ import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * 医疗面板 UI —— 3A 科技风全息生物遥测终端 (全量升级版 v2.0)
- *
- * 本次重大升级：
- * 1. 总体疼痛 (Perceived Pain 0~55) 全局动态主题染色系统：
- *    面板主色调、背景网格、扫描激光线、卡片边框与呼吸角标随总体疼痛值 (0 -> 55) 从冷静霓虹青平滑过渡至
- *    预警琥珀黄 (12~24)、重度灼热橙红 (25~39) 与极度剧痛深渊猩红 (40~55)，并在高痛感下伴随心搏同频边框呼吸与微颤。
- * 2. 3A 全息动态痛觉表情遥测仪 (Holographic Pain Expression Avatar, 0~55 从笑脸到痛苦脸)：
- *    基于 OpenGL 矢量连续形变算法绘制高精全息人脸，随总体疼痛值 (0~55) 实时连续改变眉毛倾角、眼睑开合/眨眼/紧闭(`> <`)、
- *    嘴部微笑弧线 -> 拧眉咬牙 -> 剧痛哀嚎及太阳穴青筋电弧，搭配 6 级 Wong-Baker 痛觉色阶尺。
- * 3. 高精度解剖级 4 层 DICOM 微观断层 CT 扫描仪 (High-Precision Anatomical CT Tomography)：
- *    彻底摒弃原有的粗糙菱形占位图，采用 OpenGL 多环极坐标与解剖组织建模绘制：
- *    - LAYER 01 (表皮与真皮层)：角质层/表皮/真皮乳头波浪环/皮下脂肪网 + 开放创口撕裂缺口与喷射血滴 + 烧伤热力弧 + 绿色无菌敷料编织环
- *    - LAYER 02 (肌肉血管灌注层)：四大肌群室与筋膜隔 + 搏动主干动脉与伴行静脉 + 放射状毛细血管床 + 组织间隙内出血紫红血肿池 + 止血带环压
- *    - LAYER 03 (骨骼与骨髓腔层)：部位专属骨骼截面（颅骨穹窿/胸廓双肺与肋骨/四肢双骨皮质环）+ 骨小梁蜂窝网 + 粉碎性骨折裂隙与钛合金外固定支架
- *    - LAYER 04 (细胞炎症与痛觉神经层)：高倍神经束髓鞘轴突截面 + 痛觉神经放电脉冲环 + 细菌感染菌落群与生物靶向锁定框
- */
+
 public class MedicalScreen extends Screen {
 
     private static int getHealthColor(float pct) {
@@ -99,10 +84,10 @@ public class MedicalScreen extends Screen {
     private static final int LEFT_PANEL_W = 236;
 
     private static final String[] DICOM_LAYER_NAMES = new String[]{
-            "LAYER 01 // EPIDERMIS & DERMIS (表皮与真皮创面层)",
-            "LAYER 02 // VASCULAR & PERFUSION (肌肉筋膜与血管灌注层)",
-            "LAYER 03 // SKELETAL & PERIOSTEUM (骨骼皮质与骨髓腔层)",
-            "LAYER 04 // CELLULAR & PATHOGEN (细胞炎症与痛觉神经层)"
+            "L1 表皮真皮层",
+            "L2 肌肉血管层",
+            "L3 骨骼皮质层",
+            "L4 神经细胞层"
     };
 
     private final BrainScan3DRenderer brainScanRenderer = new BrainScan3DRenderer();
@@ -210,32 +195,34 @@ public class MedicalScreen extends Screen {
      * 0~10: 冷静科技青 -> 11~24: 预警琥珀黄 -> 25~39: 灼热创伤橙 -> 40~55: 剧痛深渊猩红 + 心搏脉冲
      */
     private void updatePainDrivenThemeColors(long now) {
-        float p = Mth.clamp(smoothPerceivedPain, 0.0f, 55.0f);
+        float maxPainCap = Math.max(10.0f, MedicalConfig.MAX_PERCEIVED_PAIN.get().floatValue());
+        float p = Mth.clamp(smoothPerceivedPain, 0.0f, maxPainCap);
         int baseAccent;
         int baseBg;
 
-        if (p <= 10.0f) {
-            float t = p / 10.0f;
+        float pr = Mth.clamp(p / maxPainCap, 0.0f, 1.0f);
+        if (pr <= 0.18f) {
+            float t = pr / 0.18f;
             baseAccent = lerpColor(0xFF00F0FF, 0xFF00E5B8, t);
             baseBg = lerpColor(0x060E18, 0x081218, t);
-        } else if (p <= 24.0f) {
-            float t = (p - 10.0f) / 14.0f;
+        } else if (pr <= 0.42f) {
+            float t = (pr - 0.18f) / 0.24f;
             baseAccent = lerpColor(0xFF00E5B8, 0xFFFFB300, t);
             baseBg = lerpColor(0x081218, 0x161006, t);
-        } else if (p <= 39.0f) {
-            float t = (p - 24.0f) / 15.0f;
+        } else if (pr <= 0.68f) {
+            float t = (pr - 0.42f) / 0.26f;
             baseAccent = lerpColor(0xFFFFB300, 0xFFFF3D00, t);
             baseBg = lerpColor(0x161006, 0x1C0806, t);
         } else {
-            float t = (p - 39.0f) / 16.0f;
+            float t = (pr - 0.68f) / 0.32f;
             baseAccent = lerpColor(0xFFFF3D00, 0xFFFF0044, t);
             baseBg = lerpColor(0x1C0806, 0x24040A, t);
         }
 
         // 高疼痛下叠加心搏共振亮度呼吸
-        if (p > 18.0f) {
+        if (pr > 0.32f) {
             float painPulse = 0.5f + 0.5f * Mth.sin(now * 0.008f + ecgPhase * ((float) Math.PI * 2.0f));
-            float boost = Mth.clamp((p - 18.0f) / 37.0f, 0.0f, 1.0f) * 0.28f * painPulse;
+            float boost = Mth.clamp((pr - 0.32f) / 0.68f, 0.0f, 1.0f) * 0.28f * painPulse;
             baseAccent = lerpColor(baseAccent, 0xFFFF8095, boost);
         }
 
@@ -248,7 +235,8 @@ public class MedicalScreen extends Screen {
      * 绘制受总体疼痛值染色的全屏背景科技网格与激光扫描束
      */
     private void drawPainTintedBackground(GuiGraphics g, long now) {
-        float painRatio = Mth.clamp(smoothPerceivedPain / 55.0f, 0.0f, 1.0f);
+        float maxPainCap = Math.max(10.0f, MedicalConfig.MAX_PERCEIVED_PAIN.get().floatValue());
+        float painRatio = Mth.clamp(smoothPerceivedPain / maxPainCap, 0.0f, 1.0f);
         int topBg = lerpColor(0x060B10, 0x1E0408, painRatio * 0.85f) | 0xD4000000;
         int botBg = lerpColor(0x0B131C, 0x2A060C, painRatio * 0.85f) | 0xEC000000;
         g.fillGradient(0, 0, this.width, this.height, topBg, botBg);
@@ -408,12 +396,12 @@ public class MedicalScreen extends Screen {
         HudRenderHelper.drawSciFiCard(g, barX, barY, barW, HUD_BAR_H, 5, themeCardBgColor, withAlpha(themePrimaryColor, 0.75f));
         HudRenderHelper.drawCardCorners(g, barX, barY, barW, HUD_BAR_H, 8, themePrimaryColor);
 
-        HudRenderHelper.drawGlowingString(g, this.font, "TRAUMA TEAM // BIO-MONITOR v4.5",
+        HudRenderHelper.drawGlowingString(g, this.font, "生命体征监护",
                 barX + 10, barY + 6, themePrimaryColor, withAlpha(themePrimaryColor, 0.4f));
-        String subStatus = data.isCardiacArrest() ? "STATUS: CARDIAC ARREST [CRITICAL]"
-                : (data.isInVFib() ? "STATUS: VENTRICULAR FIBRILLATION"
-                : (data.isInCriticalState() ? "STATUS: CRITICAL EMERGENCY (" + data.getCriticalTimer() + "s)"
-                : "PAIN INDEX: " + data.getPerceivedPain() + "/55 (" + getPainStageText(data.getPerceivedPain()) + ") | R-CLICK LIMB: CT SCAN"));
+        String subStatus = data.isCardiacArrest() ? "状态: 心脏骤停"
+                : (data.isInVFib() ? "状态: 心室纤颤"
+                : (data.isInCriticalState() ? "状态: 濒危 (" + data.getCriticalTimer() + "s)"
+                : "疼痛: " + data.getPerceivedPain() + "/" + MedicalConfig.MAX_PERCEIVED_PAIN.get() + " (" + getPainStageText(data.getPerceivedPain()) + ") | 右键部位: CT"));
         int subColor = (data.isCardiacArrest() || data.isInVFib() || data.isInCriticalState())
                 ? C_ALERT_RED : themePrimaryColor;
         g.drawString(this.font, subStatus, barX + 10, barY + 19, subColor, false);
@@ -471,7 +459,7 @@ public class MedicalScreen extends Screen {
         int panelH = this.height - HUD_BAR_H - 38;
         if (panelH < 100) return;
 
-        drawCyberCard(g, panelX, panelY, panelW, panelH, "BIOMETRIC SCAN // 人体创伤定位", themePrimaryColor);
+        drawCyberCard(g, panelX, panelY, panelW, panelH, "人体创伤定位", themePrimaryColor);
 
         String ctTxt = "CT 断层";
         this.ctBtnW = this.font.width(ctTxt) + 10;
@@ -560,7 +548,8 @@ public class MedicalScreen extends Screen {
      */
     private void drawPainExpressionWidget(GuiGraphics g, int x, int y, int w, int h, MedicalData data, long now) {
         int rawPain = data.getPerceivedPain();
-        float pNorm = Mth.clamp(smoothPerceivedPain / 55.0f, 0.0f, 1.0f);
+        float maxPainCap = Math.max(10.0f, MedicalConfig.MAX_PERCEIVED_PAIN.get().floatValue());
+        float pNorm = Mth.clamp(smoothPerceivedPain / maxPainCap, 0.0f, 1.0f);
         int faceColor = getPainScaleColor(pNorm);
 
         HudRenderHelper.drawSciFiCard(g, x, y, w, h, 3, 0xCC040A12, withAlpha(faceColor, 0.7f));
@@ -576,10 +565,10 @@ public class MedicalScreen extends Screen {
         int infoX = x + 44;
         int infoW = w - 50;
 
-        String title = "PAIN INDEX // 总体疼痛";
+        String title = "总体疼痛";
         g.drawString(this.font, title, infoX, y + 4, 0xFFB0BEC5, false);
 
-        String valStr = rawPain + " / 55";
+        String valStr = rawPain + " / " + MedicalConfig.MAX_PERCEIVED_PAIN.get();
         g.drawString(this.font, valStr, infoX + infoW - this.font.width(valStr), y + 4, faceColor, false);
 
         String stageDesc = getPainStageText(rawPain);
@@ -601,8 +590,8 @@ public class MedicalScreen extends Screen {
 
         for (int i = 0; i < numStages; i++) {
             int sx = infoX + i * (segW + segGap);
-            float segStart = (i / (float) numStages) * 55.0f;
-            float segEnd = ((i + 1) / (float) numStages) * 55.0f;
+            float segStart = (i / (float) numStages) * maxPainCap;
+            float segEnd = ((i + 1) / (float) numStages) * maxPainCap;
             float fill = Mth.clamp((smoothPerceivedPain - segStart) / (segEnd - segStart), 0.0f, 1.0f);
 
             g.fill(sx, barY, sx + segW, barY + 6, 0xFF08121C);
@@ -618,7 +607,8 @@ public class MedicalScreen extends Screen {
      */
     private void drawHolographicPainFace(GuiGraphics g, float cx, float cy, float r,
                                          float painVal, int color, long now) {
-        float pNorm = Mth.clamp(painVal / 55.0f, 0.0f, 1.0f);
+        float maxPainCap = Math.max(10.0f, MedicalConfig.MAX_PERCEIVED_PAIN.get().floatValue());
+        float pNorm = Mth.clamp(painVal / maxPainCap, 0.0f, 1.0f);
 
         // 高痛感下人脸产生剧痛抽搐颤抖
         if (pNorm > 0.45f) {
@@ -786,12 +776,14 @@ public class MedicalScreen extends Screen {
     }
 
     private String getPainStageText(int pain) {
-        if (pain <= 3) return "LV.0 镇定微笑 (SERENE)";
-        if (pain <= 12) return "LV.1 轻度不适 (MILD)";
-        if (pain <= 24) return "LV.2 中度疼痛 (MODERATE)";
-        if (pain <= 36) return "LV.3 重度咬牙 (SEVERE)";
-        if (pain <= 46) return "LV.4 剧烈折磨 (AGONY)";
-        return "LV.5 痛觉崩溃 (OVERLOAD)";
+        float maxCap = Math.max(10.0f, MedicalConfig.MAX_PERCEIVED_PAIN.get().floatValue());
+        float r = pain / maxCap;
+        if (r <= 0.05f) return "无痛";
+        if (r <= 0.22f) return "轻度";
+        if (r <= 0.42f) return "中度";
+        if (r <= 0.65f) return "重度";
+        if (r <= 0.85f) return "剧痛";
+        return "极度剧痛";
     }
 
     private void drawAnatomicalVascularAndSkeleton(GuiGraphics g, MedicalData data, int heartX, int heartY, long now) {
@@ -959,7 +951,7 @@ public class MedicalScreen extends Screen {
         g.pose().scale(scale, scale, 1.0f);
         g.pose().translate(-(boxX + boxW * 0.5f), -(boxY + boxH * 0.5f), 0.0f);
 
-        String title = "DICOM CT WORKSTATION // " + getLimbFullName(microTomographyLimb) + " 断层扫描";
+        String title = "CT 断层 · " + getLimbFullName(microTomographyLimb);
         drawCyberCard(g, boxX, boxY, boxW, boxH, title, themePrimaryColor);
 
         // 顶部层态导航栏 + [< PREV] [NEXT >] 切片按钮
@@ -1027,31 +1019,31 @@ public class MedicalScreen extends Screen {
         int metricY = rightY + 16;
         switch (curLayerIdx) {
             case 0 -> {
-                drawTomographyMetric(g, rightX, metricY, rightW, "开放性创口 OPEN WOUND",
-                        ld.hasOpenWound() || ld.getBleeding() > 0 ? "DETECTED // 表皮撕裂缺口" : "INTACT // 角质层完整",
+                drawTomographyMetric(g, rightX, metricY, rightW, "开放创口",
+                        ld.hasOpenWound() || ld.getBleeding() > 0 ? "存在" : "完整",
                         ld.getBleeding() > 0 ? C_ALERT_RED : C_SAFE_GREEN);
-                drawTomographyMetric(g, rightX, metricY + 28, rightW, "无菌敷料包扎 BANDAGE",
-                        ld.isBandaged() ? tr("medical.detail.bandaged") + " (环向加压)" : tr("medical.detail.unbandaged"),
+                drawTomographyMetric(g, rightX, metricY + 28, rightW, "敷料包扎",
+                        ld.isBandaged() ? tr("medical.detail.bandaged") : tr("medical.detail.unbandaged"),
                         ld.isBandaged() ? C_SAFE_GREEN : 0xFF90A4AE);
-                drawTomographyMetric(g, rightX, metricY + 56, rightW, "真皮烧伤热损 BURN",
-                        ld.hasBurn() ? String.format("%d° 烧伤 (面积 %.1f%%)", ld.getBurnDegree(), ld.getBurnArea()) : "0.0% (无热损伤)",
+                drawTomographyMetric(g, rightX, metricY + 56, rightW, "烧伤",
+                        ld.hasBurn() ? String.format("%d° (%.1f%%)", ld.getBurnDegree(), ld.getBurnArea()) : "无",
                         ld.hasBurn() ? 0xFFFF6D00 : C_SAFE_GREEN);
-                drawTomographyMetric(g, rightX, metricY + 84, rightW, "自然凝血计时 CLOTTING",
-                        ld.getNaturalClottingTimer() > 0 ? ld.getNaturalClottingTimer() + " s (血小板聚集)" : "STANDBY",
+                drawTomographyMetric(g, rightX, metricY + 84, rightW, "凝血计时",
+                        ld.getNaturalClottingTimer() > 0 ? ld.getNaturalClottingTimer() + " s" : "待命",
                         C_NEON_CYAN);
             }
             case 1 -> {
                 drawTomographyMetric(g, rightX, metricY, rightW, tr("medical.detail.bleeding_rate"),
-                        ld.getBleeding() + " mL/min (动脉射血)",
+                        ld.getBleeding() + " mL/min",
                         ld.getBleeding() > 0 ? C_ALERT_RED : C_SAFE_GREEN);
                 drawTomographyMetric(g, rightX, metricY + 28, rightW, tr("medical.detail.internal_bleeding_rate"),
-                        ld.getInternalBleedingRate() + " mL/min (间隙血肿)",
+                        ld.getInternalBleedingRate() + " mL/min",
                         ld.getInternalBleedingRate() > 0 ? 0xFFE040FB : C_SAFE_GREEN);
                 drawTomographyMetric(g, rightX, metricY + 56, rightW, tr("medical.detail.tourniquet"),
-                        ld.isTourniqueted() ? tr("medical.detail.bound") + " (动脉阻断)" : tr("medical.detail.unbound"),
+                        ld.isTourniqueted() ? tr("medical.detail.bound") : tr("medical.detail.unbound"),
                         ld.isTourniqueted() ? C_WARN_YELLOW : 0xFF90A4AE);
-                drawTomographyMetric(g, rightX, metricY + 84, rightW, "局部灌注压 LOCAL MAP",
-                        String.format("%.0f mmHg (CO %.1f L/m)", data.getMeanArterialPressure(), data.getCardiacOutput()),
+                drawTomographyMetric(g, rightX, metricY + 84, rightW, "局部灌注 MAP",
+                        String.format("%.0f mmHg (CO %.1f)", data.getMeanArterialPressure(), data.getCardiacOutput()),
                         C_VITAL_BP);
             }
             case 2 -> {
@@ -1060,32 +1052,32 @@ public class MedicalScreen extends Screen {
                         : tr("medical.status.healthy"));
                 drawTomographyMetric(g, rightX, metricY, rightW, tr("medical.detail.fracture"),
                         fracState, ld.hasFracture() ? C_ALERT_RED : C_SAFE_GREEN);
-                drawTomographyMetric(g, rightX, metricY + 28, rightW, "关节对位 DISLOCATION",
-                        ld.hasDislocation() ? tr("medical.status.dislocation") : "ALIGNED (解剖对位正常)",
+                drawTomographyMetric(g, rightX, metricY + 28, rightW, "关节对位",
+                        ld.hasDislocation() ? tr("medical.status.dislocation") : "正常",
                         ld.hasDislocation() ? C_WARN_YELLOW : C_SAFE_GREEN);
                 drawTomographyMetric(g, rightX, metricY + 56, rightW, tr("medical.detail.fracture_healing"),
-                        ld.hasFracture() ? ld.getFractureTimer() + " s (骨痂重塑中)" : "INTACT CORTEX", C_NEON_CYAN);
-                drawTomographyMetric(g, rightX, metricY + 84, rightW, "外固定支架 SPLINT",
-                        ld.hasSplint() ? "TITANIUM FIXATION (已锁定)" : "NONE",
+                        ld.hasFracture() ? ld.getFractureTimer() + " s" : "完整", C_NEON_CYAN);
+                drawTomographyMetric(g, rightX, metricY + 84, rightW, "夹板固定",
+                        ld.hasSplint() ? "已固定" : "无",
                         ld.hasSplint() ? C_SAFE_GREEN : 0xFF90A4AE);
             }
             default -> {
                 drawTomographyMetric(g, rightX, metricY, rightW, tr("medical.detail.infection"),
-                        ld.getInfection() + " % (病原菌落密度)",
+                        ld.getInfection() + " %",
                         ld.getInfection() > 0 ? C_WARN_YELLOW : C_SAFE_GREEN);
                 drawTomographyMetric(g, rightX, metricY + 28, rightW, tr("medical.detail.pain_level"),
-                        ld.getPainLevel() + " / 10 (痛觉神经放电)",
+                        ld.getPainLevel() + " / 10",
                         ld.getPainLevel() > 0 ? C_VITAL_PAIN : C_SAFE_GREEN);
-                drawTomographyMetric(g, rightX, metricY + 56, rightW, "穿刺贯通通道 PERFORATION",
-                        ld.hasPerforation() ? "POSITIVE (深部贯通伤)" : "NEGATIVE",
+                drawTomographyMetric(g, rightX, metricY + 56, rightW, "贯通伤",
+                        ld.hasPerforation() ? "存在" : "无",
                         ld.hasPerforation() ? C_ALERT_RED : C_SAFE_GREEN);
-                drawTomographyMetric(g, rightX, metricY + 84, rightW, "全身炎症反应 SIRS",
-                        "STAGE " + data.getSirsLevel() + " / 4",
+                drawTomographyMetric(g, rightX, metricY + 84, rightW, "SIRS 等级",
+                        data.getSirsLevel() + " / 4",
                         data.getSirsLevel() > 0 ? C_ALERT_RED : C_SAFE_GREEN);
             }
         }
 
-        g.drawString(this.font, "滚轮或点击 < > 切换断层切片  |  点击外部或按 ESC 关闭断层仪",
+        g.drawString(this.font, "滚轮切换切片 | ESC 关闭",
                 boxX + 12, boxY + boxH - 14, 0xFF80CBC4, false);
 
         g.pose().popPose();
@@ -1424,7 +1416,7 @@ public class MedicalScreen extends Screen {
         if (panelWidth < 100 || panelHeight < 60) return;
 
         if (selectedLimb == MedicalData.Limb.HEAD) {
-            String cardTitle = "CEREBRAL & CRANIAL SCAN // 头部创伤与全息脑扫描";
+            String cardTitle = "头部与脑扫描";
             drawCyberCard(graphics, panelX, panelY, panelWidth, panelHeight, cardTitle, themePrimaryColor);
             brainScanRenderer.render(graphics, this.font, panelX, panelY, panelWidth, panelHeight,
                     data, deltaSeconds, mouseX, mouseY, now);
@@ -1432,8 +1424,8 @@ public class MedicalScreen extends Screen {
         }
 
         String cardTitle = selectedLimb != null
-                ? "DIAGNOSIS // " + getLimbFullName(selectedLimb) + " " + tr("medical.detail.title")
-                : "SYSTEM OVERVIEW // 全身生理概览";
+                ? getLimbFullName(selectedLimb) + " · " + tr("medical.detail.title")
+                : "全身概览";
 
         drawCyberCard(graphics, panelX, panelY, panelWidth, panelHeight, cardTitle, themePrimaryColor);
 
@@ -1517,8 +1509,8 @@ public class MedicalScreen extends Screen {
         int ecgColor = (data.isCardiacArrest() || data.isInVFib() || hr >= 150 || hr <= 45)
                 ? C_ALERT_RED : (hr >= 115 ? C_WARN_YELLOW : C_SAFE_GREEN);
 
-        g.drawString(this.font, "LEAD II // 25mm/s  HR: " + hr + " BPM", x + 6, y + 4, ecgColor, false);
-        String bpInfo = String.format("BP %d/%d (MAP %.0f)", data.getSystolicBP(), data.getDiastolicBP(), data.getMeanArterialPressure());
+        g.drawString(this.font, "LEAD II  " + hr + " BPM", x + 6, y + 4, ecgColor, false);
+        String bpInfo = String.format("MAP %.0f mmHg", data.getMeanArterialPressure());
         g.drawString(this.font, bpInfo, x + width - this.font.width(bpInfo) - 6, y + 4, C_VITAL_BP, false);
 
         float ecgCenterY = y + height * 0.42f;
@@ -1526,7 +1518,7 @@ public class MedicalScreen extends Screen {
         float plethCenterY = y + height * 0.78f;
         float plethAmp = height * 0.14f;
 
-        g.drawString(this.font, "PLETH // SpO2 " + data.getBloodOxygen() + "%", x + 6, (int) (plethCenterY - 10), C_VITAL_OXYGEN, false);
+        g.drawString(this.font, "PLETH  SpO2 " + data.getBloodOxygen() + "%", x + 6, (int) (plethCenterY - 10), C_VITAL_OXYGEN, false);
 
         Matrix4f pose = g.pose().last().pose();
         RenderSystem.enableBlend();
@@ -1826,7 +1818,7 @@ public class MedicalScreen extends Screen {
             int btnY = panelY + 5;
             int btnH = 13;
 
-            String ecgLabel = ecgCollapsed ? "ECG ▲" : "ECG ▼";
+            String ecgLabel = ecgCollapsed ? "心电 ▲" : "心电 ▼";
             this.btnEcgW = font.width(ecgLabel) + 10;
             this.btnEcgH = btnH;
             this.btnEcgX = panelX + panelW - btnEcgW - 10;
@@ -1838,7 +1830,7 @@ public class MedicalScreen extends Screen {
                     hovEcg ? themeAccent : withAlpha(themeAccent, 0.5f));
             g.drawString(font, ecgLabel, btnEcgX + 5, btnEcgY + 3, !ecgCollapsed ? themeAccent : 0xFF90A4AE, false);
 
-            String gridLabel = compactTwoColumn ? "2-COL // 双列" : "1-COL // 单列";
+            String gridLabel = compactTwoColumn ? "双列" : "单列";
             this.btnCompactW = font.width(gridLabel) + 10;
             this.btnCompactH = btnH;
             this.btnCompactX = btnEcgX - btnCompactW - 4;
@@ -1860,7 +1852,7 @@ public class MedicalScreen extends Screen {
 
             int health = BrainScan3DRenderer.computeLimbHealthPercent(ld);
             int hc = getHealthColor(health / 100.0f);
-            g.drawString(font, limb.name() + " INTEGRITY // 部位完整度", x, y, themeAccent, false);
+            g.drawString(font, "部位完整度", x, y, themeAccent, false);
             String hpStr = health + "%";
             g.drawString(font, hpStr, x + w - font.width(hpStr), y, hc, false);
             y += 11;
@@ -1905,7 +1897,7 @@ public class MedicalScreen extends Screen {
                         Mth.clamp(1.0f - ld.getFractureTimer() / 300.0f, 0.0f, 1.0f), C_SAFE_GREEN);
             }
             if (ld.hasBurn()) {
-                y = drawFullRow(g, font, x, y, w, "烧伤创面 BURN (" + ld.getBurnDegree() + "°)",
+                y = drawFullRow(g, font, x, y, w, "烧伤 (" + ld.getBurnDegree() + "°)",
                         String.format("%.1f%%", ld.getBurnArea()), Mth.clamp(ld.getBurnArea() / 25.0f, 0.0f, 1.0f), 0xFFFF6D00);
             }
 
@@ -1914,7 +1906,7 @@ public class MedicalScreen extends Screen {
             if (limb == MedicalData.Limb.CHEST) {
                 y += 4;
                 g.fill(x, y + 8, x + w, y + 9, withAlpha(themeAccent, 0.35f));
-                g.drawString(font, "THORACIC & HEMODYNAMICS // 胸腔与血流动力学", x, y, themeAccent, false);
+                g.drawString(font, "胸腔与血流", x, y, themeAccent, false);
                 y += 12;
 
                 float chestBlood = data.getChestBloodAccumulation();
@@ -1951,7 +1943,7 @@ public class MedicalScreen extends Screen {
                             Mth.clamp(data.getCardiacOutput() / 8.0f, 0f, 1f), themeAccent);
                     if (sirsLv > 0) {
                         y = drawFullRow(g, font, x, y, w, tr("medical.detail.sirs_level"),
-                                "STAGE " + sirsLv + " / 4", sirsLv / 4.0f, C_ALERT_RED);
+                                sirsLv + " / 4", sirsLv / 4.0f, C_ALERT_RED);
                     }
                 }
             }
@@ -1960,7 +1952,7 @@ public class MedicalScreen extends Screen {
         }
 
         private int drawSystemOverviewContent(GuiGraphics g, Font font, MedicalData data, int x, int y, int w, int themeAccent) {
-            g.drawString(font, "SYSTEMIC TELEMETRY // 全身生命体征总览", x, y, themeAccent, false);
+            g.drawString(font, "全身生命体征", x, y, themeAccent, false);
             y += 13;
 
             int totalBleed = 0;
@@ -1994,14 +1986,14 @@ public class MedicalScreen extends Screen {
                         data.getSystolicBP() + "/" + data.getDiastolicBP() + " (MAP " + (int) data.getMeanArterialPressure() + ")",
                         Mth.clamp(data.getMeanArterialPressure() / 130f, 0f, 1f), C_VITAL_BP);
                 drawMetricCard(g, font, x + colW + 6, y, colW, tr("medical.detail.perceived_pain"),
-                        data.getPerceivedPain() + " / 55",
-                        Mth.clamp(data.getPerceivedPain() / 55f, 0f, 1f), C_VITAL_PAIN);
+                        data.getPerceivedPain() + " / " + MedicalConfig.MAX_PERCEIVED_PAIN.get(),
+                        Mth.clamp(data.getPerceivedPain() / Math.max(10f, MedicalConfig.MAX_PERCEIVED_PAIN.get().floatValue()), 0f, 1f), C_VITAL_PAIN);
                 y += 24;
 
                 drawMetricCard(g, font, x, y, colW, tr("medical.detail.respiration") + " / SpO2",
                         data.getRespirationRate() + " rpm | " + data.getBloodOxygen() + "%",
                         data.getBloodOxygen() / 100f, C_VITAL_OXYGEN);
-                drawMetricCard(g, font, x + colW + 6, y, colW, "SIRS / BURN TBSA",
+                drawMetricCard(g, font, x + colW + 6, y, colW, "SIRS / 烧伤面积",
                         "SIRS " + data.getSirsLevel() + " | " + String.format("%.1f%%", data.getBurnTBSA()),
                         Math.max(data.getSirsLevel() / 4f, data.getBurnTBSA() / 100f),
                         (data.getSirsLevel() > 0 || data.getBurnTBSA() > 0) ? C_WARN_YELLOW : 0xFF37474F);
@@ -2016,7 +2008,7 @@ public class MedicalScreen extends Screen {
                 y = drawFullRow(g, font, x, y, w, tr("medical.detail.consciousness"),
                         data.getConsciousness() + "%", data.getConsciousness() / 100f, getHealthColor(data.getConsciousness() / 100f));
                 y = drawFullRow(g, font, x, y, w, tr("medical.detail.perceived_pain"),
-                        data.getPerceivedPain() + " / 55", data.getPerceivedPain() / 55f, C_VITAL_PAIN);
+                        data.getPerceivedPain() + " / " + MedicalConfig.MAX_PERCEIVED_PAIN.get(), data.getPerceivedPain() / Math.max(10f, MedicalConfig.MAX_PERCEIVED_PAIN.get().floatValue()), C_VITAL_PAIN);
                 y = drawFullRow(g, font, x, y, w, tr("medical.detail.blood_pressure"),
                         data.getSystolicBP() + "/" + data.getDiastolicBP() + " mmHg", data.getMeanArterialPressure() / 130f, C_VITAL_BP);
             }
@@ -2111,8 +2103,7 @@ public class MedicalScreen extends Screen {
 
         private void drawCollapsedEcgStrip(GuiGraphics g, Font font, int x, int y, int w, int h, MedicalData data, int themeAccent) {
             HudRenderHelper.drawSciFiCard(g, x, y, w, h, 2, 0xAA040C14, withAlpha(themeAccent, 0.45f));
-            String info = String.format("ECG MONITOR // HR: %d BPM  |  BP: %d/%d mmHg  |  SpO2: %d%%",
-                    data.getHeartRate(), data.getSystolicBP(), data.getDiastolicBP(), data.getBloodOxygen());
+            String info = "心电监护已折叠 (点击右上角「心电 ▲」展开)";
             g.drawString(font, info, x + 6, y + 5, themeAccent, false);
         }
 
