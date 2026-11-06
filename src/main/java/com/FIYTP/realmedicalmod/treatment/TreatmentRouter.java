@@ -2,6 +2,8 @@ package com.FIYTP.realmedicalmod.treatment;
 
 import com.FIYTP.realmedicalmod.capability.MedicalData;
 import com.FIYTP.realmedicalmod.capability.MedicalDataCapability;
+import com.FIYTP.realmedicalmod.capability.MedicalDataImpl;
+import com.FIYTP.realmedicalmod.config.MedicalConfig;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -23,28 +25,28 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 通用高扩展医疗用品使用路由器 (TreatmentRouter)
+ * 通用高扩展医疗用品与阿片类定量镇痛路由器 (TreatmentRouter)
  *
- * 耐久与容量结算机制：
- * 1. 动态按量扣耐久：
- *    对于带有耐久度（{@code stack.isDamageableItem()}）的医疗物品（如 500 耐久的卷式绷带、1000 耐久的加压绷带），
- *    单次包扎仅扣除「实际吸收的出血量」对应的耐久值，绝不会在轻度出血时直接消耗整卷绷带。
- * 2. 残余耐久智能分段包扎：
- *    若当前绷带剩余耐久低于伤口出血量（例如绷带仅剩 180 耐久，而伤口出血 300 mL/min），
- *    该绷带会抵消 180 mL/min 出血并耗尽耐久，剩余 120 mL/min 出血可继续用下一卷绷带包扎。
- * 3. 无出血创面（开放创口/烧伤）包扎：
- *    对出血量为 0 的开放性创口或烧伤创面进行包扎保护时，仅消耗固定 50 点敷料耐久。
+ * 阿片类药物系统（吗啡 Morphine & 芬太尼 Fentanyl）核心机制（全部参数由 {@link MedicalConfig} 驱动）：
+ * 1. 定量滑块推注与按量扣除耐久：
+ *    每支吗啡 (10.0 mg) 或芬太尼 (100 mcg) 拥有配置的刻度耐久（默认 100 单位）。
+ *    玩家通过滑块选择推注剂量（1 ~ 剩余最大刻度），仅扣除本次推注的刻度耐久，剩余药液可留待下次继续推注。
+ * 2. 强效双层镇痛（局部创伤痛感直降 + 中枢 μ-阿片受体全身痛觉传导阻断）：
+ *    推注后不仅大幅消减目标部位与全身其余部位的疼痛等级，还会在体内建立阿片血药浓度，
+ *    在 {@link MedicalDataImpl#getPerceivedPain()} 中强力抑制中枢体感疼痛。
+ * 3. 过量呼吸抑制与致命生理后果：
+ *    - 芬太尼的单位血药浓度转化率远高于吗啡（治疗窗极窄）。
+ *    - 当体内累计阿片血药浓度超过 {@code OPIOID_RESP_DEPRESSION_START} 时出现呼吸抑制；
+ *    - 达到 {@code OPIOID_OVERDOSE_THRESHOLD} 时触发重度呼吸抑制、迷走心动过缓与深度昏迷；
+ *    - 达到 {@code OPIOID_APNEA_THRESHOLD} 时触发延髓呼吸中枢完全麻痹（呼吸暂停 Apnea，呼吸频率直接归零），
+ *      引发血氧断崖暴跌、脑损伤恶化与缺氧性室颤/心脏骤停！
  */
 public final class TreatmentRouter {
 
-    /** 开放创口/烧伤（无活动性出血时）单次包扎消耗的基础敷料耐久 */
     private static final int OPEN_WOUND_DRESSING_COST = 50;
 
     @FunctionalInterface
     public interface LimbTreatmentHandler {
-        /**
-         * @return 实际消耗的耐久/容量点数（> 0 表示成功生效；<= 0 表示目标部位无需此项治疗）
-         */
         int apply(ServerPlayer player, MedicalData data, MedicalData.Limb limb,
                   MedicalData.LimbData limbData, ItemStack stack, MedicalPotency potency);
     }
@@ -52,7 +54,7 @@ public final class TreatmentRouter {
     private static final Map<TagKey<Item>, LimbTreatmentHandler> EFFECT_HANDLERS = new LinkedHashMap<>();
 
     static {
-        // 1. 外出血止血 / 绷带包扎 (HEMOSTASIS) —— 按实际吸收的出血量扣除对应耐久
+        // 1. 外出血止血 / 绷带包扎 (HEMOSTASIS)
         registerEffectHandler(MedicalItemTags.HEMOSTASIS, (player, data, limb, ld, stack, potency) -> {
             if (ld.isAmputated()) return 0;
             int oldBleed = ld.getBleeding();
@@ -73,7 +75,6 @@ public final class TreatmentRouter {
                 ld.setBleeding(newBleed);
 
                 if (newBleed == 0) {
-                    // 出血已完全止住，标记为已包扎并关闭开放性创口
                     ld.setBandaged(true);
                     ld.setOpenWound(false);
                     ld.setNaturalClottingTimer(0);
@@ -84,7 +85,6 @@ public final class TreatmentRouter {
                             true
                     );
                 } else {
-                    // 绷带剩余耐久不足以一次性止住全部出血，抵消部分出血后当前绷带用尽
                     ld.setBandaged(false);
                     player.displayClientMessage(
                             Component.literal("部分止血 " + absorbed + " mL (仍出血 " + newBleed + " mL/m，需继续包扎)")
@@ -94,7 +94,6 @@ public final class TreatmentRouter {
                 }
                 return Math.max(1, absorbed);
             } else {
-                // 出血为 0，但存在未包扎的开放创口或烧伤创面：消耗少量敷料耐久完成包扎
                 int cost = Math.min(OPEN_WOUND_DRESSING_COST, remainingCap);
                 ld.setBandaged(true);
                 ld.setOpenWound(false);
@@ -153,13 +152,9 @@ public final class TreatmentRouter {
             return Math.max(1, actual);
         });
 
-        // 7. 阿片类强效镇痛 (OPIOID)
-        registerEffectHandler(MedicalItemTags.OPIOID, (player, data, limb, ld, stack, potency) -> {
-            float relief = potency.get(MedicalItemTags.OPIOID.location(), 7.0f);
-            ld.setPainLevel(Math.max(0, ld.getPainLevel() - Math.round(relief)));
-            data.setOpioidConcentration(Math.min(100, data.getOpioidConcentration() + 25));
-            return 1;
-        });
+        // 7. 阿片类强效镇痛 (OPIOID) —— 默认走完整定量药理处理器
+        registerEffectHandler(MedicalItemTags.OPIOID, (player, data, limb, ld, stack, potency) ->
+                applyOpioidDose(player, data, limb, ld, stack, 50));
 
         // 8. 创口消毒 (DISINFECT)
         registerEffectHandler(MedicalItemTags.DISINFECT, (player, data, limb, ld, stack, potency) -> {
@@ -238,11 +233,59 @@ public final class TreatmentRouter {
     }
 
     /**
-     * 判断某个物品栈是否为受本系统支持的医疗用品
+     * 判断物品是否为阿片类镇痛剂（盐酸吗啡 morphine 或 枸橼酸芬太尼 fentanyl）
      */
+    public static boolean isOpioidItem(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
+        if (stack.is(MedicalItemTags.OPIOID)) return true;
+        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        if (id != null) {
+            String path = id.getPath();
+            if (path.contains("morphine") || path.contains("fentanyl")) {
+                return true;
+            }
+        }
+        MedicalPotency potency = stack.getOrDefault(MedicalComponents.MEDICAL_POTENCY.get(), MedicalPotency.EMPTY);
+        return potency.get(MedicalItemTags.OPIOID.location(), 0.0f) > 0.0f;
+    }
+
+    /**
+     * 判断物品是否为高敏合成阿片「枸橼酸芬太尼 (fentanyl)」
+     */
+    public static boolean isFentanylItem(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
+        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        return id != null && id.getPath().contains("fentanyl");
+    }
+
+    /**
+     * 获取阿片注射器的最大剂量刻度单位（从 MedicalConfig 读取）
+     */
+    public static int getMaxOpioidUnits(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return 100;
+        if (stack.isDamageableItem() && stack.getMaxDamage() > 0) {
+            return stack.getMaxDamage();
+        }
+        return isFentanylItem(stack)
+                ? MedicalConfig.FENTANYL_MAX_DOSE_UNITS.get()
+                : MedicalConfig.MORPHINE_MAX_DOSE_UNITS.get();
+    }
+
+    /**
+     * 获取阿片注射器当前的剩余剂量刻度单位
+     */
+    public static int getRemainingOpioidUnits(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return 0;
+        if (stack.isDamageableItem() && stack.getMaxDamage() > 0) {
+            return Math.max(0, stack.getMaxDamage() - stack.getDamageValue());
+        }
+        return getMaxOpioidUnits(stack);
+    }
+
     public static boolean isMedicalItem(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return false;
         if (stack.getItem() instanceof BandageItem) return true;
+        if (isOpioidItem(stack)) return true;
         if (stack.has(MedicalComponents.MEDICAL_POTENCY.get())) return true;
         if (stack.is(MedicalItemTags.BANDAGE)
                 || stack.is(MedicalItemTags.SYRINGE)
@@ -257,9 +300,6 @@ public final class TreatmentRouter {
         return false;
     }
 
-    /**
-     * 获取当前玩家手持的医疗物品所在手（优先主手，其次副手），若均无则返回 null
-     */
     public static InteractionHand findActiveMedicalHand(Player player) {
         if (player == null) return null;
         if (isMedicalItem(player.getMainHandItem())) return InteractionHand.MAIN_HAND;
@@ -267,13 +307,15 @@ public final class TreatmentRouter {
         return null;
     }
 
-    /**
-     * 判断手持的医疗物品是否可以对指定肢体产生治疗效果
-     */
     public static boolean canTreatLimb(ItemStack stack, MedicalData data, MedicalData.Limb limb) {
         if (stack == null || stack.isEmpty() || data == null || limb == null) return false;
         MedicalData.LimbData ld = data.getLimb(limb);
         if (ld == null || ld.isAmputated()) return false;
+
+        // 阿片类针剂（吗啡/芬太尼）可经任意未截肢部位（肌肉/静脉）推注生效！
+        if (isOpioidItem(stack)) {
+            return getRemainingOpioidUnits(stack) > 0;
+        }
 
         boolean hasAnyEffectTag = false;
         for (TagKey<Item> tag : EFFECT_HANDLERS.keySet()) {
@@ -309,8 +351,11 @@ public final class TreatmentRouter {
         if (tag == MedicalItemTags.REDUCTION) {
             return ld.hasDislocation();
         }
-        if (tag == MedicalItemTags.ANALGESIC || tag == MedicalItemTags.OPIOID) {
+        if (tag == MedicalItemTags.ANALGESIC) {
             return ld.getPainLevel() > 0;
+        }
+        if (tag == MedicalItemTags.OPIOID) {
+            return !ld.isAmputated();
         }
         if (tag == MedicalItemTags.DISINFECT || tag == MedicalItemTags.CLEANSE || tag == MedicalItemTags.ANTIBIOTIC) {
             return ld.getInfection() > 0 || ld.hasOpenWound();
@@ -333,21 +378,15 @@ public final class TreatmentRouter {
         return true;
     }
 
-    /**
-     * 根据医疗物品类别决定鼠标悬停在肢体上的施救读条时长（秒）
-     */
     public static float getChannelDurationSeconds(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return 0.65f;
-        if (stack.is(MedicalItemTags.SYRINGE)) return 0.45f;
+        if (isOpioidItem(stack) || stack.is(MedicalItemTags.SYRINGE)) return 0.35f;
         if (stack.is(MedicalItemTags.ORAL)) return 0.50f;
         if (stack.is(MedicalItemTags.TOPICAL)) return 0.55f;
         if (stack.is(MedicalItemTags.SPLINT)) return 0.85f;
         return 0.60f;
     }
 
-    /**
-     * 获取物品的最大止血容量/耐久上限
-     */
     public static int getMaxHemostasisCapacity(ItemStack stack, MedicalPotency potency) {
         if (stack == null || stack.isEmpty()) return 500;
         if (stack.isDamageableItem() && stack.getMaxDamage() > 0) {
@@ -357,9 +396,6 @@ public final class TreatmentRouter {
         return Math.round(potency.get(MedicalItemTags.HEMOSTASIS.location(), defaultCap));
     }
 
-    /**
-     * 获取物品当前的剩余止血容量/耐久
-     */
     public static int getRemainingHemostasisCapacity(ItemStack stack, MedicalPotency potency) {
         if (stack == null || stack.isEmpty()) return 0;
         if (stack.isDamageableItem() && stack.getMaxDamage() > 0) {
@@ -368,12 +404,28 @@ public final class TreatmentRouter {
         return getMaxHemostasisCapacity(stack, potency);
     }
 
-    /**
-     * 获取物品的止血剩余容量或主要效力描述文本（用于 HUD 面板与 Tooltip 展示）
-     */
     public static List<String> getItemEffectSummary(ItemStack stack) {
         List<String> lines = new ArrayList<>();
         if (stack == null || stack.isEmpty()) return lines;
+
+        if (isOpioidItem(stack)) {
+            boolean fentanyl = isFentanylItem(stack);
+            int maxU = getMaxOpioidUnits(stack);
+            int remU = getRemainingOpioidUnits(stack);
+            float ratio = maxU > 0 ? (remU / (float) maxU) : 0.0f;
+            if (fentanyl) {
+                float maxMcg = MedicalConfig.FENTANYL_MAX_MCG.get().floatValue();
+                lines.add(String.format("药量: %.0f / %.0f mcg (%d%%)", ratio * maxMcg, maxMcg, Math.round(ratio * 100)));
+                lines.add("效力: 超强效中枢 μ-受体镇痛");
+                lines.add("高危: 治疗窗极窄，过量致呼吸骤停");
+            } else {
+                float maxMg = MedicalConfig.MORPHINE_MAX_MG.get().floatValue();
+                lines.add(String.format("药量: %.1f / %.1f mg (%d%%)", ratio * maxMg, maxMg, Math.round(ratio * 100)));
+                lines.add("效力: 强效全身与局部中枢镇痛");
+                lines.add("警示: 过量推注将引发延髓呼吸抑制");
+            }
+            return lines;
+        }
 
         MedicalPotency potency = stack.getOrDefault(MedicalComponents.MEDICAL_POTENCY.get(), MedicalPotency.EMPTY);
         if (stack.is(MedicalItemTags.HEMOSTASIS) || stack.is(MedicalItemTags.BANDAGE) || stack.getItem() instanceof BandageItem) {
@@ -387,7 +439,7 @@ public final class TreatmentRouter {
         if (stack.is(MedicalItemTags.DISINFECT) || stack.is(MedicalItemTags.ANTIBIOTIC)) {
             lines.add("消毒抑菌");
         }
-        if (stack.is(MedicalItemTags.ANALGESIC) || stack.is(MedicalItemTags.OPIOID)) {
+        if (stack.is(MedicalItemTags.ANALGESIC)) {
             lines.add("缓解疼痛");
         }
         if (stack.is(MedicalItemTags.STERILE)) {
@@ -408,9 +460,125 @@ public final class TreatmentRouter {
     }
 
     /**
-     * 服务端执行医疗用品治疗结算（按实际治疗量扣除耐久，耗尽时才销毁物品）
+     * 服务端执行阿片类药物定量推注（吗啡 Morphine / 芬太尼 Fentanyl）
+     *
+     * @return 实际消耗的注射器刻度单位 (1 ~ 100)
      */
+    private static int applyOpioidDose(ServerPlayer player, MedicalData data, MedicalData.Limb targetLimb,
+                                       MedicalData.LimbData targetLd, ItemStack stack, int requestedDoseUnits) {
+        int maxUnits = Math.max(1, getMaxOpioidUnits(stack));
+        int remUnits = getRemainingOpioidUnits(stack);
+        if (remUnits <= 0) return 0;
+
+        int actualUnits = Mth.clamp(requestedDoseUnits, 1, remUnits);
+        float doseFraction = actualUnits / (float) maxUnits;
+        boolean fentanyl = isFentanylItem(stack);
+
+        // 从 MedicalConfig 读取药理参数（零硬编码）
+        float targetReliefMax = fentanyl
+                ? MedicalConfig.FENTANYL_TARGET_PAIN_RELIEF.get().floatValue()
+                : MedicalConfig.MORPHINE_TARGET_PAIN_RELIEF.get().floatValue();
+        float systemicReliefMax = fentanyl
+                ? MedicalConfig.FENTANYL_SYSTEMIC_PAIN_RELIEF.get().floatValue()
+                : MedicalConfig.MORPHINE_SYSTEMIC_PAIN_RELIEF.get().floatValue();
+        float concGainMax = fentanyl
+                ? MedicalConfig.FENTANYL_CONCENTRATION_PER_FULL_DOSE.get().floatValue()
+                : MedicalConfig.MORPHINE_CONCENTRATION_PER_FULL_DOSE.get().floatValue();
+        float addictionGainMax = fentanyl
+                ? MedicalConfig.FENTANYL_ADDICTION_GAIN.get().floatValue()
+                : MedicalConfig.MORPHINE_ADDICTION_GAIN.get().floatValue();
+
+        // 1. 降低目标注射部位疼痛与全身各部位疼痛（阿片通过血液循环作用于中枢神经）
+        int targetDelta = Math.max(1, Math.round(targetReliefMax * doseFraction));
+        targetLd.setPainLevel(Math.max(0, targetLd.getPainLevel() - targetDelta));
+
+        int sysDelta = Math.round(systemicReliefMax * doseFraction);
+        if (sysDelta > 0) {
+            for (MedicalData.Limb other : MedicalData.Limb.values()) {
+                if (other == targetLimb) continue;
+                MedicalData.LimbData oldLd = data.getLimb(other);
+                if (oldLd != null && oldLd.getPainLevel() > 0) {
+                    oldLd.setPainLevel(Math.max(0, oldLd.getPainLevel() - sysDelta));
+                }
+            }
+        }
+
+        // 2. 累加体内阿片血药浓度与成瘾值
+        float oldConc = (data instanceof MedicalDataImpl impl)
+                ? impl.getOpioidConcentrationFloat()
+                : (float) data.getOpioidConcentration();
+        float addedConc = concGainMax * doseFraction;
+        float newConc = Mth.clamp(oldConc + addedConc, 0.0f, 100.0f);
+
+        if (data instanceof MedicalDataImpl impl) {
+            impl.setOpioidConcentrationFloat(newConc);
+        } else {
+            data.setOpioidConcentration(Math.round(newConc));
+        }
+
+        int newAddiction = Mth.clamp(data.getAddictionLevel() + Math.round(addictionGainMax * doseFraction), 0, 100);
+        data.setAddictionLevel(newAddiction);
+
+        // 3. 判定是否触发急性过量 (Overdose) 或致死性延髓呼吸麻痹 (Central Apnea)
+        int apneaThreshold = MedicalConfig.OPIOID_APNEA_THRESHOLD.get();
+        int overdoseThreshold = MedicalConfig.OPIOID_OVERDOSE_THRESHOLD.get();
+        int respDepStart = MedicalConfig.OPIOID_RESP_DEPRESSION_START.get();
+
+        String drugLabel = fentanyl
+                ? String.format("枸橼酸芬太尼 %.0f mcg", doseFraction * MedicalConfig.FENTANYL_MAX_MCG.get().floatValue())
+                : String.format("盐酸吗啡 %.1f mg", doseFraction * MedicalConfig.MORPHINE_MAX_MG.get().floatValue());
+
+        if (newConc >= apneaThreshold) {
+            // ★ 致命过量：延髓呼吸中枢急性麻痹 -> 呼吸频率立即归零 (Apnea) + 急性意识冲击 ★
+            data.setRespirationRate(0);
+            float acuteConsDrop = MedicalConfig.OPIOID_ACUTE_OVERDOSE_CONSCIOUSNESS_DROP.get().floatValue();
+            data.setConsciousnessFloat(Math.max(0.0f, data.getConsciousnessFloat() - acuteConsDrop));
+            player.displayClientMessage(
+                    Component.literal("☠ 致命阿片过量！已推注 " + drugLabel + " (血药浓度 " + Math.round(newConc) + "% -> 延髓呼吸骤停!)")
+                            .withStyle(ChatFormatting.DARK_RED, ChatFormatting.BOLD),
+                    true
+            );
+            player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                    SoundEvents.WARDEN_HEARTBEAT, SoundSource.PLAYERS, 1.2f, 0.65f);
+        } else if (newConc >= overdoseThreshold) {
+            // ★ 重度过量：重度呼吸抑制 + 意识快速沉降 ★
+            float minFactor = MedicalConfig.OPIOID_MIN_DEPRESSED_RESP_FACTOR.get().floatValue();
+            data.setRespirationRate(Math.max(1, Math.round(data.getRespirationRate() * minFactor)));
+            data.setConsciousnessFloat(Math.max(0.0f, data.getConsciousnessFloat() - 15.0f));
+            player.displayClientMessage(
+                    Component.literal("⚠ 阿片过量警告！已推注 " + drugLabel + " (血药浓度 " + Math.round(newConc) + "% -> 重度呼吸抑制!)")
+                            .withStyle(ChatFormatting.RED, ChatFormatting.BOLD),
+                    true
+            );
+            player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                    SoundEvents.WARDEN_HEARTBEAT, SoundSource.PLAYERS, 0.9f, 0.85f);
+        } else if (newConc >= respDepStart) {
+            player.displayClientMessage(
+                    Component.literal("已推注 " + drugLabel + " (血药浓度 " + Math.round(newConc) + "% | 强效镇痛生效，轻度呼吸减慢)")
+                            .withStyle(ChatFormatting.GOLD),
+                    true
+            );
+        } else {
+            player.displayClientMessage(
+                    Component.literal("已推注 " + drugLabel + " (血药浓度 " + Math.round(newConc) + "% | 强效中枢镇痛生效)")
+                            .withStyle(ChatFormatting.GREEN),
+                    true
+            );
+        }
+
+        return actualUnits;
+    }
+
+    /** 兼容 3 参数调用 */
     public static boolean applyServerTreatment(ServerPlayer player, InteractionHand hand, MedicalData.Limb limb) {
+        return applyServerTreatment(player, hand, limb, 100);
+    }
+
+    /**
+     * 服务端执行医疗用品治疗结算（支持滑块设定 doseUnits 按量扣除耐久）
+     */
+    public static boolean applyServerTreatment(ServerPlayer player, InteractionHand hand,
+                                               MedicalData.Limb limb, int requestedDoseUnits) {
         if (player == null || hand == null || limb == null) return false;
         ItemStack stack = player.getItemInHand(hand);
         if (!isMedicalItem(stack)) return false;
@@ -425,17 +593,22 @@ public final class TreatmentRouter {
         int totalDurabilityCost = 0;
         boolean matchedTag = false;
 
-        for (Map.Entry<TagKey<Item>, LimbTreatmentHandler> entry : EFFECT_HANDLERS.entrySet()) {
-            if (stack.is(entry.getKey())) {
-                matchedTag = true;
-                int cost = entry.getValue().apply(player, data, limb, ld, stack, potency);
-                if (cost > 0) {
-                    totalDurabilityCost += cost;
+        // 优先处理阿片类定量注射器（吗啡 / 芬太尼）
+        if (isOpioidItem(stack)) {
+            matchedTag = true;
+            totalDurabilityCost = applyOpioidDose(player, data, limb, ld, stack, requestedDoseUnits);
+        } else {
+            for (Map.Entry<TagKey<Item>, LimbTreatmentHandler> entry : EFFECT_HANDLERS.entrySet()) {
+                if (stack.is(entry.getKey())) {
+                    matchedTag = true;
+                    int cost = entry.getValue().apply(player, data, limb, ld, stack, potency);
+                    if (cost > 0) {
+                        totalDurabilityCost += cost;
+                    }
                 }
             }
         }
 
-        // 若物品未匹配具体效果 Tag 但属于绷带类别，执行默认 HEMOSTASIS 逻辑
         if (!matchedTag && (stack.is(MedicalItemTags.BANDAGE) || stack.getItem() instanceof BandageItem)) {
             LimbTreatmentHandler hemo = EFFECT_HANDLERS.get(MedicalItemTags.HEMOSTASIS);
             if (hemo != null) {
@@ -455,14 +628,10 @@ public final class TreatmentRouter {
             return false;
         }
 
-        // 处理非无菌属性副作用 (NON_STERILE -> 感染 +2)
         if (stack.is(MedicalItemTags.NON_STERILE) && !stack.is(MedicalItemTags.STERILE)) {
             ld.setInfection(Math.min(100, ld.getInfection() + 2));
         }
 
-        // 处理物品消耗：
-        // 1. 凡是具有耐久度的医疗用品（如卷式绷带 500、加压绷带 1000 或带 DURABLE 的器械），按实际消耗量扣除耐久！
-        //    （即使在创造模式下测试，也会直观扣除耐久并在耗尽时损坏；生存模式下同样按量扣耐久）
         if (stack.isDamageableItem()) {
             int newDamage = stack.getDamageValue() + totalDurabilityCost;
             if (newDamage >= stack.getMaxDamage()) {
@@ -475,13 +644,12 @@ public final class TreatmentRouter {
                 stack.setDamageValue(newDamage);
             }
         } else if (!player.getAbilities().instabuild) {
-            // 2. 无耐久度的纯单次消耗品（如单支针剂、单颗药片）才减少 1 个堆叠数量
             stack.shrink(1);
         }
 
-        // 播放包扎/治疗完成音效并同步 MedicalData 到客户端
         player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
-                SoundEvents.WOOL_PLACE, SoundSource.PLAYERS, 0.85f, 1.25f);
+                isOpioidItem(stack) ? SoundEvents.BREWING_STAND_BREW : SoundEvents.WOOL_PLACE,
+                SoundSource.PLAYERS, 0.85f, 1.35f);
         player.syncData(MedicalDataCapability.MEDICAL_DATA);
         return true;
     }

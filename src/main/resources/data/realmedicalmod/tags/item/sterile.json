@@ -2,6 +2,8 @@
   "replace": false,
   "values": [
     "realmedicalmod:bandage",
-    "realmedicalmod:pressure_bandage"
+    "realmedicalmod:pressure_bandage",
+    "realmedicalmod:morphine",
+    "realmedicalmod:fentanyl"
   ]
 }

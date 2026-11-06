@@ -2,7 +2,21 @@ package com.FIYTP.realmedicalmod.loop;
 
 import com.FIYTP.realmedicalmod.capability.MedicalData;
 import com.FIYTP.realmedicalmod.config.MedicalConfig;
+import net.minecraft.util.Mth;
 
+/**
+ * 心率动态演进模块（修复高痛昏迷时交感风暴被意识修正错误抵消 + 适配体感疼痛上限配置）
+ *
+ * 【修复说明】：
+ * 1. 疼痛交感驱动适配 0 ~ MAX_PERCEIVED_PAIN (100)：
+ *    原代码仅使用 getTotalPainLevel() (6部位简单相加)，当体感疼痛 getPerceivedPain() 达到 100 时，
+ *    若只受损 2~3 个部位，totalPain 可能偏低。现综合体感疼痛占比与部位总痛感计算交感心率加成。
+ * 2. 交感神经风暴对抗昏迷迷走减速 (sympatheticShield)：
+ *    原代码在意识下降或归零时无条件施加最高 -70 BPM 的 consciousnessMod，
+ *    导致玩家在 100 剧痛（HR > 200 BPM）进入室颤倒计时第 5 秒昏迷的瞬间，心率被强行减去 70 BPM 跌破室颤阈值 (190 BPM)，
+ *    从而中断室颤触发。现实生理中，剧痛引发的儿茶酚胺交感风暴属于自主神经反射，不会因皮层昏迷而瞬间消失；
+ *    因此当存在剧烈疼痛交感驱动时，按疼痛强度比例屏蔽无痛昏迷的迷走心率抑制。
+ */
 public class HeartRateModule implements UpdateModule {
 
     @Override
@@ -28,8 +42,7 @@ public class HeartRateModule implements UpdateModule {
 
         float bloodMod;
         if (ratio > 0.15f) {
-            // 代偿期：血容量下降，心率上升（但幅度调低）
-            // 从75%血容量开始上升，最高在15%时达到约70 bpm加成
+            // 代偿期：血容量下降，心率上升
             float normalRange = (0.75f - Math.min(ratio, 0.75f)) / 0.60f;
             bloodMod = 10 + normalRange * 60; // 10~70
             if (ratio > 0.75f) {
@@ -46,11 +59,16 @@ public class HeartRateModule implements UpdateModule {
             }
         }
 
-        // 疼痛修正
+        // ★ 疼痛交感神经修正（全部系数读取自 MedicalConfig） ★
         int totalPain = data.getTotalPainLevel();
-        float painMod = (float) (totalPain * MedicalConfig.PAIN_HEART_RATE_MULTIPLIER.get());
+        int perceivedPain = data.getPerceivedPain();
+        float maxPerceivedPain = Math.max(10.0f, MedicalConfig.MAX_PERCEIVED_PAIN.get().floatValue());
+        float maxTotalPain = Math.max(10.0f, MedicalConfig.MAX_PAIN_LEVEL.get().floatValue() * 6.0f);
+        float painRatio = Mth.clamp(perceivedPain / maxPerceivedPain, 0.0f, 1.0f);
+        float effectivePain = Math.max((float) totalPain, painRatio * maxTotalPain);
+        float painMod = effectivePain * MedicalConfig.PAIN_HEART_RATE_MULTIPLIER.get().floatValue();
 
-        // 意识修正
+        // ★ 意识修正（当存在剧痛交感风暴时，自主交感兴奋会抵消无痛昏迷的迷走降心率效应） ★
         int consciousness = data.getConsciousness();
         float consciousnessMod;
         if (consciousness >= 80) {
@@ -62,6 +80,7 @@ public class HeartRateModule implements UpdateModule {
         } else {
             consciousnessMod = -70;
         }
+        consciousnessMod *= (1.0f - painRatio);
 
         // 运动贡献（由主循环更新）
         float exerciseMod = data.getExerciseContribution();
@@ -74,17 +93,17 @@ public class HeartRateModule implements UpdateModule {
         int respRate = data.getRespirationRate();
         float respMod = 0;
         if (respRate <= 0) {
-            respMod = MedicalConfig.RESP_MOD_STOP.get().floatValue();            // 呼吸停止 → 心率下降
+            respMod = MedicalConfig.RESP_MOD_STOP.get().floatValue();         // 呼吸停止 -> 心率下降
         } else if (respRate < 8) {
-            respMod = MedicalConfig.RESP_MOD_SLOW.get().floatValue();            // 呼吸过缓
+            respMod = MedicalConfig.RESP_MOD_SLOW.get().floatValue();         // 呼吸过缓
         } else if (respRate <= 20) {
-            respMod = 0;              // 正常范围
+            respMod = 0;                  // 正常范围
         } else if (respRate <= 30) {
-            respMod = (respRate - 20) * 1.0f;   // 轻微加快
+            respMod = (respRate - 20) * 1.0f; // 轻微加快
         } else if (respRate <= 45) {
-            respMod = 10 + (respRate - 30) * 1.5f;  // 明显加快
+            respMod = 10 + (respRate - 30) * 1.5f; // 明显加快
         } else {
-            respMod = 32.5f + (respRate - 45) * 2.0f;  // 极度加快
+            respMod = 32.5f + (respRate - 45) * 2.0f; // 极度加快
         }
 
         // ★ 颅内出血库欣反应（等级 2/3 心率代偿性升高，等级 4 脑疝骤降） ★
@@ -96,14 +115,14 @@ public class HeartRateModule implements UpdateModule {
             } else if (icLevel == 3) {
                 cushingMod = 25.0f;
             } else if (icLevel == 4) {
-                cushingMod = -40.0f;  // 脑疝形成，心率骤降
+                cushingMod = -40.0f; // 脑疝形成，心率骤降
             }
         }
 
-        // ★ 血压代偿反射（低血压心动过速代偿，高血压迷走神经反射减慢） ★
+        // ★ 血压反射代偿（低血压心动过速代偿，高血压迷走神经反射减慢） ★
         float bpReflexMod = 0;
         float map = data.getMeanArterialPressure();
-        float hypotensionThreshold = MedicalConfig.MAP_HYPOTENSION.get().floatValue(); // 65.0
+        float hypotensionThreshold = MedicalConfig.MAP_HYPOTENSION.get().floatValue();
         if (map < hypotensionThreshold) {
             bpReflexMod += (hypotensionThreshold - map) * 0.5f;
         }

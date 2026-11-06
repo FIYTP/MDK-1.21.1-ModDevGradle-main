@@ -201,10 +201,12 @@ public class CriticalOverlay {
         }
         tachycardiaFactor = Mth.lerp(Math.min(1.0f, dt * 3.5f), tachycardiaFactor, rawTachy);
 
-        // 计算失血 <= 3000mL 濒危紧迫度
+        // 计算失血 <= CRITICAL_BLOOD_VOLUME 濒危紧迫度（从 MedicalConfig 读取）
         if (data.isInCriticalState() && data.getCriticalTimer() > 0) {
-            float timerUrgency = 1.0f - Mth.clamp(data.getCriticalTimer() / 20.0f, 0.0f, 1.0f);
-            float bloodUrgency = Mth.clamp((3000.0f - data.getBloodVolume()) / 1500.0f, 0.0f, 1.0f);
+            float maxCritTimer = Math.max(1.0f, MedicalConfig.CRITICAL_TIMER_MAX.get().floatValue());
+            float critBloodVol = Math.max(1.0f, MedicalConfig.CRITICAL_BLOOD_VOLUME.get().floatValue());
+            float timerUrgency = 1.0f - Mth.clamp(data.getCriticalTimer() / maxCritTimer, 0.0f, 1.0f);
+            float bloodUrgency = Mth.clamp((critBloodVol - data.getBloodVolume()) / (critBloodVol * 0.5f), 0.0f, 1.0f);
             criticalUrgency = Mth.clamp(0.30f + timerUrgency * 0.55f + bloodUrgency * 0.15f, 0.0f, 1.0f);
         } else {
             criticalUrgency = Mth.lerp(Math.min(1.0f, dt * 4.0f), criticalUrgency, 0.0f);
@@ -544,10 +546,11 @@ public class CriticalOverlay {
                 RenderSystem.defaultBlendFunc();
             }
 
-            // 若心率极高已触发室颤累进计时器 (vfibTimer > 0) 或 HR >= 165，且未处于濒危倒计时遮挡时，显示室颤临界预警微浮标
+            // 若心率极高已触发室颤累进计时器 (vfibTimer > 0) 或接近室颤阈值，在右上角显示室颤临界预警微浮标
             int vfibTimer = data.getVfibTimer();
             int hr = data.getHeartRate();
-            if ((vfibTimer > 0 || hr >= 165) && !data.isInCriticalState() && Minecraft.getInstance().screen == null) {
+            int vfibWarnHr = Math.max(120, MedicalConfig.VFIB_THRESHOLD.get() - 25);
+            if ((vfibTimer > 0 || hr >= vfibWarnHr) && Minecraft.getInstance().screen == null) {
                 drawTachycardiaOverloadBadge(g, font, w, hr, vfibTimer, pulse);
                 RenderSystem.setShader(GameRenderer::getPositionColorShader);
             }
@@ -579,7 +582,7 @@ public class CriticalOverlay {
         }
 
         // ---------- D. 颅内出血清醒期后隧道视野暗角 (替代原版 12 层矩形线框) ----------
-        if (data.getIntracranialOnsetTimer() >= 30 && data.getIntracranialLevel() >= 1) {
+        if (data.getIntracranialOnsetTimer() >= MedicalConfig.ONSET_DELAY.get() && data.getIntracranialLevel() >= 1) {
             int icLv = data.getIntracranialLevel();
             float icInner = Mth.clamp(0.72f - icLv * 0.11f, 0.24f, 0.68f);
             float icAlpha = Mth.clamp(0.35f + icLv * 0.15f, 0.0f, 0.92f);
@@ -613,9 +616,10 @@ public class CriticalOverlay {
         g.drawString(font, title, bx + 7, by + 4, accent, false);
 
         if (vfibTimer > 0) {
-            float pct = Mth.clamp(vfibTimer / 30.0f, 0.0f, 1.0f);
+            int maxVfibSec = Math.max(1, MedicalConfig.VFIB_DURATION.get());
+            float pct = Mth.clamp((float) vfibTimer / (float) maxVfibSec, 0.0f, 1.0f);
             HudRenderHelper.drawSciFiProgressBar(g, bx + 7, by + 16, bw - 14, 5, pct, C_ALERT_RED, 0xFF1A0508);
-            String rem = (30 - vfibTimer) + "s";
+            String rem = Math.max(0, maxVfibSec - vfibTimer) + "s";
             g.drawString(font, rem, bx + bw - font.width(rem) - 6, by + 14, 0xFFFFFFFF, false);
         }
     }
@@ -625,7 +629,8 @@ public class CriticalOverlay {
     // =========================================================================
     private static void renderCriticalHypovolemicCountdown3A(GuiGraphics g, Font font, int w, int h, MedicalData data, long nowMs) {
         int timerSec = data.getCriticalTimer();
-        float urgency = Mth.clamp(1.0f - (timerSec / 20.0f), 0.0f, 1.0f);
+        float maxCritSec = Math.max(1.0f, MedicalConfig.CRITICAL_TIMER_MAX.get().floatValue());
+        float urgency = Mth.clamp(1.0f - (timerSec / maxCritSec), 0.0f, 1.0f);
         float pulse = PainVisualOverlay.evaluateDicroticPulse(heartPhase);
 
         Matrix4f pose = g.pose().last().pose();
@@ -697,14 +702,14 @@ public class CriticalOverlay {
 
         // 中央右侧：失血量与平均动脉压 MAP 临床遥测
         int infoX = boxX + 92;
-        String bloodInfo = String.format("血量: %d / 3000 mL", data.getBloodVolume());
+        String bloodInfo = String.format("血量: %d / %d mL", data.getBloodVolume(), MedicalConfig.CRITICAL_BLOOD_VOLUME.get());
         String mapInfo = String.format("BP: %d/%d (MAP %.0f)",
                 data.getSystolicBP(), data.getDiastolicBP(), data.getMeanArterialPressure());
         g.drawString(font, bloodInfo, infoX, boxY + 19, 0xFFFF5252, false);
         g.drawString(font, mapInfo, infoX, boxY + 30, 0xFFFFCC80, false);
 
         // 底部：20 秒濒危倒计时双向能量衰减进度条
-        float remainPct = Mth.clamp((timerSec - (1.0f - subTenths / 10.0f) * 0.5f) / 20.0f, 0.0f, 1.0f);
+        float remainPct = Mth.clamp((timerSec - (1.0f - subTenths / 10.0f) * 0.5f) / maxCritSec, 0.0f, 1.0f);
         HudRenderHelper.drawSciFiProgressBar(g, boxX + 10, boxY + 46, boxW - 20, 6, remainPct, segColor, 0xFF1A060A);
 
         RenderSystem.enableDepthTest();

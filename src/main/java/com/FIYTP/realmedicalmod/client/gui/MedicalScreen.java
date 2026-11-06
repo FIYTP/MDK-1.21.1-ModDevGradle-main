@@ -2035,10 +2035,19 @@ public class MedicalScreen extends Screen {
                 drawMetricCard(g, font, x, y, colW, tr("medical.detail.respiration") + " / SpO2",
                         data.getRespirationRate() + " rpm | " + data.getBloodOxygen() + "%",
                         data.getBloodOxygen() / 100f, C_VITAL_OXYGEN);
-                drawMetricCard(g, font, x + colW + 6, y, colW, "SIRS / 烧伤面积",
-                        "SIRS " + data.getSirsLevel() + " | " + String.format("%.1f%%", data.getBurnTBSA()),
-                        Math.max(data.getSirsLevel() / 4f, data.getBurnTBSA() / 100f),
-                        (data.getSirsLevel() > 0 || data.getBurnTBSA() > 0) ? C_WARN_YELLOW : 0xFF37474F);
+                if (data.getOpioidConcentration() > 0 || data.getAddictionLevel() > 0) {
+                    int op = data.getOpioidConcentration();
+                    int opCol = op >= MedicalConfig.OPIOID_OVERDOSE_THRESHOLD.get() ? C_ALERT_RED
+                            : (op >= MedicalConfig.OPIOID_RESP_DEPRESSION_START.get() ? C_WARN_YELLOW : 0xFFCE93D8);
+                    drawMetricCard(g, font, x + colW + 6, y, colW, tr("medical.detail.opioid_concentration"),
+                            op + "% | 成瘾 " + data.getAddictionLevel() + "%",
+                            op / 100f, opCol);
+                } else {
+                    drawMetricCard(g, font, x + colW + 6, y, colW, "SIRS / 烧伤面积",
+                            "SIRS " + data.getSirsLevel() + " | " + String.format("%.1f%%", data.getBurnTBSA()),
+                            Math.max(data.getSirsLevel() / 4f, data.getBurnTBSA() / 100f),
+                            (data.getSirsLevel() > 0 || data.getBurnTBSA() > 0) ? C_WARN_YELLOW : 0xFF37474F);
+                }
                 y += 24;
             } else {
                 y = drawFullRow(g, font, x, y, w, tr("medical.detail.blood_volume"),

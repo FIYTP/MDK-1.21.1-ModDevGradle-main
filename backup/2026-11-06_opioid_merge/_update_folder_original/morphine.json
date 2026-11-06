@@ -1,0 +1,211 @@
+{
+  "credit": "3A Tactical Morphine Sulfate Auto-Injector 3D Model - RealMedicalMod",
+  "texture_size": [64, 64],
+  "textures": {
+    "0": "realmedicalmod:item/morphine",
+    "particle": "realmedicalmod:item/morphine"
+  },
+  "elements": [
+    {
+      "name": "outer_casing_upper_0",
+      "from": [6.4, 8.2, 6.4],
+      "to": [9.6, 13.4, 9.6],
+      "rotation": {"angle": 0, "axis": "y", "origin": [8, 10.8, 8]},
+      "faces": {
+        "north": {"uv": [0, 0, 8, 14], "texture": "#0"},
+        "south": {"uv": [0, 0, 8, 14], "texture": "#0"},
+        "east": {"uv": [0, 0, 8, 14], "texture": "#0"},
+        "west": {"uv": [0, 0, 8, 14], "texture": "#0"},
+        "up": {"uv": [0, 32, 8, 40], "texture": "#0"},
+        "down": {"uv": [0, 48, 8, 56], "texture": "#0"}
+      }
+    },
+    {
+      "name": "outer_casing_upper_45",
+      "from": [6.45, 8.25, 6.45],
+      "to": [9.55, 13.35, 9.55],
+      "rotation": {"angle": 45, "axis": "y", "origin": [8, 10.8, 8]},
+      "faces": {
+        "north": {"uv": [2, 0, 10, 14], "texture": "#0"},
+        "south": {"uv": [2, 0, 10, 14], "texture": "#0"},
+        "east": {"uv": [2, 0, 10, 14], "texture": "#0"},
+        "west": {"uv": [2, 0, 10, 14], "texture": "#0"}
+      }
+    },
+    {
+      "name": "amber_liquid_core_0",
+      "from": [6.65, 4.4, 6.65],
+      "to": [9.35, 8.3, 9.35],
+      "rotation": {"angle": 0, "axis": "y", "origin": [8, 6.35, 8]},
+      "faces": {
+        "north": {"uv": [32, 0, 40, 14], "texture": "#0"},
+        "south": {"uv": [32, 0, 40, 14], "texture": "#0"},
+        "east": {"uv": [32, 0, 40, 14], "texture": "#0"},
+        "west": {"uv": [32, 0, 40, 14], "texture": "#0"},
+        "up": {"uv": [32, 0, 40, 8], "texture": "#0"},
+        "down": {"uv": [32, 8, 40, 16], "texture": "#0"}
+      }
+    },
+    {
+      "name": "amber_liquid_core_45",
+      "from": [6.7, 4.45, 6.7],
+      "to": [9.3, 8.25, 9.3],
+      "rotation": {"angle": 45, "axis": "y", "origin": [8, 6.35, 8]},
+      "faces": {
+        "north": {"uv": [34, 0, 42, 14], "texture": "#0"},
+        "south": {"uv": [34, 0, 42, 14], "texture": "#0"},
+        "east": {"uv": [34, 0, 42, 14], "texture": "#0"},
+        "west": {"uv": [34, 0, 42, 14], "texture": "#0"}
+      }
+    },
+    {
+      "name": "window_frame_pillar_l",
+      "from": [6.3, 4.2, 7.3],
+      "to": [6.75, 8.4, 8.7],
+      "faces": {
+        "north": {"uv": [0, 4, 2, 14], "texture": "#0"},
+        "south": {"uv": [0, 4, 2, 14], "texture": "#0"},
+        "west": {"uv": [4, 4, 8, 14], "texture": "#0"}
+      }
+    },
+    {
+      "name": "window_frame_pillar_r",
+      "from": [9.25, 4.2, 7.3],
+      "to": [9.7, 8.4, 8.7],
+      "faces": {
+        "north": {"uv": [0, 4, 2, 14], "texture": "#0"},
+        "south": {"uv": [0, 4, 2, 14], "texture": "#0"},
+        "east": {"uv": [4, 4, 8, 14], "texture": "#0"}
+      }
+    },
+    {
+      "name": "tactical_grip_collar_upper",
+      "from": [6.15, 11.6, 6.15],
+      "to": [9.85, 12.5, 9.85],
+      "faces": {
+        "north": {"uv": [0, 2, 10, 5], "texture": "#0"},
+        "south": {"uv": [0, 2, 10, 5], "texture": "#0"},
+        "east": {"uv": [0, 2, 10, 5], "texture": "#0"},
+        "west": {"uv": [0, 2, 10, 5], "texture": "#0"},
+        "up": {"uv": [0, 48, 8, 56], "texture": "#0"},
+        "down": {"uv": [0, 48, 8, 56], "texture": "#0"}
+      }
+    },
+    {
+      "name": "tactical_grip_collar_mid",
+      "from": [6.15, 7.9, 6.15],
+      "to": [9.85, 8.7, 9.85],
+      "faces": {
+        "north": {"uv": [0, 8, 10, 11], "texture": "#0"},
+        "south": {"uv": [0, 8, 10, 11], "texture": "#0"},
+        "east": {"uv": [0, 8, 10, 11], "texture": "#0"},
+        "west": {"uv": [0, 8, 10, 11], "texture": "#0"},
+        "up": {"uv": [0, 48, 8, 56], "texture": "#0"},
+        "down": {"uv": [0, 48, 8, 56], "texture": "#0"}
+      }
+    },
+    {
+      "name": "lower_nozzle_housing",
+      "from": [6.5, 3.0, 6.5],
+      "to": [9.5, 4.4, 9.5],
+      "faces": {
+        "north": {"uv": [0, 48, 8, 54], "texture": "#0"},
+        "south": {"uv": [0, 48, 8, 54], "texture": "#0"},
+        "east": {"uv": [0, 48, 8, 54], "texture": "#0"},
+        "west": {"uv": [0, 48, 8, 54], "texture": "#0"},
+        "up": {"uv": [0, 48, 8, 56], "texture": "#0"},
+        "down": {"uv": [0, 48, 8, 56], "texture": "#0"}
+      }
+    },
+    {
+      "name": "orange_trigger_cap",
+      "from": [6.7, 13.4, 6.7],
+      "to": [9.3, 14.8, 9.3],
+      "faces": {
+        "north": {"uv": [2, 34, 10, 40], "texture": "#0"},
+        "south": {"uv": [2, 34, 10, 40], "texture": "#0"},
+        "east": {"uv": [2, 34, 10, 40], "texture": "#0"},
+        "west": {"uv": [2, 34, 10, 40], "texture": "#0"},
+        "up": {"uv": [2, 34, 10, 42], "texture": "#0"}
+      }
+    },
+    {
+      "name": "safety_pin_ring",
+      "from": [7.2, 14.8, 7.6],
+      "to": [8.8, 15.5, 8.4],
+      "faces": {
+        "north": {"uv": [48, 0, 54, 4], "texture": "#0"},
+        "south": {"uv": [48, 0, 54, 4], "texture": "#0"},
+        "east": {"uv": [48, 0, 52, 4], "texture": "#0"},
+        "west": {"uv": [48, 0, 52, 4], "texture": "#0"},
+        "up": {"uv": [48, 0, 54, 4], "texture": "#0"}
+      }
+    },
+    {
+      "name": "luer_metal_hub",
+      "from": [7.25, 2.1, 7.25],
+      "to": [8.75, 3.0, 8.75],
+      "faces": {
+        "north": {"uv": [48, 4, 54, 8], "texture": "#0"},
+        "south": {"uv": [48, 4, 54, 8], "texture": "#0"},
+        "east": {"uv": [48, 4, 54, 8], "texture": "#0"},
+        "west": {"uv": [48, 4, 54, 8], "texture": "#0"},
+        "down": {"uv": [48, 4, 54, 10], "texture": "#0"}
+      }
+    },
+    {
+      "name": "stainless_needle_shaft",
+      "from": [7.82, 0.3, 7.82],
+      "to": [8.18, 2.1, 8.18],
+      "faces": {
+        "north": {"uv": [50, 0, 52, 12], "texture": "#0"},
+        "south": {"uv": [50, 0, 52, 12], "texture": "#0"},
+        "east": {"uv": [50, 0, 52, 12], "texture": "#0"},
+        "west": {"uv": [50, 0, 52, 12], "texture": "#0"},
+        "down": {"uv": [50, 10, 52, 12], "texture": "#0"}
+      }
+    }
+  ],
+  "display": {
+    "thirdperson_righthand": {
+      "rotation": [0, 0, 0],
+      "translation": [0, 2.5, 1.0],
+      "scale": [0.65, 0.65, 0.65]
+    },
+    "thirdperson_lefthand": {
+      "rotation": [0, 0, 0],
+      "translation": [0, 2.5, 1.0],
+      "scale": [0.65, 0.65, 0.65]
+    },
+    "firstperson_righthand": {
+      "rotation": [16, -18, 12],
+      "translation": [1.6, 2.8, 0.5],
+      "scale": [0.75, 0.75, 0.75]
+    },
+    "firstperson_lefthand": {
+      "rotation": [16, 18, -12],
+      "translation": [-1.6, 2.8, 0.5],
+      "scale": [0.75, 0.75, 0.75]
+    },
+    "ground": {
+      "rotation": [0, 0, 90],
+      "translation": [0, 1.8, 0],
+      "scale": [0.6, 0.6, 0.6]
+    },
+    "gui": {
+      "rotation": [26, 215, -35],
+      "translation": [0.0, 0.0, 0],
+      "scale": [0.98, 0.98, 0.98]
+    },
+    "head": {
+      "rotation": [0, 0, 0],
+      "translation": [0, 13.0, 0],
+      "scale": [0.8, 0.8, 0.8]
+    },
+    "fixed": {
+      "rotation": [0, 0, -45],
+      "translation": [0, 0, 0],
+      "scale": [0.95, 0.95, 0.95]
+    }
+  }
+}

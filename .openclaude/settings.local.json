@@ -232,7 +232,12 @@
       "Bash(find ~/.gradle/caches -path *neoform*sources* -name *.jar)",
       "Bash(find ~/.gradle/caches -name *.jar -path *1.21.1*)",
       "Bash(sed -n '1912,1919p' config/MedicalConfig.java)",
-      "Bash(sed -n '485,495p' config/MedicalConfig.java)"
+      "Bash(sed -n '485,495p' config/MedicalConfig.java)",
+      "Bash(U=\"src/main/java/com/FIYTP/realmedicalmod/更新\")",
+      "Bash(U=backup/2026-11-06_opioid_merge/_update_folder_original)",
+      "Read(//e/real m/MDK-1.21.1-ModDevGradle-main/$U/**)",
+      "Bash(find src/main/java -name \"*.java\" -exec grep -l \"CriticalOverlay\" {} +)",
+      "Bash(echo \"grep exit=$?\")"
     ]
   }
 }

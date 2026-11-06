@@ -1,0 +1,7 @@
+{
+  "replace": false,
+  "values": [
+    "realmedicalmod:morphine",
+    "realmedicalmod:fentanyl"
+  ]
+}

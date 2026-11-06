@@ -1,21 +1,42 @@
 package com.FIYTP.realmedicalmod.loop;
 
 import com.FIYTP.realmedicalmod.capability.MedicalData;
+import com.FIYTP.realmedicalmod.capability.MedicalDataImpl;
 import com.FIYTP.realmedicalmod.config.MedicalConfig;
+import net.minecraft.util.Mth;
 
 /**
- * 意识清醒度演进模块（符合现实生理学的痛觉意识保底升级版）
+ * 意识清醒度演进与阿片类药物中枢代谢模块 (ConsciousnessModule)
  *
- * 核心生理修正：
- * 单纯肢体骨折或创伤疼痛（无严重低血氧、无失血休克低血压、无颅内出血或严重血胸时），
- * 只会让意识下降至「痛觉意识下限 (MedicalConfig.PAIN_CONSCIOUSNESS_FLOOR，默认 25%)」并限制恢复，
- * 而不会每秒无限把意识扣到 0 引发永久昏迷；
- * 唯有真正危及中枢灌注与供氧的病理状态（低血氧、低血压 MAP<70、血胸、颅内出血、重度神经毒素）才能将意识压至 0（昏迷）。
+ * 核心生理与药理机制（全部参数由 {@link MedicalConfig} 驱动，零硬编码）：
+ * 1. 阿片类血药浓度自然代谢：
+ *    每秒按 {@code OPIOID_METABOLISM_RATE_PER_SEC} 线性/一级动力学衰减体内阿片浓度。
+ * 2. 阿片类药物中枢镇静与过量麻醉昏迷：
+ *    - 当 {@code opioidConcentration >= OPIOID_SEDATION_START}（默认 30%）时，产生中枢镇静嗜睡作用；
+ *    - 当 {@code opioidConcentration >= OPIOID_OVERDOSE_THRESHOLD}（默认 60%）时，触发重度阿片过量中枢麻痹，
+ *      每秒强力扣减意识（{@code OPIOID_OVERDOSE_CONSCIOUSNESS_PENALTY}），迅速将意识压制至 0（深度昏迷，丧失行动与自救能力）！
+ * 3. 单纯创伤疼痛意识保底：
+ *    无低血氧、无阿片过量、无低血压休克、无颅内出血或血胸时，单纯肢体疼痛最低只将意识扣至 {@code PAIN_CONSCIOUSNESS_FLOOR}。
  */
 public class ConsciousnessModule implements UpdateModule {
 
     @Override
     public void process(MedicalData data) {
+        // ====== 0. 每秒代谢体内阿片血药浓度 ======
+        float opioidConc = (data instanceof MedicalDataImpl impl)
+                ? impl.getOpioidConcentrationFloat()
+                : (float) data.getOpioidConcentration();
+        if (opioidConc > 0.0f) {
+            float decayRate = MedicalConfig.OPIOID_METABOLISM_RATE_PER_SEC.get().floatValue();
+            float nextOpioid = Math.max(0.0f, opioidConc - decayRate);
+            if (data instanceof MedicalDataImpl impl) {
+                impl.setOpioidConcentrationFloat(nextOpioid);
+            } else {
+                data.setOpioidConcentration(Math.round(nextOpioid));
+            }
+            opioidConc = nextOpioid;
+        }
+
         // 心脏骤停时，意识直接归零且不再恢复
         if (data.isCardiacArrest()) {
             data.setConsciousnessFloat(0.0f);
@@ -41,15 +62,26 @@ public class ConsciousnessModule implements UpdateModule {
             oxygenPenalty = MedicalConfig.OXYGEN_PENALTY_CRITICAL.get().floatValue();
         }
 
-        // ★ 体感疼痛惩罚（受 PAIN_CONSCIOUSNESS_FLOOR 下限约束） ★
-        // 当意识已降至痛觉保底线（默认 25）以下时，单纯疼痛不再继续往下扣减意识，仅阻止意识自然回升；
-        // 只有缺氧、低血压休克、颅内出血、血胸或毒素才能将意识继续扣至 0。
+        // ★ 体感疼痛惩罚（受 PAIN_CONSCIOUSNESS_FLOOR 下限约束，且阿片镇痛降低 perceivedPain 后自动解除） ★
         float rawPainPenalty = (float) (perceivedPain / MedicalConfig.PAIN_PENALTY_DIVISOR.get());
         float painFloor = MedicalConfig.PAIN_CONSCIOUSNESS_FLOOR.get().floatValue();
         float baseRecovery = MedicalConfig.CONSCIOUSNESS_BASE_RECOVERY.get().floatValue();
         float painPenalty = (currentConsciousness <= painFloor)
                 ? Math.min(rawPainPenalty, baseRecovery)
                 : rawPainPenalty;
+
+        // ★ 阿片类药物中枢镇静与过量昏迷惩罚 (Opioid Central Narcosis) ★
+        float opioidPenalty = 0.0f;
+        int sedationStart = MedicalConfig.OPIOID_SEDATION_START.get();
+        int overdoseThreshold = MedicalConfig.OPIOID_OVERDOSE_THRESHOLD.get();
+        if (opioidConc >= overdoseThreshold) {
+            float baseOverdosePen = MedicalConfig.OPIOID_OVERDOSE_CONSCIOUSNESS_PENALTY.get().floatValue();
+            float extraRatio = Mth.clamp((opioidConc - overdoseThreshold) / Math.max(1.0f, 100.0f - overdoseThreshold), 0.0f, 1.0f);
+            opioidPenalty = baseOverdosePen * (1.0f + extraRatio);
+        } else if (opioidConc >= sedationStart) {
+            float sedSlope = MedicalConfig.OPIOID_SEDATION_CONSCIOUSNESS_SLOPE.get().floatValue();
+            opioidPenalty = (opioidConc - sedationStart) * sedSlope;
+        }
 
         // ★ 毒素直接意识惩罚 (神经毒性) ★
         float toxinPenalty = 0.0f;
@@ -108,10 +140,10 @@ public class ConsciousnessModule implements UpdateModule {
             else bpPenalty += MedicalConfig.CONS_PENALTY_SBP_220.get().floatValue();
         }
 
-        float change = baseRecovery - painPenalty - oxygenPenalty - hemothoraxPenalty - intracranialPenalty - bpPenalty - toxinPenalty;
+        float change = baseRecovery - painPenalty - oxygenPenalty - hemothoraxPenalty - intracranialPenalty - bpPenalty - toxinPenalty - opioidPenalty;
 
-        // 若当前高于痛觉保底线，而扣减完全是由疼痛引起（无缺氧/低血压/颅内出血/血胸/中毒），则最低扣至 painFloor
-        float nonPainPenalties = oxygenPenalty + hemothoraxPenalty + intracranialPenalty + bpPenalty + toxinPenalty;
+        // 若当前高于痛觉保底线，而扣减完全是由疼痛引起（无缺氧/阿片过量/低血压/颅内出血/血胸/中毒），则最低扣至 painFloor
+        float nonPainPenalties = oxygenPenalty + hemothoraxPenalty + intracranialPenalty + bpPenalty + toxinPenalty + opioidPenalty;
         float nextConsciousness = currentConsciousness + change;
         if (nonPainPenalties <= 0.001f && currentConsciousness >= painFloor && nextConsciousness < painFloor) {
             nextConsciousness = painFloor;

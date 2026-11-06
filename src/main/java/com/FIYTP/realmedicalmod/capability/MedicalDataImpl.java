@@ -45,8 +45,8 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
     private boolean bradycardiaActive = false;
     private boolean bradycardiaSevere = false;
 
-    // ====== 阿片类药物（保留） ======
-    private int opioidConcentration = 0;
+    // ====== 阿片类药物（支持浮点精细代谢与中枢镇痛） ======
+    private float opioidConcentration = 0.0f;
     private int addictionLevel = 0;
 
     // ====== 肢体数据 ======
@@ -201,9 +201,13 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
     @Override public synchronized boolean isBradycardiaSevere() { return bradycardiaSevere; }
     @Override public synchronized void setBradycardiaSevere(boolean severe) { this.bradycardiaSevere = severe; }
 
-    @Override public synchronized int getOpioidConcentration() { return opioidConcentration; }
+    @Override public synchronized int getOpioidConcentration() { return Math.round(opioidConcentration); }
     @Override public synchronized void setOpioidConcentration(int value) {
-        this.opioidConcentration = Math.max(0, Math.min(100, value));
+        this.opioidConcentration = Math.max(0.0f, Math.min(100.0f, (float) value));
+    }
+    public synchronized float getOpioidConcentrationFloat() { return opioidConcentration; }
+    public synchronized void setOpioidConcentrationFloat(float value) {
+        this.opioidConcentration = Math.max(0.0f, Math.min(100.0f, value));
     }
     @Override public synchronized boolean isInCriticalState() { return inCriticalState; }
     @Override public synchronized void setInCriticalState(boolean critical) { this.inCriticalState = critical; }
@@ -317,7 +321,22 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
                 sumOtherScores += score;
             }
         }
-        int result = (int) Math.round(maxScore * dominantWeight + sumOtherScores * secondaryWeight);
+        double rawResult = maxScore * dominantWeight + sumOtherScores * secondaryWeight;
+
+        // ★ 中枢 μ-阿片受体强效镇痛抑制（由 MedicalConfig 配置驱动） ★
+        if (this.opioidConcentration > 0.01f) {
+            double fullConc = Math.max(1.0, MedicalConfig.OPIOID_ANALGESIA_FULL_CONCENTRATION.get());
+            double maxRelief = MedicalConfig.OPIOID_CENTRAL_ANALGESIA_MAX_REDUCTION.get();
+            double analgesiaExp = Math.max(0.2, MedicalConfig.OPIOID_ANALGESIA_CURVE_EXPONENT.get());
+            double blockMax = MedicalConfig.OPIOID_PAIN_TRANSMISSION_BLOCK.get();
+
+            double ratio = Math.min(1.0, this.opioidConcentration / fullConc);
+            double curve = Math.pow(ratio, analgesiaExp);
+            double blockFactor = Math.max(0.0, 1.0 - curve * blockMax);
+            rawResult = Math.max(0.0, rawResult * blockFactor - maxRelief * curve * 0.45);
+        }
+
+        int result = (int) Math.round(rawResult);
         return Math.min(maxPerceivedCap, Math.max(0, result));
     }
 
@@ -377,7 +396,9 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         this.heartEffectSevere = other.isHeartEffectSevere();
         this.bradycardiaActive = other.isBradycardiaActive();
         this.bradycardiaSevere = other.isBradycardiaSevere();
-        this.opioidConcentration = other.getOpioidConcentration();
+        this.opioidConcentration = (other instanceof MedicalDataImpl oImpl)
+                ? oImpl.getOpioidConcentrationFloat()
+                : (float) other.getOpioidConcentration();
         this.addictionLevel = other.getAddictionLevel();
         this.burnTBSA = other.getBurnTBSA();
         this.burnEdema = other.getBurnEdema();
@@ -444,7 +465,7 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         tag.putBoolean("heartEffectSevere", heartEffectSevere);
         tag.putBoolean("bradycardiaActive", bradycardiaActive);
         tag.putBoolean("bradycardiaSevere", bradycardiaSevere);
-        tag.putInt("opioidConcentration", opioidConcentration);
+        tag.putFloat("opioidConcentration", opioidConcentration);
         tag.putInt("addictionLevel", addictionLevel);
         tag.putFloat("chestBloodAccumulation", chestBloodAccumulation);
         tag.putInt("hemothoraxLevel", hemothoraxLevel);
@@ -538,7 +559,9 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         heartEffectSevere = tag.getBoolean("heartEffectSevere");
         bradycardiaActive = tag.getBoolean("bradycardiaActive");
         bradycardiaSevere = tag.getBoolean("bradycardiaSevere");
-        opioidConcentration = tag.contains("opioidConcentration") ? tag.getInt("opioidConcentration") : 0;
+        opioidConcentration = tag.contains("opioidConcentration", 5)
+                ? tag.getFloat("opioidConcentration")
+                : (tag.contains("opioidConcentration") ? (float) tag.getInt("opioidConcentration") : 0.0f);
         addictionLevel = tag.contains("addictionLevel") ? tag.getInt("addictionLevel") : 0;
         inCriticalState = tag.getBoolean("inCriticalState");
         criticalTimer = tag.getInt("criticalTimer");

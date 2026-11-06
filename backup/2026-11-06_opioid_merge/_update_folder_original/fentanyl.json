@@ -1,0 +1,200 @@
+{
+  "credit": "3A Precision Fentanyl Citrate Micro-Syringe 3D Model - RealMedicalMod",
+  "texture_size": [64, 64],
+  "textures": {
+    "0": "realmedicalmod:item/fentanyl",
+    "particle": "realmedicalmod:item/fentanyl"
+  },
+  "elements": [
+    {
+      "name": "glass_barrel_0",
+      "from": [6.7, 3.6, 6.7],
+      "to": [9.3, 11.2, 9.3],
+      "rotation": {"angle": 0, "axis": "y", "origin": [8, 7.4, 8]},
+      "faces": {
+        "north": {"uv": [0, 0, 8, 16], "texture": "#0"},
+        "south": {"uv": [0, 0, 8, 16], "texture": "#0"},
+        "east": {"uv": [0, 0, 8, 16], "texture": "#0"},
+        "west": {"uv": [0, 0, 8, 16], "texture": "#0"},
+        "up": {"uv": [0, 0, 8, 8], "texture": "#0"},
+        "down": {"uv": [0, 8, 8, 16], "texture": "#0"}
+      }
+    },
+    {
+      "name": "glass_barrel_45",
+      "from": [6.75, 3.65, 6.75],
+      "to": [9.25, 11.15, 9.25],
+      "rotation": {"angle": 45, "axis": "y", "origin": [8, 7.4, 8]},
+      "faces": {
+        "north": {"uv": [2, 0, 10, 16], "texture": "#0"},
+        "south": {"uv": [2, 0, 10, 16], "texture": "#0"},
+        "east": {"uv": [2, 0, 10, 16], "texture": "#0"},
+        "west": {"uv": [2, 0, 10, 16], "texture": "#0"}
+      }
+    },
+    {
+      "name": "cyan_fentanyl_liquid_core",
+      "from": [6.95, 3.8, 6.95],
+      "to": [9.05, 8.8, 9.05],
+      "faces": {
+        "north": {"uv": [32, 0, 40, 14], "texture": "#0"},
+        "south": {"uv": [32, 0, 40, 14], "texture": "#0"},
+        "east": {"uv": [32, 0, 40, 14], "texture": "#0"},
+        "west": {"uv": [32, 0, 40, 14], "texture": "#0"},
+        "up": {"uv": [32, 0, 40, 8], "texture": "#0"},
+        "down": {"uv": [32, 8, 40, 16], "texture": "#0"}
+      }
+    },
+    {
+      "name": "rubber_plunger_stopper",
+      "from": [6.85, 8.8, 6.85],
+      "to": [9.15, 9.9, 9.15],
+      "faces": {
+        "north": {"uv": [0, 32, 8, 38], "texture": "#0"},
+        "south": {"uv": [0, 32, 8, 38], "texture": "#0"},
+        "east": {"uv": [0, 32, 8, 38], "texture": "#0"},
+        "west": {"uv": [0, 32, 8, 38], "texture": "#0"},
+        "up": {"uv": [0, 32, 8, 40], "texture": "#0"},
+        "down": {"uv": [0, 32, 8, 40], "texture": "#0"}
+      }
+    },
+    {
+      "name": "hazard_magenta_ring_upper",
+      "from": [6.55, 10.1, 6.55],
+      "to": [9.45, 10.7, 9.45],
+      "faces": {
+        "north": {"uv": [32, 40, 44, 44], "texture": "#0"},
+        "south": {"uv": [32, 40, 44, 44], "texture": "#0"},
+        "east": {"uv": [32, 40, 44, 44], "texture": "#0"},
+        "west": {"uv": [32, 40, 44, 44], "texture": "#0"},
+        "up": {"uv": [32, 40, 40, 48], "texture": "#0"},
+        "down": {"uv": [32, 40, 40, 48], "texture": "#0"}
+      }
+    },
+    {
+      "name": "hazard_magenta_ring_lower",
+      "from": [6.55, 4.1, 6.55],
+      "to": [9.45, 4.65, 9.45],
+      "faces": {
+        "north": {"uv": [32, 40, 44, 44], "texture": "#0"},
+        "south": {"uv": [32, 40, 44, 44], "texture": "#0"},
+        "east": {"uv": [32, 40, 44, 44], "texture": "#0"},
+        "west": {"uv": [32, 40, 44, 44], "texture": "#0"}
+      }
+    },
+    {
+      "name": "finger_flange_wings",
+      "from": [4.8, 11.0, 6.8],
+      "to": [11.2, 11.55, 9.2],
+      "faces": {
+        "north": {"uv": [0, 48, 16, 51], "texture": "#0"},
+        "south": {"uv": [0, 48, 16, 51], "texture": "#0"},
+        "east": {"uv": [0, 48, 6, 51], "texture": "#0"},
+        "west": {"uv": [0, 48, 6, 51], "texture": "#0"},
+        "up": {"uv": [0, 48, 16, 54], "texture": "#0"},
+        "down": {"uv": [0, 48, 16, 54], "texture": "#0"}
+      }
+    },
+    {
+      "name": "plunger_rod_x",
+      "from": [7.2, 9.9, 7.75],
+      "to": [8.8, 14.9, 8.25],
+      "faces": {
+        "north": {"uv": [4, 48, 10, 62], "texture": "#0"},
+        "south": {"uv": [4, 48, 10, 62], "texture": "#0"},
+        "east": {"uv": [4, 48, 6, 62], "texture": "#0"},
+        "west": {"uv": [4, 48, 6, 62], "texture": "#0"}
+      }
+    },
+    {
+      "name": "plunger_rod_z",
+      "from": [7.75, 9.9, 7.2],
+      "to": [8.25, 14.9, 8.8],
+      "faces": {
+        "north": {"uv": [4, 48, 6, 62], "texture": "#0"},
+        "south": {"uv": [4, 48, 6, 62], "texture": "#0"},
+        "east": {"uv": [4, 48, 10, 62], "texture": "#0"},
+        "west": {"uv": [4, 48, 10, 62], "texture": "#0"}
+      }
+    },
+    {
+      "name": "thumb_press_disc",
+      "from": [6.3, 14.9, 6.3],
+      "to": [9.7, 15.5, 9.7],
+      "faces": {
+        "north": {"uv": [0, 50, 10, 53], "texture": "#0"},
+        "south": {"uv": [0, 50, 10, 53], "texture": "#0"},
+        "east": {"uv": [0, 50, 10, 53], "texture": "#0"},
+        "west": {"uv": [0, 50, 10, 53], "texture": "#0"},
+        "up": {"uv": [32, 40, 42, 50], "texture": "#0"},
+        "down": {"uv": [0, 50, 10, 60], "texture": "#0"}
+      }
+    },
+    {
+      "name": "luer_lock_collar",
+      "from": [7.2, 2.3, 7.2],
+      "to": [8.8, 3.6, 8.8],
+      "faces": {
+        "north": {"uv": [48, 2, 54, 8], "texture": "#0"},
+        "south": {"uv": [48, 2, 54, 8], "texture": "#0"},
+        "east": {"uv": [48, 2, 54, 8], "texture": "#0"},
+        "west": {"uv": [48, 2, 54, 8], "texture": "#0"},
+        "down": {"uv": [48, 2, 54, 8], "texture": "#0"}
+      }
+    },
+    {
+      "name": "micro_needle_shaft",
+      "from": [7.84, 0.2, 7.84],
+      "to": [8.16, 2.3, 8.16],
+      "faces": {
+        "north": {"uv": [50, 0, 52, 14], "texture": "#0"},
+        "south": {"uv": [50, 0, 52, 14], "texture": "#0"},
+        "east": {"uv": [50, 0, 52, 14], "texture": "#0"},
+        "west": {"uv": [50, 0, 52, 14], "texture": "#0"},
+        "down": {"uv": [50, 12, 52, 14], "texture": "#0"}
+      }
+    }
+  ],
+  "display": {
+    "thirdperson_righthand": {
+      "rotation": [0, 0, 0],
+      "translation": [0, 2.5, 1.0],
+      "scale": [0.65, 0.65, 0.65]
+    },
+    "thirdperson_lefthand": {
+      "rotation": [0, 0, 0],
+      "translation": [0, 2.5, 1.0],
+      "scale": [0.65, 0.65, 0.65]
+    },
+    "firstperson_righthand": {
+      "rotation": [16, -18, 12],
+      "translation": [1.6, 2.8, 0.5],
+      "scale": [0.75, 0.75, 0.75]
+    },
+    "firstperson_lefthand": {
+      "rotation": [16, 18, -12],
+      "translation": [-1.6, 2.8, 0.5],
+      "scale": [0.75, 0.75, 0.75]
+    },
+    "ground": {
+      "rotation": [0, 0, 90],
+      "translation": [0, 1.8, 0],
+      "scale": [0.6, 0.6, 0.6]
+    },
+    "gui": {
+      "rotation": [26, 215, -35],
+      "translation": [0.0, 0.0, 0],
+      "scale": [0.98, 0.98, 0.98]
+    },
+    "head": {
+      "rotation": [0, 0, 0],
+      "translation": [0, 13.0, 0],
+      "scale": [0.8, 0.8, 0.8]
+    },
+    "fixed": {
+      "rotation": [0, 0, -45],
+      "translation": [0, 0, 0],
+      "scale": [0.95, 0.95, 0.95]
+    }
+  }
+}

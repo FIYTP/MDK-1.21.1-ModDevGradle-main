@@ -2,19 +2,20 @@ package com.FIYTP.realmedicalmod.loop;
 
 import com.FIYTP.realmedicalmod.capability.MedicalData;
 import com.FIYTP.realmedicalmod.config.MedicalConfig;
+import net.minecraft.util.Mth;
 
 /**
- * 呼吸频率演进模块（符合现实生理学的延髓自主呼吸修正版）
+ * 呼吸频率演进模块（集成延髓自主呼吸保底 + 阿片类药物过量呼吸抑制/呼吸骤停 Apnea）
  *
- * 根因修复说明：
- * 原版代码在 consciousness < 20 时直接乘以 (consciousness / 20.0f)，导致当玩家因剧痛或失血陷入昏迷 (consciousness == 0) 时，
- * 呼吸频率被强制乘 0 归零，进而触发 BloodOxygenModule 的 -5%/s 窒息断崖下跌并迅速扣光脑健康 (brainHealth)。
- *
- * 现实生理逻辑：
- * 人体自主呼吸由脑干（延髓呼吸中枢）调控，而非大脑皮层意识控制。
- * 单纯昏迷/失去意识 (consciousness == 0) 时，只要未发生心脏骤停、室颤、溺水或 IV 级脑疝，
- * 延髓仍会维持基础自主呼吸（由 MedicalConfig.UNCONSCIOUS_MIN_RESPIRATION_FACTOR 配置，默认保留 65% 基础呼吸频率），
- * 绝不会因为昏迷而直接停止呼吸导致脑死亡。
+ * 生理与毒理逻辑（所有参数均由 {@link MedicalConfig} 驱动，零硬编码）：
+ * 1. 普通创伤昏迷 (consciousness < 20 且未发生阿片严重过量)：
+ *    脑干延髓保留 {@code UNCONSCIOUS_MIN_RESPIRATION_FACTOR}（默认 65%）的基础自主呼吸，防止单纯摔伤骨折扣减脑健康。
+ * 2. 阿片类药物（吗啡 / 芬太尼）延髓呼吸中枢抑制：
+ *    - 阿片类药物直接作用于脑干延髓前包钦格复合体（pre-Bötzinger complex）μ-受体，强行压制呼吸驱动力。
+ *    - 当 {@code opioidConcentration >= OPIOID_APNEA_THRESHOLD}（默认 80%）时，触发**中枢性呼吸暂停 (Central Apnea)**，
+ *      呼吸频率直接强制归零 ({@code respirationRate = 0})，血氧随之断崖下跌并迅速引发缺氧性脑损伤与室颤！
+ *    - 当 {@code opioidConcentration >= OPIOID_RESP_DEPRESSION_START}（默认 25%）时，按非线性曲线将呼吸频率压制至
+ *      {@code OPIOID_MIN_DEPRESSED_RESP_FACTOR}，且会穿透普通昏迷的自主呼吸保底。
  */
 public class RespirationModule implements UpdateModule {
 
@@ -27,6 +28,14 @@ public class RespirationModule implements UpdateModule {
         }
 
         if (data.isUnderwater()) {
+            data.setRespirationRate(0);
+            return;
+        }
+
+        // ====== 阿片类药物致死性过量：延髓呼吸中枢完全麻痹 (Central Apnea) ======
+        int opioid = data.getOpioidConcentration();
+        int apneaThreshold = MedicalConfig.OPIOID_APNEA_THRESHOLD.get();
+        if (opioid >= apneaThreshold) {
             data.setRespirationRate(0);
             return;
         }
@@ -59,7 +68,7 @@ public class RespirationModule implements UpdateModule {
             respiration += runMod;
         }
 
-        // ====== 3. 意识影响（保留脑干延髓自主呼吸保底倍率，防止昏迷直接停呼吸扣脑健康） ======
+        // ====== 3. 意识影响（保留脑干延髓自主呼吸保底倍率） ======
         int consciousness = data.getConsciousness();
         if (consciousness < 20) {
             float minAutoFactor = MedicalConfig.UNCONSCIOUS_MIN_RESPIRATION_FACTOR.get().floatValue();
@@ -67,17 +76,21 @@ public class RespirationModule implements UpdateModule {
             respiration = respiration * consFactor;
         }
 
-        // 疼痛刺激交感神经引起呼吸浅快（仅在清醒或浅昏迷时有效）
-        int totalPain = data.getTotalPainLevel();
-        if (totalPain > 6 && consciousness > 0) {
-            respiration += (totalPain - 6) * 0.5f;
+        // 疼痛刺激交感神经引起呼吸浅快（阿片镇痛生效后按体感疼痛自动消退）
+        int perceivedPain = data.getPerceivedPain();
+        if (perceivedPain > 10 && consciousness > 0) {
+            respiration += (perceivedPain - 10) * 0.25f;
         }
 
-        // 阿片药物中枢呼吸抑制
-        int opioid = data.getOpioidConcentration();
-        if (opioid > 20) {
-            float opioidFactor = 1.0f - (opioid / 100.0f) * 0.7f;
-            respiration = respiration * Math.max(0.3f, opioidFactor);
+        // ====== 4. 阿片类药物中枢呼吸抑制（直接抑制延髓呼吸中枢并削弱低氧化学感受器代偿） ======
+        int respDepStart = MedicalConfig.OPIOID_RESP_DEPRESSION_START.get();
+        if (opioid >= respDepStart) {
+            float minDepFactor = MedicalConfig.OPIOID_MIN_DEPRESSED_RESP_FACTOR.get().floatValue();
+            float span = Math.max(1.0f, (float) (apneaThreshold - respDepStart));
+            float t = Mth.clamp((opioid - respDepStart) / span, 0.0f, 1.0f);
+            // 过量区间呈陡峭加速抑制曲线
+            float opioidFactor = Mth.lerp(t * (0.65f + 0.35f * t), 1.0f, minDepFactor);
+            respiration = respiration * opioidFactor;
         }
 
         // 毒素呼吸兴奋->浅快呼吸
@@ -94,7 +107,7 @@ public class RespirationModule implements UpdateModule {
             respiration -= 2.0f;
         }
 
-        // ====== 4. 颅内出血等级 3+ 脑干受压不规则呼吸 ======
+        // ====== 5. 颅内出血等级 3+ 脑干受压不规则呼吸 ======
         if (data.getIntracranialOnsetTimer() >= MedicalConfig.ONSET_DELAY.get()) {
             int icLevel = data.getIntracranialLevel();
             if (icLevel >= 3) {
@@ -106,13 +119,13 @@ public class RespirationModule implements UpdateModule {
             }
         }
 
-        // ====== 5. SIRS 呼吸加成 ======
+        // ====== 6. SIRS 呼吸加成 ======
         int sirsLevel = data.getSirsLevel();
         if (sirsLevel > 0) {
             respiration += sirsLevel * MedicalConfig.SIRS_RESP_BONUS_PER_LEVEL.get().floatValue();
         }
 
-        // ====== 6. 血胸倍率乘算 ======
+        // ====== 7. 血胸倍率乘算 ======
         int hemoLevel = data.getHemothoraxLevel();
         if (hemoLevel == 1) {
             respiration *= MedicalConfig.LEVEL1_RESPIRATION_MULT.get().floatValue();
@@ -124,7 +137,7 @@ public class RespirationModule implements UpdateModule {
             respiration *= MedicalConfig.LEVEL4_RESPIRATION_MULT.get().floatValue();
         }
 
-        // ====== 7. 肺挫伤呼吸抑制 ======
+        // ====== 8. 肺挫伤呼吸抑制 ======
         float lungContusion = data.getLungContusion();
         float lungMult = 1.0f;
         if (lungContusion >= 80) lungMult = MedicalConfig.CONTUSION_100_RESPIRATION_MULT.get().floatValue();

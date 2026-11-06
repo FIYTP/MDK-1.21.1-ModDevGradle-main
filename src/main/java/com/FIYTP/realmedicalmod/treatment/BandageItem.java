@@ -14,12 +14,14 @@ import net.minecraft.world.level.Level;
 import java.util.List;
 
 /**
- * 绷带与通用医疗用品基类 (BandageItem)
+ * 通用医疗用品与阿片类镇痛注射器物品类 (BandageItem)
  *
- * 交互与耐久设计：
- * - 【长按鼠标左键】：打开全息人体肢体面板，锁定视角旋转，将鼠标移至目标肢体即可对该肢体包扎施救。
- * - 【按量扣除耐久】：卷式绷带拥有 500 mL 止血耐久，加压绷带拥有 1000 mL 止血耐久；
- *   每次包扎仅扣除实际吸收的出血量，剩余耐久可继续用于包扎其他部位，并在物品栏常驻显示耐久条。
+ * 交互方式：
+ * 1. 普通医疗用品（卷式绷带、加压绷带等）：
+ *    【长按鼠标左键】呼出人体部位面板，移至目标肢体完成包扎，按实际吸收出血量扣除耐久。
+ * 2. 阿片类强效镇痛针剂（盐酸吗啡自动注射器 morphine、枸橼酸芬太尼注射器 fentanyl）：
+ *    - 【点击鼠标右键】或【长按鼠标左键选定肢体】均会打开「阿片类药物剂量推注滑块界面 (Dose Selection Slider)」，
+ *      由玩家自由拖动滑块精确设定注入剂量（1% ~ 100%），并实时预览镇痛效果与延髓呼吸抑制/过量风险。
  */
 public class BandageItem extends Item {
 
@@ -29,7 +31,6 @@ public class BandageItem extends Item {
 
     @Override
     public boolean isBarVisible(ItemStack stack) {
-        // 只要绷带消耗过耐久，或处于手持状态，始终清晰显示剩余止血容量条
         return stack.isDamageableItem() && stack.getDamageValue() > 0;
     }
 
@@ -37,6 +38,12 @@ public class BandageItem extends Item {
     public int getBarColor(ItemStack stack) {
         if (!stack.isDamageableItem() || stack.getMaxDamage() <= 0) {
             return super.getBarColor(stack);
+        }
+        if (TreatmentRouter.isFentanylItem(stack)) {
+            return 0xFF00E5FF; // 芬太尼冰青色药液进度条
+        }
+        if (TreatmentRouter.isOpioidItem(stack)) {
+            return 0xFFFFB300; // 吗啡琥珀金药液进度条
         }
         float ratio = Mth.clamp(
                 (float) (stack.getMaxDamage() - stack.getDamageValue()) / (float) stack.getMaxDamage(),
@@ -50,11 +57,17 @@ public class BandageItem extends Item {
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
         if (level.isClientSide()) {
-            player.displayClientMessage(
-                    Component.literal("长按左键选择部位包扎")
-                            .withStyle(ChatFormatting.AQUA),
-                    true
-            );
+            if (TreatmentRouter.isOpioidItem(stack)) {
+                // 手持吗啡或芬太尼右键：直接呼出全息剂量推注滑块面板！
+                TreatmentClientHooks.openOpioidDoseScreen(hand, null);
+                return InteractionResultHolder.success(stack);
+            } else {
+                player.displayClientMessage(
+                        Component.literal("长按左键选择部位包扎")
+                                .withStyle(ChatFormatting.AQUA),
+                        true
+                );
+            }
         }
         return InteractionResultHolder.pass(stack);
     }
@@ -63,8 +76,15 @@ public class BandageItem extends Item {
     public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltipComponents, TooltipFlag tooltipFlag) {
         super.appendHoverText(stack, context, tooltipComponents, tooltipFlag);
         for (String line : TreatmentRouter.getItemEffectSummary(stack)) {
-            tooltipComponents.add(Component.literal("• " + line).withStyle(ChatFormatting.GRAY));
+            ChatFormatting color = line.contains("过量") || line.contains("呼吸抑制")
+                    ? ChatFormatting.RED
+                    : ChatFormatting.GRAY;
+            tooltipComponents.add(Component.literal("• " + line).withStyle(color));
         }
-        tooltipComponents.add(Component.literal("[长按左键] 选择部位施救").withStyle(ChatFormatting.AQUA));
+        if (TreatmentRouter.isOpioidItem(stack)) {
+            tooltipComponents.add(Component.literal("[右键 / 长按左键] 调节滑块设定推注剂量").withStyle(ChatFormatting.GOLD));
+        } else {
+            tooltipComponents.add(Component.literal("[长按左键] 选择部位施救").withStyle(ChatFormatting.AQUA));
+        }
     }
 }
