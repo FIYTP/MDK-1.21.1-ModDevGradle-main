@@ -55,6 +55,7 @@ public class MedicalConfig {
     // ================= 意识 (consciousness) =================
     public static final ModConfigSpec.DoubleValue CONSCIOUSNESS_BASE_RECOVERY;
     public static final ModConfigSpec.DoubleValue PAIN_PENALTY_DIVISOR;
+    public static final ModConfigSpec.DoubleValue PAIN_CONSCIOUSNESS_FLOOR;
     public static final ModConfigSpec.DoubleValue OXYGEN_PENALTY_90;
     public static final ModConfigSpec.DoubleValue OXYGEN_PENALTY_80;
     public static final ModConfigSpec.DoubleValue OXYGEN_PENALTY_70;
@@ -76,6 +77,7 @@ public class MedicalConfig {
     public static final ModConfigSpec.IntValue RUNNING_BONUS_MAX_TIME;
     public static final ModConfigSpec.IntValue EXTREME_RESP_LOW_THRESHOLD;
     public static final ModConfigSpec.IntValue EXTREME_RESP_HIGH_THRESHOLD;
+    public static final ModConfigSpec.DoubleValue UNCONSCIOUS_MIN_RESPIRATION_FACTOR;
 
     // ================= 心脏骤停与濒危状态 (cardiac_arrest / critical_state) =================
     public static final ModConfigSpec.IntValue CRITICAL_BLOOD_VOLUME;
@@ -662,9 +664,12 @@ public class MedicalConfig {
                         "推荐范围: [0.5, 5.0]")
                 .defineInRange("consciousnessBaseRecovery", 1.0, 0.0, 10.0);
         PAIN_PENALTY_DIVISOR = builder
-                .comment("体感疼痛(0~55)换算为意识每秒惩罚的除数 (penalty = perceivedPain / divisor)",
-                        "推荐范围: [15.0, 50.0]")
-                .defineInRange("painPenaltyDivisor", 25.0, 1.0, 200.0);
+                .comment("体感疼痛(0~100)换算为意识每秒惩罚的除数 (penalty = perceivedPain / divisor)",
+                        "推荐范围: [20.0, 120.0]")
+                .defineInRange("painPenaltyDivisor", 65.0, 1.0, 200.0);
+        PAIN_CONSCIOUSNESS_FLOOR = builder
+                .comment("单纯疼痛可扣减意识的保底线 (默认 25.0：无缺氧/低血压/颅内出血/血胸时，仅靠疼痛最低将意识压至 25%)")
+                .defineInRange("painConsciousnessFloor", 25.0, 0.0, 100.0);
         OXYGEN_PENALTY_90 = builder
                 .comment("血氧在 80% ~ 90% 区间时每秒扣除的意识点数 (%)",
                         "推荐范围: [0.0, 2.0]")
@@ -741,6 +746,9 @@ public class MedicalConfig {
                 .comment("触发屏幕边缘全屏红框警告的过度换气上限门槛 (次/分)",
                         "推荐范围: [35, 55]")
                 .defineInRange("extremeRespHighThreshold", 40, 25, 80);
+        UNCONSCIOUS_MIN_RESPIRATION_FACTOR = builder
+                .comment("意识归零(昏迷)时脑干延髓维持的最低自主呼吸倍率 (默认 0.65，防止昏迷直接导致呼吸归零与脑健康扣减)")
+                .defineInRange("unconsciousMinRespirationFactor", 0.65, 0.0, 1.0);
         builder.pop();
 
         // 7. 心脏骤停与室颤
@@ -1675,7 +1683,7 @@ public class MedicalConfig {
                 .comment("感知药水等级切换的滞回缓冲（tick），防边界抖动")
                 .defineInRange("potionHysteresisTicks", 40, 0, 200);
         PAIN_LEG_SPEED_SLOPE = builder
-                .comment("腿部疼痛每级对移速的线性斜率（1 - slope*p，p 为体感疼痛 0~55）")
+                .comment("腿部疼痛每级对移速的线性斜率（1 - slope*p，p 为体感疼痛 0~100）")
                 .defineInRange("painLegSpeedSlope", 0.006, 0.0, 1.0);
         PAIN_ARM_ATTACK_SLOPE = builder
                 .comment("手臂疼痛每级对攻击力的线性斜率")

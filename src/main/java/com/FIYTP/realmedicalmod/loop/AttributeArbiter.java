@@ -1,6 +1,9 @@
 package com.FIYTP.realmedicalmod.loop;
 
 import com.FIYTP.realmedicalmod.RealMedicalMod;
+import com.FIYTP.realmedicalmod.capability.MedicalData;
+import com.FIYTP.realmedicalmod.capability.MedicalDataCapability;
+import com.FIYTP.realmedicalmod.config.MedicalConfig;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
@@ -16,14 +19,12 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * 连续属性仲裁器（表现层统一入口）
+ * 连续属性仲裁器（表现层统一入口 —— 含意识归零完全失能锁死）
  *
  * 各影响评估模块把伤情换算为 0~1 连续倍率，按维度提交到此；
- * 每维度取所有来源的 min（最重损伤决定能力），下限 0.05，
- * 以 ADD_MULTIPLIED_TOTAL transient modifier 写入属性。
- *
- * 三个能力维度：移动速度 / 攻击力 / 攻击速度。
- * 挖掘速度无属性（1.21.1），由 BuffManager 的 DIG_SLOWDOWN 插值负责。
+ * 每维度取所有来源的 min（最重损伤决定能力），平时受 ARBITER_MIN_MULTIPLIER (默认 0.05) 下限保护；
+ * 但当玩家意识归零 (consciousness <= 0) 或心脏骤停 (isCardiacArrest) 时，强制突破 0.05 下限将移动速度、
+ * 攻击力与攻速锁死为 0.0f（倍率 -1.0 ADD_MULTIPLIED_TOTAL），确保昏迷状态下人物彻底无法移动！
  */
 @EventBusSubscriber(modid = RealMedicalMod.MODID)
 public class AttributeArbiter {
@@ -67,11 +68,26 @@ public class AttributeArbiter {
     /** 每秒循环结尾调用：把每维度 min 倍率写入属性 modifier */
     public static void apply(ServerPlayer player) {
         if (player == null) return;
+
+        MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
+        boolean unconscious = (data != null) && (data.getConsciousness() <= 0 || data.isCardiacArrest());
+        if (unconscious && player.isSprinting()) {
+            player.setSprinting(false);
+        }
+
         Map<Dimension, Map<String, Float>> byDim = SUGGESTIONS.get(player.getUUID());
 
         for (Dimension dim : Dimension.values()) {
             AttributeInstance attr = player.getAttribute(dim.attribute);
             if (attr == null) continue;
+
+            // 意识归零或心脏骤停时：直接将移动速度、攻击力、攻速倍率锁死为 0.0f（即 modifier = -1.0f）
+            if (unconscious) {
+                attr.removeModifier(dim.modifierId());
+                attr.addTransientModifier(new AttributeModifier(
+                        dim.modifierId(), -1.0, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
+                continue;
+            }
 
             Map<String, Float> map = (byDim == null) ? null : byDim.get(dim);
             if (map == null || map.isEmpty()) {
@@ -79,13 +95,11 @@ public class AttributeArbiter {
                 continue;
             }
 
-            // 每维度取所有来源最小倍率：最重的损伤决定能力
             float min = 1.0f;
             for (float m : map.values()) {
                 if (m < min) min = m;
             }
-            // 下限保护（读配置，勿写死）
-            min = Math.max(com.FIYTP.realmedicalmod.config.MedicalConfig.ARBITER_MIN_MULTIPLIER.get().floatValue(), min);
+            min = Math.max(MedicalConfig.ARBITER_MIN_MULTIPLIER.get().floatValue(), min);
 
             attr.removeModifier(dim.modifierId());
             if (min < 1.0f) {
@@ -108,23 +122,16 @@ public class AttributeArbiter {
     }
 
     @SubscribeEvent
-    public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
-        if (event.getEntity() instanceof ServerPlayer sp) {
-            removeAll(sp);
+    public static void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            removeAll(player);
         }
     }
 
     @SubscribeEvent
-    public static void onRespawn(PlayerEvent.PlayerRespawnEvent event) {
-        if (event.getEntity() instanceof ServerPlayer sp) {
-            removeAll(sp);
-        }
-    }
-
-    @SubscribeEvent
-    public static void onClone(PlayerEvent.Clone event) {
-        if (event.getEntity() instanceof ServerPlayer sp) {
-            removeAll(sp);
+    public static void onPlayerRespawn(PlayerEvent.PlayerRespawnEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            removeAll(player);
         }
     }
 }

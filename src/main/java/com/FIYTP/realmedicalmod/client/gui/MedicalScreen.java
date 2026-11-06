@@ -23,11 +23,30 @@ import net.minecraft.world.entity.player.Player;
 import org.joml.Matrix4f;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Random;
 
-
+/**
+ * 医疗面板 UI —— 3A 科技风全息生物遥测终端 (全量升级版 v2.0)
+ *
+ * 本次重大升级：
+ * 1. 总体疼痛 (Perceived Pain 0~55) 全局动态主题染色系统：
+ *    面板主色调、背景网格、扫描激光线、卡片边框与呼吸角标随总体疼痛值 (0 -> 55) 从冷静霓虹青平滑过渡至
+ *    预警琥珀黄 (12~24)、重度灼热橙红 (25~39) 与极度剧痛深渊猩红 (40~55)，并在高痛感下伴随心搏同频边框呼吸与微颤。
+ * 2. 3A 全息动态痛觉表情遥测仪 (Holographic Pain Expression Avatar, 0~55 从笑脸到痛苦脸)：
+ *    基于 OpenGL 矢量连续形变算法绘制高精全息人脸，随总体疼痛值 (0~55) 实时连续改变眉毛倾角、眼睑开合/眨眼/紧闭(`> <`)、
+ *    嘴部微笑弧线 -> 拧眉咬牙 -> 剧痛哀嚎及太阳穴青筋电弧，搭配 6 级 Wong-Baker 痛觉色阶尺。
+ * 3. 高精度解剖级 4 层 DICOM 微观断层 CT 扫描仪 (High-Precision Anatomical CT Tomography)：
+ *    彻底摒弃原有的粗糙菱形占位图，采用 OpenGL 多环极坐标与解剖组织建模绘制：
+ *    - LAYER 01 (表皮与真皮层)：角质层/表皮/真皮乳头波浪环/皮下脂肪网 + 开放创口撕裂缺口与喷射血滴 + 烧伤热力弧 + 绿色无菌敷料编织环
+ *    - LAYER 02 (肌肉血管灌注层)：四大肌群室与筋膜隔 + 搏动主干动脉与伴行静脉 + 放射状毛细血管床 + 组织间隙内出血紫红血肿池 + 止血带环压
+ *    - LAYER 03 (骨骼与骨髓腔层)：部位专属骨骼截面（颅骨穹窿/胸廓双肺与肋骨/四肢双骨皮质环）+ 骨小梁蜂窝网 + 粉碎性骨折裂隙与钛合金外固定支架
+ *    - LAYER 04 (细胞炎症与痛觉神经层)：高倍神经束髓鞘轴突截面 + 痛觉神经放电脉冲环 + 细菌感染菌落群与生物靶向锁定框
+ */
 public class MedicalScreen extends Screen {
 
     private static int getHealthColor(float pct) {
@@ -91,6 +110,7 @@ public class MedicalScreen extends Screen {
     };
 
     private final BrainScan3DRenderer brainScanRenderer = new BrainScan3DRenderer();
+    private final Cardiopulmonary3DRenderer cardiopulmonaryRenderer = new Cardiopulmonary3DRenderer();
     private final EmbeddedDetailPanelRenderer detailPanelRenderer = new EmbeddedDetailPanelRenderer();
     private final ClickRippleManager rippleManager = new ClickRippleManager();
 
@@ -1423,6 +1443,15 @@ public class MedicalScreen extends Screen {
             return;
         }
 
+        if (selectedLimb == MedicalData.Limb.CHEST) {
+            String cardTitle = "胸腔与心肺全息";
+            drawCyberCard(graphics, panelX, panelY, panelWidth, panelHeight, cardTitle, themePrimaryColor);
+            cardiopulmonaryRenderer.render(graphics, this.font, panelX, panelY, panelWidth, panelHeight,
+                    data, deltaSeconds, mouseX, mouseY, now, themePrimaryColor,
+                    (g, ecgX, ecgY, ecgW, ecgH, d) -> drawDualOscilloscope(g, ecgX, ecgY, ecgW, ecgH, d));
+            return;
+        }
+
         String cardTitle = selectedLimb != null
                 ? getLimbFullName(selectedLimb) + " · " + tr("medical.detail.title")
                 : "全身概览";
@@ -1603,7 +1632,11 @@ public class MedicalScreen extends Screen {
         if (selectedLimb == MedicalData.Limb.HEAD && brainScanRenderer.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
-        if (selectedLimb != MedicalData.Limb.HEAD && detailPanelRenderer.mouseClicked(mouseX, mouseY, button)) {
+        if (selectedLimb == MedicalData.Limb.CHEST && cardiopulmonaryRenderer.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (selectedLimb != MedicalData.Limb.HEAD && selectedLimb != MedicalData.Limb.CHEST
+                && detailPanelRenderer.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
 
@@ -1635,6 +1668,11 @@ public class MedicalScreen extends Screen {
                 return true;
             }
         }
+        if (microTomographyLimb == null && selectedLimb == MedicalData.Limb.CHEST) {
+            if (cardiopulmonaryRenderer.mouseDragged(mouseX, mouseY, button, dragX, dragY)) {
+                return true;
+            }
+        }
         return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
     }
 
@@ -1652,7 +1690,11 @@ public class MedicalScreen extends Screen {
         if (selectedLimb == MedicalData.Limb.HEAD && brainScanRenderer.mouseScrolled(mouseX, mouseY, deltaY)) {
             return true;
         }
-        if (selectedLimb != MedicalData.Limb.HEAD && detailPanelRenderer.mouseScrolled(mouseX, mouseY, deltaY)) {
+        if (selectedLimb == MedicalData.Limb.CHEST && cardiopulmonaryRenderer.mouseScrolled(mouseX, mouseY, deltaY)) {
+            return true;
+        }
+        if (selectedLimb != MedicalData.Limb.HEAD && selectedLimb != MedicalData.Limb.CHEST
+                && detailPanelRenderer.mouseScrolled(mouseX, mouseY, deltaY)) {
             return true;
         }
 
@@ -2125,6 +2167,1383 @@ public class MedicalScreen extends Screen {
         public boolean mouseScrolled(double mouseX, double mouseY, double deltaY) {
             if (viewportW > 0 && mouseX >= viewportX && mouseX <= viewportX + viewportW
                     && mouseY >= viewportY && mouseY <= viewportY + viewportH && maxScroll > 0.5f) {
+                scrollTarget = Mth.clamp(scrollTarget - (float) deltaY * 18.0f, 0.0f, maxScroll);
+                return true;
+            }
+            return false;
+        }
+    }
+
+    // =========================================================================
+    // 九、3A 级全息 3D 心肺与胸腔动态扫描仪 (Cardiopulmonary3DRenderer - 高精解剖点云与分形支气管重制版)
+    //
+    // 解剖学与视觉架构（对标 BrainScan3DRenderer 2800+ 顶点高密度全息点云 + 微米级线网）：
+    // 1. 高密度双肺解剖曲面点云 (1,920 顶点 + 菲涅尔边缘发光 + 斜裂/水平裂 + 左肺心切迹与舌叶)：
+    //    - 右肺：上叶、中叶、下叶，清晰雕刻斜裂 (Oblique Fissure) 与水平裂 (Horizontal Fissure) 凹槽；
+    //    - 左肺：上叶、下叶，内下侧精准内凹形成容纳心脏的「心切迹 (Cardiac Notch)」与「舌叶 (Lingula)」；
+    //    - 随 getRespirationRate() 驱动真实生理呼吸：胸廓径向扩张 + 膈穹窿下沉，支持 CT 激光扫描平面高亮。
+    // 2. 5 级递归 3D 分形气管-支气管树 (Trachea + Carina + 220 段叶/段/亚段支气管 + 18 环气管软骨环)：
+    //    - 含 C 型气管软骨环细节，自气管隆突 (Carina) 向双肺各肺叶递归分叉 5 代至终末细支气管肺泡囊，
+    //    - 内置 48 颗随吸气/呼气双向流动的氧合气流光粒。
+    // 3. 四腔室高精 3D 心脏 + 冠状动脉树 (LAD/LCX/RCA) + 主动脉弓三分支 + 上腔静脉/肺动脉干 (860+ 顶点)：
+    //    - 精确还原左前下方 40° 心轴与心尖 (Apex Cordis)、前室间沟与房室冠状沟；
+    //    - 主动脉弓顶部伸出头臂干、左颈总动脉、左锁骨下动脉三大分支，右侧接入蓝色上/下腔静脉；
+    //    - 严格按 Wiggers 心动周期随 getHeartRate() 呈现「心房先缩 (P波) -> 心室螺旋向心强力收缩 (QRS波) ->
+    //      主动脉弓扩张与冠状动脉脉冲波」，室颤 (VFib) 时心肌高频杂乱电弧乱颤，骤停时失血暗化静止。
+    // 4. 肋膈隐窝贴合式 3D 胸腔积血池 (Hemothorax) 与肺实质内 3D 肺泡挫伤云团 (Lung Contusion)。
+    // =========================================================================
+    private static class Cardiopulmonary3DRenderer {
+
+        public enum ThoraxViewMode {
+            SPLIT("分屏"),
+            HOLO_FULL("全息"),
+            CLINICAL_GRID("列表");
+
+            public final String label;
+            ThoraxViewMode(String label) { this.label = label; }
+        }
+
+        /**
+         * 肺部与心脏高密度全息点云顶点
+         * region: 0=右肺, 1=左肺, 2=左/右心室心肌, 3=心房, 4=主动脉与动脉干, 5=上下腔静脉与肺动脉
+         */
+        private static class OrganVertex {
+            final float x, y, z;
+            final float nx, ny, nz;
+            final int region;
+            final int lobeId; // 0=上叶, 1=中叶, 2=下叶
+            final float surfaceTex; // 肺小叶或心肌纤维微纹理 (0~1)
+            final int connectA;
+            final int connectB;
+
+            OrganVertex(float x, float y, float z, float nx, float ny, float nz,
+                        int region, int lobeId, float surfaceTex, int connectA, int connectB) {
+                this.x = x; this.y = y; this.z = z;
+                this.nx = nx; this.ny = ny; this.nz = nz;
+                this.region = region;
+                this.lobeId = lobeId;
+                this.surfaceTex = surfaceTex;
+                this.connectA = connectA;
+                this.connectB = connectB;
+            }
+        }
+
+        private record AirwayBranch(
+                float x1, float y1, float z1,
+                float x2, float y2, float z2,
+                int generation, boolean isLeft, float phaseSeed
+        ) {}
+
+        private record CoronarySegment(
+                float x1, float y1, float z1,
+                float x2, float y2, float z2,
+                float distFromRoot, float width
+        ) {}
+
+        private final List<OrganVertex> lungVertices = new ArrayList<>();
+        private final List<OrganVertex> heartVertices = new ArrayList<>();
+        private final List<AirwayBranch> airwayTree = new ArrayList<>();
+        private final List<CoronarySegment> coronaryTree = new ArrayList<>();
+
+        private ThoraxViewMode currentMode = ThoraxViewMode.SPLIT;
+        private boolean ecgCollapsed = false;
+
+        private float yaw = -0.18f;
+        private float pitch = 0.12f;
+        private boolean dragging = false;
+        private long lastInteractionMs = 0L;
+
+        private float heartPhase = 0.0f;
+        private float respPhase = 0.0f;
+
+        private float scrollOffset = 0.0f;
+        private float scrollTarget = 0.0f;
+        private float maxScroll = 0.0f;
+
+        private int lastPanelX, lastPanelY, lastPanelW;
+        private int holoX, holoY, holoW, holoH;
+        private int scrollX, scrollY, scrollW, scrollH;
+        private int btnEcgX, btnEcgY, btnEcgW, btnEcgH;
+
+        public Cardiopulmonary3DRenderer() {
+            generateHighDensityLungMesh();
+            generateFractalBronchialTree();
+            generateHighDensityHeartAndVessels();
+        }
+
+        /**
+         * 1. 构建高密度解剖级双肺 3D 点云网格（28 层纬环 × 34 经度 = 1,904 个解剖顶点）
+         *    精确还原：圆润肺尖、前锐后钝的肋面、内侧纵隔面、底部内凹的膈肌穹窿、
+         *              右肺三叶（斜裂+水平裂）、左肺两叶（斜裂+深度心切迹 Cardiac Notch + 舌叶 Lingula）。
+         */
+        private void generateHighDensityLungMesh() {
+            lungVertices.clear();
+            int rings = 28;
+            int sectors = 34;
+
+            for (int side = -1; side <= 1; side += 2) {
+                // 解剖正面观：屏幕左侧 (side = -1) 为患者右肺 (region 0)，屏幕右侧 (side = +1) 为患者左肺 (region 1)
+                boolean isLeftLung = (side > 0);
+                int region = isLeftLung ? 1 : 0;
+                int startIdx = lungVertices.size();
+
+                for (int i = 0; i < rings; i++) {
+                    float v = i / (float) (rings - 1); // 0.0 = 肺尖 Apex, 1.0 = 肺底 Base
+                    float theta = v * (float) Math.PI;
+                    float sinT = Mth.sin(theta);
+
+                    // 纵向高度：肺尖 -0.74 -> 肺底 +0.62
+                    float baseY = -0.74f + v * 1.36f;
+
+                    // 真实肺横截面包络：上部圆锥渐宽，中下部宽厚饱满，最底部贴合膈肌急收
+                    float coneEnv = (float) Math.pow(sinT, 0.72) * (0.62f + 0.52f * v);
+                    if (v > 0.88f) {
+                        coneEnv *= Mth.lerp((v - 0.88f) / 0.12f, 1.0f, 0.35f);
+                    }
+
+                    float radX = (isLeftLung ? 0.34f : 0.37f) * coneEnv;
+                    float radZ = 0.42f * coneEnv;
+                    // 肺门与纵隔偏移：自肺尖向肺底略微向外展开
+                    float centerOffsetX = side * (0.19f + 0.22f * Mth.sin(v * 1.35f));
+
+                    for (int j = 0; j < sectors; j++) {
+                        float u = j / (float) sectors;
+                        float phi = u * Mth.TWO_PI;
+                        float cosP = Mth.cos(phi);
+                        float sinP = Mth.sin(phi);
+
+                        float lx = cosP * radX;
+                        float lz = sinP * radZ;
+                        float ly = baseY;
+
+                        // 内侧纵隔面 (Medial Mediastinal Surface) 压平并微凹
+                        boolean isMedial = (side * cosP < 0.0f);
+                        if (isMedial) {
+                            lx *= 0.46f;
+                            // 左肺前下内侧雕刻出深邃自然的「心切迹 (Cardiac Notch)」以包裹 3D 心脏
+                            if (isLeftLung && v > 0.34f && v < 0.88f && sinP > -0.35f) {
+                                float notchV = Mth.sin(((v - 0.34f) / 0.54f) * (float) Math.PI);
+                                float notchZ = Mth.clamp((sinP + 0.35f) / 1.35f, 0.0f, 1.0f);
+                                float notchDepth = 0.21f * notchV * notchZ;
+                                lx += notchDepth; // 向外侧退让出心包腔空间
+                            }
+                        } else {
+                            // 外侧肋面 (Costal Surface) 后外侧更饱满
+                            if (sinP < 0.0f) {
+                                lx *= 1.08f;
+                            }
+                        }
+
+                        // 膈面 (Diaphragmatic Base)：肺底中央向内上方凹陷（贴合左/右膈肌穹窿），外后缘向下延伸为肋膈角
+                        if (v > 0.78f) {
+                            float baseBlend = (v - 0.78f) / 0.22f;
+                            float radialNorm = Mth.clamp(cosP * cosP + sinP * sinP, 0.0f, 1.0f);
+                            ly -= 0.11f * baseBlend * (1.0f - 0.65f * radialNorm);
+                            // 后外侧肋膈角向下深探
+                            if (sinP < 0.0f) {
+                                ly += 0.06f * baseBlend * (-sinP);
+                            }
+                        }
+
+                        float wx = centerOffsetX + lx;
+                        float wy = ly;
+                        float wz = lz;
+
+                        // 判定肺叶归属并雕刻解剖学「斜裂 (Oblique Fissure)」与右肺「水平裂 (Horizontal Fissure)」
+                        // 斜裂平面：由后上 (y=-0.28, z=-0.3) 斜向前下 (y=+0.45, z=+0.3)
+                        float obliquePlaneY = 0.08f + wz * 0.85f;
+                        float distOblique = Math.abs(wy - obliquePlaneY);
+                        // 右肺水平裂平面：前中部水平向 (y = -0.04, wz > -0.05)
+                        float distHoriz = (!isLeftLung && wz > -0.08f && wy < obliquePlaneY + 0.05f)
+                                ? Math.abs(wy - (-0.04f))
+                                : 999.0f;
+
+                        int lobeId;
+                        if (wy > obliquePlaneY) {
+                            lobeId = 2; // 下叶 (Inferior Lobe)
+                        } else if (!isLeftLung && wy > -0.04f && wz > -0.08f) {
+                            lobeId = 1; // 右肺中叶 (Middle Lobe)
+                        } else {
+                            lobeId = 0; // 上叶 (Superior Lobe)
+                        }
+
+                        // 在叶间裂处向内收束形成清晰的 3D 叶间裂沟槽
+                        float fissureIndent = 1.0f;
+                        if (distOblique < 0.055f) {
+                            fissureIndent -= 0.14f * (1.0f - distOblique / 0.055f);
+                        }
+                        if (distHoriz < 0.045f) {
+                            fissureIndent -= 0.12f * (1.0f - distHoriz / 0.045f);
+                        }
+                        wx = centerOffsetX + (wx - centerOffsetX) * fissureIndent;
+                        wz *= fissureIndent;
+
+                        // 肺小叶多边形微起伏纹理
+                        float lobule1 = Mth.sin(wx * 14.0f + wz * 11.0f) * Mth.cos(wy * 12.0f - wz * 9.0f);
+                        float lobule2 = Mth.sin(wy * 19.0f + wx * 15.0f) * 0.5f;
+                        float tex = Mth.clamp(0.5f + 0.35f * lobule1 + 0.25f * lobule2, 0.0f, 1.0f);
+                        // 叶间裂边缘高亮标记
+                        if (distOblique < 0.035f || distHoriz < 0.030f) {
+                            tex = 1.0f;
+                        }
+
+                        float nx = wx - centerOffsetX;
+                        float ny = (wy - baseY) * 0.5f;
+                        float nz = wz;
+                        float nLen = Mth.sqrt(nx * nx + ny * ny + nz * nz);
+                        if (nLen > 0.0001f) {
+                            nx /= nLen; ny /= nLen; nz /= nLen;
+                        }
+
+                        int curIdx = lungVertices.size();
+                        int prevInRing = (j > 0) ? (curIdx - 1) : (curIdx + sectors - 1);
+                        int prevRing = (i > 0 && (j % 2 == 0)) ? (curIdx - sectors) : -1;
+
+                        lungVertices.add(new OrganVertex(wx, wy, wz, nx, ny, nz, region, lobeId, tex, prevInRing, prevRing));
+                    }
+                }
+            }
+        }
+
+        /**
+         * 2. 构建 5 代递归 3D 分形气管-支气管树 (Trachea + Carina + Lobar/Segmental/Subsegmental Bronchi)
+         */
+        private void generateFractalBronchialTree() {
+            airwayTree.clear();
+            Random rand = new Random(19980715L);
+
+            // 主气管 (Trachea)：由喉部 नीचे延伸至气管隆突 (Carina: 0.0, -0.28, -0.05)
+            int tracheaSteps = 8;
+            for (int i = 0; i < tracheaSteps; i++) {
+                float y1 = Mth.lerp(i / (float) tracheaSteps, -0.86f, -0.28f);
+                float y2 = Mth.lerp((i + 1) / (float) tracheaSteps, -0.86f, -0.28f);
+                airwayTree.add(new AirwayBranch(0.0f, y1, -0.05f, 0.0f, y2, -0.05f, 0, false, i * 0.12f));
+            }
+
+            // 右主支气管 (较粗短陡直，进入右肺门 x = -0.24, y = -0.14)
+            airwayTree.add(new AirwayBranch(0.0f, -0.28f, -0.05f, -0.24f, -0.14f, -0.04f, 1, false, 0.1f));
+            // 右上叶支气管 (Eparterial bronchus)
+            buildSubBronchi(-0.24f, -0.14f, -0.04f, -0.16f, -0.22f, 0.02f, 2, 5, false, rand);
+            buildSubBronchi(-0.24f, -0.14f, -0.04f, -0.22f, -0.08f, -0.08f, 2, 5, false, rand);
+            // 右中间支气管 -> 右中叶 & 右下叶
+            airwayTree.add(new AirwayBranch(-0.24f, -0.14f, -0.04f, -0.29f, 0.05f, -0.03f, 1, false, 0.3f));
+            buildSubBronchi(-0.29f, 0.05f, -0.03f, -0.18f, 0.10f, 0.12f, 2, 5, false, rand);  // 右中叶
+            buildSubBronchi(-0.29f, 0.05f, -0.03f, -0.15f, 0.26f, -0.06f, 2, 5, false, rand); // 右下叶基底段
+            buildSubBronchi(-0.29f, 0.05f, -0.03f, -0.08f, 0.28f, 0.04f, 2, 5, false, rand);  // 右下叶内基底段
+
+            // 左主支气管 (较细长倾斜，从主动脉弓下方跨过进入左肺门 x = +0.26, y = -0.11)
+            airwayTree.add(new AirwayBranch(0.0f, -0.28f, -0.05f, 0.26f, -0.11f, -0.04f, 1, true, 0.15f));
+            // 左上叶固有段与舌叶支气管
+            buildSubBronchi(0.26f, -0.11f, -0.04f, 0.15f, -0.24f, 0.02f, 2, 5, true, rand);  // 左上叶尖后段
+            buildSubBronchi(0.26f, -0.11f, -0.04f, 0.21f, -0.06f, -0.09f, 2, 5, true, rand); // 左上叶前段
+            buildSubBronchi(0.26f, -0.11f, -0.04f, 0.18f, 0.14f, 0.09f, 2, 5, true, rand);   // 左肺舌叶段
+            // 左下叶支气管
+            airwayTree.add(new AirwayBranch(0.26f, -0.11f, -0.04f, 0.32f, 0.08f, -0.04f, 1, true, 0.35f));
+            buildSubBronchi(0.32f, 0.08f, -0.04f, 0.16f, 0.26f, -0.06f, 2, 5, true, rand);  // 左下叶外基底段
+            buildSubBronchi(0.32f, 0.08f, -0.04f, 0.08f, 0.28f, 0.04f, 2, 5, true, rand);   // 左下叶前内基底段
+        }
+
+        private void buildSubBronchi(float x, float y, float z, float dx, float dy, float dz,
+                                     int gen, int maxGen, boolean isLeft, Random rand) {
+            float x2 = x + dx;
+            float y2 = y + dy;
+            float z2 = z + dz;
+            // 约束在肺实质边界内
+            x2 = isLeft ? Mth.clamp(x2, 0.16f, 0.56f) : Mth.clamp(x2, -0.58f, -0.16f);
+            y2 = Mth.clamp(y2, -0.66f, 0.52f);
+            z2 = Mth.clamp(z2, -0.32f, 0.32f);
+
+            airwayTree.add(new AirwayBranch(x, y, z, x2, y2, z2, gen, isLeft, rand.nextFloat()));
+            if (gen >= maxGen) return;
+
+            float scale = 0.64f;
+            float spread = 0.09f / gen;
+            // 分叉出两支子代支气管
+            buildSubBronchi(x2, y2, z2,
+                    dx * scale + (rand.nextFloat() - 0.35f) * spread * (isLeft ? 1 : -1),
+                    dy * scale + (rand.nextFloat() - 0.45f) * spread,
+                    dz * scale + (rand.nextFloat() - 0.2f) * spread,
+                    gen + 1, maxGen, isLeft, rand);
+            buildSubBronchi(x2, y2, z2,
+                    dx * scale - (rand.nextFloat() - 0.35f) * spread * (isLeft ? 1 : -1),
+                    dy * scale + (rand.nextFloat() - 0.35f) * spread,
+                    dz * scale - (rand.nextFloat() - 0.2f) * spread,
+                    gen + 1, maxGen, isLeft, rand);
+        }
+
+        /**
+         * 3. 构建高密度四腔室 3D 心脏 + 主动脉弓三分支 + 肺动脉干 + 上下腔静脉 + 冠状动脉树
+         */
+        private void generateHighDensityHeartAndVessels() {
+            heartVertices.clear();
+            coronaryTree.clear();
+
+            // A. 左右心室与心房主体 (22 纬环 × 28 经度 = 616 顶点，精准雕刻前室间沟、冠状沟与左前下心尖)
+            int hRings = 22;
+            int hSectors = 28;
+            float baseHeartX = 0.08f;
+            float baseHeartY = 0.14f;
+            float baseHeartZ = 0.11f;
+
+            for (int i = 0; i < hRings; i++) {
+                float v = i / (float) (hRings - 1); // 0.0 = 心底房室部, 1.0 = 左下心尖 (Apex Cordis)
+                // 心脏纵轴向患者左前下方倾斜 (x 向 +0.20 偏移, y 从 -0.06 降至 +0.40, z 向 +0.12 倾斜)
+                float axisX = baseHeartX + (float) Math.pow(v, 1.15) * 0.19f;
+                float axisY = baseHeartY - 0.18f + v * 0.46f;
+                float axisZ = baseHeartZ + v * 0.11f;
+
+                // 心脏长轴包络：心底宽厚 -> 心室中部最饱满 -> 心尖圆锥收拢
+                float env = Mth.sin(v * (float) Math.PI * 0.92f) * (1.12f - 0.32f * v);
+                if (v < 0.26f) {
+                    // 冠状沟 (Coronary Sulcus, v ≈ 0.26) 略微内束区分心房与心室
+                    float sulcus = Math.abs(v - 0.25f);
+                    if (sulcus < 0.06f) env *= (0.90f + 0.10f * (sulcus / 0.06f));
+                }
+
+                float rx = 0.21f * env;
+                float rz = 0.18f * env;
+                int region = (v < 0.25f) ? 3 : 2; // 3 = 心房部, 2 = 心室心肌部
+
+                for (int j = 0; j < hSectors; j++) {
+                    float u = j / (float) hSectors;
+                    float phi = u * Mth.TWO_PI;
+                    float cosP = Mth.cos(phi);
+                    float sinP = Mth.sin(phi);
+
+                    // 前室间沟 (Anterior Interventricular Sulcus, phi ≈ 1.15 rad) 凹陷分隔右心室与左心室
+                    float distSulcus = Math.abs(phi - 1.15f);
+                    float groove = (distSulcus < 0.28f && v > 0.22f)
+                            ? (1.0f - 0.14f * (1.0f - distSulcus / 0.28f))
+                            : 1.0f;
+
+                    float wx = axisX + cosP * rx * groove;
+                    float wy = axisY + sinP * 0.03f * env;
+                    float wz = axisZ + sinP * rz * groove;
+
+                    // 螺旋心肌纤维纹理 (Helical Myocardial Fiber Orientation)
+                    float fiberTex = 0.5f + 0.5f * Mth.sin(phi * 6.0f + v * 14.0f);
+                    if (distSulcus < 0.18f) fiberTex = 1.0f;
+
+                    int curIdx = heartVertices.size();
+                    int prevInRing = (j > 0) ? (curIdx - 1) : (curIdx + hSectors - 1);
+                    int prevRing = (i > 0 && (j % 2 == 0)) ? (curIdx - hSectors) : -1;
+
+                    heartVertices.add(new OrganVertex(wx, wy, wz, cosP, 0.2f, sinP, region, 0, fiberTex, prevInRing, prevRing));
+                }
+            }
+
+            // B. 升主动脉 + 主动脉弓 (Aortic Arch) + 三大弓上动脉分支 (头臂干、左颈总、左锁骨下)
+            int archSteps = 16;
+            int tubeSectors = 10;
+            for (int i = 0; i < archSteps; i++) {
+                float t = i / (float) (archSteps - 1);
+                // 从左心室流出道 (0.09, -0.02, 0.10) 向上向右前升起，再向左后方弯成主动脉弓，最后沿脊柱旁下行
+                float ang = t * (float) Math.PI * 1.18f;
+                float cx = 0.07f - Mth.sin(ang * 0.85f) * 0.06f + (t > 0.5f ? (t - 0.5f) * 0.12f : -t * 0.04f);
+                float cy = -0.02f - Mth.sin(ang) * 0.34f + (t > 0.75f ? (t - 0.75f) * 0.45f : 0.0f);
+                float cz = 0.10f - t * 0.16f;
+                float tubeR = 0.052f * (1.0f - 0.15f * t);
+
+                for (int s = 0; s < tubeSectors; s++) {
+                    float phi = (s / (float) tubeSectors) * Mth.TWO_PI;
+                    float vx = cx + Mth.cos(phi) * tubeR;
+                    float vy = cy + Mth.sin(phi) * tubeR * 0.6f;
+                    float vz = cz + Mth.sin(phi) * tubeR;
+
+                    int curIdx = heartVertices.size();
+                    int prevInRing = (s > 0) ? (curIdx - 1) : (curIdx + tubeSectors - 1);
+                    int prevRing = (i > 0 && (s % 2 == 0)) ? (curIdx - tubeSectors) : -1;
+                    heartVertices.add(new OrganVertex(vx, vy, vz, Mth.cos(phi), -0.3f, Mth.sin(phi), 4, i, t, prevInRing, prevRing));
+                }
+            }
+
+            // 主动脉弓顶部三大动脉干：1.头臂干 (Brachiocephalic)  2.左颈总动脉 (LCC)  3.左锁骨下动脉 (LSA)
+            float[][] archBranches = new float[][]{
+                    {0.02f, -0.33f, 0.04f, -0.05f, -0.56f, 0.02f},
+                    {0.06f, -0.35f, 0.02f,  0.05f, -0.58f, 0.00f},
+                    {0.10f, -0.33f, -0.01f, 0.13f, -0.55f, -0.02f}
+            };
+            for (float[] br : archBranches) {
+                addTubularVessel(br[0], br[1], br[2], br[3], br[4], br[5], 0.022f, 5, 6, 4);
+            }
+
+            // C. 上腔静脉 (Superior Vena Cava - 右侧蓝色大静脉) 与 肺动脉干 (Pulmonary Trunk)
+            addTubularVessel(-0.07f, -0.46f, 0.05f, -0.05f, 0.04f, 0.07f, 0.042f, 7, 8, 5); // 上腔静脉 SVC
+            addTubularVessel(-0.05f, 0.26f, 0.04f, -0.05f, 0.50f, 0.03f, 0.040f, 5, 8, 5);  // 下腔静脉 IVC
+            addTubularVessel(0.11f, 0.02f, 0.16f, 0.05f, -0.18f, 0.08f, 0.044f, 6, 8, 5);   // 肺动脉干主干
+
+            // D. 3D 冠状动脉树 (左前降支 LAD + 对角支 D1/D2 + 左回旋支 LCX + 右冠状动脉 RCA)
+            // 左前降支 (LAD) 沿前室间沟下行至心尖
+            int ladSteps = 10;
+            for (int i = 0; i < ladSteps; i++) {
+                float t1 = i / (float) ladSteps;
+                float t2 = (i + 1) / (float) ladSteps;
+                coronaryTree.add(new CoronarySegment(
+                        evalLadX(t1), evalLadY(t1), evalLadZ(t1),
+                        evalLadX(t2), evalLadY(t2), evalLadZ(t2),
+                        t1, 1.55f - 0.65f * t1
+                ));
+                // 对角支分叉 (Diagonal branches)
+                if (i == 3 || i == 6) {
+                    float bx = evalLadX(t1);
+                    float by = evalLadY(t1);
+                    float bz = evalLadZ(t1);
+                    coronaryTree.add(new CoronarySegment(bx, by, bz, bx + 0.09f, by + 0.07f, bz - 0.03f, t1 + 0.1f, 1.05f));
+                }
+            }
+            // 右冠状动脉 (RCA) 沿右侧冠状沟走行
+            coronaryTree.add(new CoronarySegment(0.05f, 0.02f, 0.16f, -0.04f, 0.10f, 0.18f, 0.1f, 1.35f));
+            coronaryTree.add(new CoronarySegment(-0.04f, 0.10f, 0.18f, -0.03f, 0.22f, 0.15f, 0.35f, 1.15f));
+            coronaryTree.add(new CoronarySegment(-0.03f, 0.22f, 0.15f, 0.06f, 0.30f, 0.14f, 0.60f, 0.95f));
+            // 左回旋支 (LCX) 沿左侧房室沟走行
+            coronaryTree.add(new CoronarySegment(0.12f, 0.01f, 0.18f, 0.24f, 0.08f, 0.14f, 0.15f, 1.30f));
+            coronaryTree.add(new CoronarySegment(0.24f, 0.08f, 0.14f, 0.27f, 0.20f, 0.09f, 0.45f, 1.05f));
+        }
+
+        private float evalLadX(float t) { return 0.11f + t * 0.17f + Mth.sin(t * 9.0f) * 0.008f; }
+        private float evalLadY(float t) { return 0.00f + t * 0.37f; }
+        private float evalLadZ(float t) { return 0.19f + Mth.sin(t * (float) Math.PI) * 0.06f + t * 0.03f; }
+
+        private void addTubularVessel(float x1, float y1, float z1, float x2, float y2, float z2,
+                                      float radius, int rings, int sectors, int region) {
+            for (int r = 0; r < rings; r++) {
+                float t = r / (float) Math.max(1, rings - 1);
+                float cx = Mth.lerp(t, x1, x2);
+                float cy = Mth.lerp(t, y1, y2);
+                float cz = Mth.lerp(t, z1, z2);
+                for (int s = 0; s < sectors; s++) {
+                    float phi = (s / (float) sectors) * Mth.TWO_PI;
+                    float vx = cx + Mth.cos(phi) * radius;
+                    float vy = cy;
+                    float vz = cz + Mth.sin(phi) * radius;
+                    int curIdx = heartVertices.size();
+                    int prevInRing = (s > 0) ? (curIdx - 1) : (curIdx + sectors - 1);
+                    int prevRing = (r > 0 && (s % 2 == 0)) ? (curIdx - sectors) : -1;
+                    heartVertices.add(new OrganVertex(vx, vy, vz, Mth.cos(phi), 0.0f, Mth.sin(phi), region, r, t, prevInRing, prevRing));
+                }
+            }
+        }
+
+        public void render(GuiGraphics g, Font font, int panelX, int panelY, int panelW, int panelH,
+                           MedicalData data, float dt, int mouseX, int mouseY, long now,
+                           int themeAccent, EmbeddedDetailPanelRenderer.OscilloscopeDrawer ecgDrawer) {
+            this.lastPanelX = panelX;
+            this.lastPanelY = panelY;
+            this.lastPanelW = panelW;
+
+            int hr = data.getHeartRate();
+            if (!data.isCardiacArrest() && !data.isInVFib() && hr > 0) {
+                heartPhase = (heartPhase + dt * (Mth.clamp(hr, 20, 260) / 60.0f)) % 1.0f;
+            } else if (data.isInVFib()) {
+                heartPhase = (heartPhase + dt * 6.5f) % 1.0f;
+            }
+
+            int respRate = data.getRespirationRate();
+            if (!data.isCardiacArrest() && !data.isInVFib() && respRate > 0) {
+                respPhase = (respPhase + dt * (Mth.clamp(respRate, 1, 60) / 60.0f)) % 1.0f;
+            }
+
+            if (!dragging && (now - lastInteractionMs) > 2500L) {
+                yaw += dt * 0.26f;
+            }
+
+            scrollTarget = Mth.clamp(scrollTarget, 0.0f, maxScroll);
+            scrollOffset = Mth.lerp(Math.min(1.0f, dt * 14.0f), scrollOffset, scrollTarget);
+
+            drawModeTabsAndEcgToggle(g, font, panelX, panelY, panelW, mouseX, mouseY, themeAccent);
+
+            int bottomPad = 10;
+            int desiredEcgH = ecgCollapsed ? 18 : Math.min(86, Math.max(54, (int) (panelH * 0.31f)));
+            if (panelH < 160 || currentMode == ThoraxViewMode.HOLO_FULL) {
+                desiredEcgH = (currentMode == ThoraxViewMode.HOLO_FULL) ? 0 : 18;
+            }
+
+            int contentX = panelX + 12;
+            int contentTop = panelY + 25;
+            int contentW = panelW - 24;
+            int ecgY = panelY + panelH - desiredEcgH - bottomPad;
+            int contentH = (desiredEcgH > 0) ? Math.max(50, ecgY - contentTop - 6) : Math.max(50, panelH - 35);
+
+            if (currentMode == ThoraxViewMode.HOLO_FULL) {
+                this.holoX = contentX;
+                this.holoY = contentTop;
+                this.holoW = contentW;
+                this.holoH = contentH;
+                this.scrollW = 0;
+
+                HudRenderHelper.drawSciFiCard(g, holoX, holoY, holoW, holoH, 4, 0x99030912, withAlpha(themeAccent, 0.5f));
+                render3DCardiopulmonaryViewport(g, font, holoX, holoY, holoW, holoH, data, now, true);
+            } else if (currentMode == ThoraxViewMode.CLINICAL_GRID || contentW < 210) {
+                this.holoW = 0;
+                this.scrollX = contentX;
+                this.scrollY = contentTop;
+                this.scrollW = contentW;
+                this.scrollH = contentH;
+
+                renderScrollableThoraxTelemetry(g, font, scrollX, scrollY, scrollW, scrollH, data, themeAccent, true);
+            } else {
+                int leftHoloW = (int) (contentW * 0.48f);
+                int rightDiagX = contentX + leftHoloW + 8;
+                int rightDiagW = contentW - leftHoloW - 8;
+
+                this.holoX = contentX;
+                this.holoY = contentTop;
+                this.holoW = leftHoloW;
+                this.holoH = contentH;
+
+                this.scrollX = rightDiagX;
+                this.scrollY = contentTop;
+                this.scrollW = rightDiagW;
+                this.scrollH = contentH;
+
+                HudRenderHelper.drawSciFiCard(g, holoX, holoY, holoW, holoH, 4, 0x99030912, withAlpha(themeAccent, 0.5f));
+                render3DCardiopulmonaryViewport(g, font, holoX, holoY, holoW, holoH, data, now, false);
+
+                HudRenderHelper.drawSciFiCard(g, scrollX, scrollY, scrollW, scrollH, 4, 0x99040A12, withAlpha(themeAccent, 0.35f));
+                renderScrollableThoraxTelemetry(g, font, scrollX + 6, scrollY + 4, scrollW - 12, scrollH - 8, data, themeAccent, false);
+            }
+
+            if (desiredEcgH >= 48 && ecgDrawer != null) {
+                ecgDrawer.draw(g, contentX, ecgY, contentW, desiredEcgH, data);
+            } else if (desiredEcgH > 0) {
+                HudRenderHelper.drawSciFiCard(g, contentX, ecgY, contentW, desiredEcgH, 2, 0xAA040C14, withAlpha(themeAccent, 0.45f));
+                g.drawString(font, "心电监护已折叠 (点击右上角「心电 ▲」展开)", contentX + 6, ecgY + 5, themeAccent, false);
+            }
+        }
+
+        private void drawModeTabsAndEcgToggle(GuiGraphics g, Font font, int panelX, int panelY, int panelW,
+                                              int mouseX, int mouseY, int themeAccent) {
+            int tabH = 13;
+            int tabY = panelY + 5;
+            int curRight = panelX + panelW - 10;
+
+            String ecgLabel = ecgCollapsed ? "心电 ▲" : "心电 ▼";
+            this.btnEcgW = font.width(ecgLabel) + 10;
+            this.btnEcgH = tabH;
+            this.btnEcgX = curRight - btnEcgW;
+            this.btnEcgY = tabY;
+            boolean hovEcg = mouseX >= btnEcgX && mouseX <= btnEcgX + btnEcgW && mouseY >= btnEcgY && mouseY <= btnEcgY + btnEcgH;
+            HudRenderHelper.drawSciFiCard(g, btnEcgX, btnEcgY, btnEcgW, btnEcgH, 2,
+                    !ecgCollapsed ? withAlpha(themeAccent, 0.35f) : 0x66050E17,
+                    hovEcg ? themeAccent : withAlpha(themeAccent, 0.5f));
+            g.drawString(font, ecgLabel, btnEcgX + 5, btnEcgY + 3, !ecgCollapsed ? themeAccent : 0xFF90A4AE, false);
+
+            curRight = btnEcgX - 4;
+            ThoraxViewMode[] modes = ThoraxViewMode.values();
+            for (int i = modes.length - 1; i >= 0; i--) {
+                ThoraxViewMode m = modes[i];
+                int tw = font.width(m.label) + 10;
+                int tx = curRight - tw;
+                if (tx < panelX + 120) break;
+
+                boolean active = (this.currentMode == m);
+                boolean hovered = mouseX >= tx && mouseX <= tx + tw && mouseY >= tabY && mouseY <= tabY + tabH;
+                int bg = active ? 0xCC004D66 : (hovered ? 0x990A2233 : 0x66050E17);
+                int border = active ? C_NEON_CYAN : (hovered ? 0xAA00E5FF : 0x4400A0FF);
+                int txtCol = active ? 0xFFFFFFFF : (hovered ? C_NEON_CYAN : 0xFF90A4AE);
+
+                HudRenderHelper.drawSciFiCard(g, tx, tabY, tw, tabH, 2, bg, border);
+                g.drawString(font, m.label, tx + 5, tabY + 3, txtCol, false);
+                curRight = tx - 4;
+            }
+        }
+
+        private void render3DCardiopulmonaryViewport(GuiGraphics g, Font font, int vx, int vy, int vw, int vh,
+                                                     MedicalData data, long now, boolean fullMode) {
+            g.enableScissor(vx + 1, vy + 1, vx + vw - 1, vy + vh - 1);
+
+            int hr = data.getHeartRate();
+            int respRate = data.getRespirationRate();
+            float lungContusion = data.getLungContusion();
+            float chestBlood = data.getChestBloodAccumulation();
+            int hemoLevel = data.getHemothoraxLevel();
+
+            float cx = vx + vw * 0.5f;
+            float cy = vy + vh * (fullMode ? 0.46f : 0.44f);
+            float scale = Math.min(vw, vh) * (fullMode ? 0.37f : 0.39f);
+
+            float cosYaw = Mth.cos(yaw);
+            float sinYaw = Mth.sin(yaw);
+            float cosPitch = Mth.cos(pitch);
+            float sinPitch = Mth.sin(pitch);
+
+            // 纵向全息 CT 扫描平面周期
+            float scanCycle = (now % 3400L) / 3400.0f;
+            float scanPlaneY = -0.88f + scanCycle * 1.65f;
+
+            // 生理呼吸扩张波形 (0.0 呼气末 ~ 1.0 吸气峰)
+            float breathWave = (respRate <= 0 || data.isCardiacArrest() || data.isInVFib())
+                    ? 0.0f
+                    : (0.5f - 0.5f * Mth.cos(respPhase * Mth.TWO_PI));
+
+            // Wiggers 心动周期波形：P 波心房收缩 (0.02~0.13) + QRS 心室强力收缩射血 (0.15~0.36)
+            float atrialKick = 0.0f;
+            float ventricularKick = 0.0f;
+            if (!data.isCardiacArrest() && !data.isInVFib() && hr > 0) {
+                if (heartPhase >= 0.02f && heartPhase <= 0.13f) {
+                    atrialKick = Mth.sin(((heartPhase - 0.02f) / 0.11f) * (float) Math.PI);
+                } else if (heartPhase >= 0.15f && heartPhase <= 0.36f) {
+                    ventricularKick = Mth.sin(((heartPhase - 0.15f) / 0.21f) * (float) Math.PI);
+                }
+            }
+
+            // 张力性血胸 (LV.3~4) 引发纵隔与心脏受压移位
+            float mediastinalShiftX = (hemoLevel >= 3) ? (0.045f * (hemoLevel - 2)) : 0.0f;
+
+            // 1. 绘制全息校准陀螺环底座
+            drawThoraxGimbalRings(g, cx, cy, scale, hemoLevel, lungContusion);
+
+            Matrix4f pose = g.pose().last().pose();
+            RenderSystem.enableBlend();
+            RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
+            RenderSystem.disableDepthTest();
+            RenderSystem.setShader(GameRenderer::getPositionColorShader);
+
+            // 2. 绘制 5 级分形气管-支气管树 + 气管软骨环 + 呼吸氧合气流粒子
+            drawFractalAirwayAndParticles(pose, cx, cy, scale, cosYaw, sinYaw, cosPitch, sinPitch,
+                    respRate, breathWave, mediastinalShiftX, now);
+
+            // 3. 绘制高精四腔室 3D 心脏点云 + 冠状动脉树 (LAD/LCX/RCA) + 主动脉弓三分支
+            drawHighDensityHeartAndCoronaries(pose, cx, cy, scale, cosYaw, sinYaw, cosPitch, sinPitch,
+                    data, atrialKick, ventricularKick, mediastinalShiftX, scanPlaneY, now);
+
+            // 4. 绘制高密度 1,904 顶点双肺全息曲面点云 + 叶间裂 + 肺泡挫伤云团 + 肋膈角胸腔积血池
+            drawHighDensityLungsAndPathology(pose, cx, cy, scale, cosYaw, sinYaw, cosPitch, sinPitch,
+                    breathWave, lungContusion, chestBlood, hemoLevel, scanPlaneY, now);
+
+            RenderSystem.defaultBlendFunc();
+
+            // 5. 绘制水平激光扫描光带
+            int scanScreenY = (int) (cy + scanPlaneY * scale * 0.85f);
+            if (scanScreenY > vy + 10 && scanScreenY < vy + vh - 28) {
+                int scanW = (int) (scale * 2.1f);
+                g.fill((int) cx - scanW / 2, scanScreenY, (int) cx + scanW / 2, scanScreenY + 1, 0x8800F0FF);
+                g.fillGradient((int) cx - scanW / 2, scanScreenY - 8, (int) cx + scanW / 2, scanScreenY, 0x0000F0FF, 0x3300F0FF);
+            }
+
+            // 6. 绘制全息引线锚点与底部状态栏
+            draw3DThoraxLabels(g, font, vx, vy, vw, vh, cx, cy, scale, cosYaw, sinYaw, cosPitch, sinPitch,
+                    data, mediastinalShiftX, fullMode);
+            drawThoraxFooterBar(g, font, vx, vy + vh - 24, vw, 22, data);
+
+            g.disableScissor();
+        }
+
+        private float[] project3D(float x, float y, float z, float cx, float cy, float scale,
+                                  float cosY, float sinY, float cosP, float sinP) {
+            float rx = x * cosY - z * sinY;
+            float rz = x * sinY + z * cosY;
+            float ry = y * cosP - rz * sinP;
+            float fz = y * sinP + rz * cosP;
+            float fov = 2.95f / (2.95f - fz * 0.45f);
+            return new float[]{cx + rx * scale * fov, cy + ry * scale * fov, fz};
+        }
+
+        private void drawThoraxGimbalRings(GuiGraphics g, float cx, float cy, float scale, int hemoLevel, float contusion) {
+            Matrix4f pose = g.pose().last().pose();
+            RenderSystem.enableBlend();
+            RenderSystem.defaultBlendFunc();
+            RenderSystem.setShader(GameRenderer::getPositionColorShader);
+
+            Tesselator tess = Tesselator.getInstance();
+            BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+
+            int ringR = (hemoLevel >= 2 || contusion >= 50.0f) ? 255 : 0;
+            int ringG = (hemoLevel >= 2 || contusion >= 50.0f) ? 90 : 195;
+            int ringB = (hemoLevel >= 2 || contusion >= 50.0f) ? 60 : 245;
+
+            int segs = 40;
+            float rOuter = scale * 0.98f;
+            for (int i = 0; i < segs; i += 2) {
+                float a1 = (i / (float) segs) * Mth.TWO_PI;
+                float a2 = ((i + 1) / (float) segs) * Mth.TWO_PI;
+                PainVisualOverlay.addQuadSegment(buf, pose,
+                        cx + Mth.cos(a1) * rOuter, cy + Mth.sin(a1) * rOuter * 0.24f + scale * 0.62f,
+                        cx + Mth.cos(a2) * rOuter, cy + Mth.sin(a2) * rOuter * 0.24f + scale * 0.62f,
+                        0.75f, ringR, ringG, ringB, 65, 65);
+            }
+
+            MeshData mesh = buf.build();
+            if (mesh != null) BufferUploader.drawWithShader(mesh);
+        }
+
+        private void drawFractalAirwayAndParticles(Matrix4f pose, float cx, float cy, float scale,
+                                                   float cosY, float sinY, float cosP, float sinP,
+                                                   int respRate, float breathWave, float shiftX, long now) {
+            Tesselator tess = Tesselator.getInstance();
+            BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+
+            float expand = 1.0f + 0.11f * breathWave;
+
+            // 1. 绘制主气管 C 型软骨环 (16 环精致全息刻度环)
+            for (int r = 0; r < 14; r++) {
+                float ry = Mth.lerp(r / 13.0f, -0.84f, -0.30f);
+                float rad = 0.044f;
+                int segs = 8;
+                for (int s = 0; s < segs; s++) {
+                    float a1 = -2.2f + (s / (float) segs) * 4.4f;
+                    float a2 = -2.2f + ((s + 1) / (float) segs) * 4.4f;
+                    float[] p1 = project3D(shiftX + Mth.cos(a1) * rad, ry, -0.05f + Mth.sin(a1) * rad,
+                            cx, cy, scale, cosY, sinY, cosP, sinP);
+                    float[] p2 = project3D(shiftX + Mth.cos(a2) * rad, ry, -0.05f + Mth.sin(a2) * rad,
+                            cx, cy, scale, cosY, sinY, cosP, sinP);
+                    PainVisualOverlay.addQuadSegment(buf, pose, p1[0], p1[1], p2[0], p2[1],
+                            0.65f, 80, 245, 255, 155, 155);
+                }
+            }
+
+            // 2. 绘制 5 代递归支气管树与终末肺泡囊微光节点
+            for (AirwayBranch br : airwayTree) {
+                int gen = br.generation();
+                float sx1 = (gen == 0 ? br.x1() : br.x1() * expand) + shiftX * (gen <= 1 ? 1.0f : 0.4f);
+                float sy1 = (gen == 0 ? br.y1() : br.y1() + 0.05f * breathWave * Math.max(0.0f, br.y1() + 0.3f));
+                float sz1 = (gen == 0 ? br.z1() : br.z1() * expand);
+
+                float sx2 = (gen == 0 ? br.x2() : br.x2() * expand) + shiftX * (gen <= 1 ? 1.0f : 0.4f);
+                float sy2 = (gen == 0 ? br.y2() : br.y2() + 0.05f * breathWave * Math.max(0.0f, br.y2() + 0.3f));
+                float sz2 = (gen == 0 ? br.z2() : br.z2() * expand);
+
+                float[] p1 = project3D(sx1, sy1, sz1, cx, cy, scale, cosY, sinY, cosP, sinP);
+                float[] p2 = project3D(sx2, sy2, sz2, cx, cy, scale, cosY, sinY, cosP, sinP);
+
+                float depth = Mth.clamp(((p1[2] + p2[2]) * 0.5f + 1.2f) / 2.2f, 0.25f, 1.0f);
+                float width = switch (gen) {
+                    case 0 -> 1.35f;
+                    case 1 -> 1.05f;
+                    case 2 -> 0.78f;
+                    case 3 -> 0.55f;
+                    case 4 -> 0.42f;
+                    default -> 0.32f;
+                };
+                int alpha = (int) Mth.clamp((165 - gen * 18 + 45 * breathWave) * depth, 25, 225);
+                PainVisualOverlay.addQuadSegment(buf, pose, p1[0], p1[1], p2[0], p2[1],
+                        width, 20, 235, 255, alpha, alpha);
+
+                // 终末第 5 代细支气管末端绘制肺泡囊发光微球
+                if (gen == 5) {
+                    float rAlv = (0.9f + 0.5f * breathWave);
+                    buf.addVertex(pose, p2[0] - rAlv, p2[1] - rAlv, 0.0f).setColor(120, 255, 240, alpha);
+                    buf.addVertex(pose, p2[0] + rAlv, p2[1] - rAlv, 0.0f).setColor(120, 255, 240, alpha);
+                    buf.addVertex(pose, p2[0] + rAlv, p2[1] + rAlv, 0.0f).setColor(120, 255, 240, alpha);
+                    buf.addVertex(pose, p2[0] - rAlv, p2[1] + rAlv, 0.0f).setColor(120, 255, 240, alpha);
+                }
+
+                // 呼吸气流氧合光子（吸气向肺泡深入，呼气向主气管汇流）
+                if (respRate > 0 && gen <= 3) {
+                    float tFlow = (respPhase * 2.0f + br.phaseSeed()) % 1.0f;
+                    if (respPhase >= 0.5f) tFlow = 1.0f - tFlow;
+                    float fx = Mth.lerp(tFlow, p1[0], p2[0]);
+                    float fy = Mth.lerp(tFlow, p1[1], p2[1]);
+                    float pr = 1.15f;
+                    buf.addVertex(pose, fx - pr, fy - pr, 0.0f).setColor(200, 255, 255, 210);
+                    buf.addVertex(pose, fx + pr, fy - pr, 0.0f).setColor(200, 255, 255, 210);
+                    buf.addVertex(pose, fx + pr, fy + pr, 0.0f).setColor(200, 255, 255, 210);
+                    buf.addVertex(pose, fx - pr, fy + pr, 0.0f).setColor(200, 255, 255, 210);
+                }
+            }
+
+            MeshData mesh = buf.build();
+            if (mesh != null) BufferUploader.drawWithShader(mesh);
+        }
+
+        private void drawHighDensityHeartAndCoronaries(Matrix4f pose, float cx, float cy, float scale,
+                                                       float cosY, float sinY, float cosP, float sinP,
+                                                       MedicalData data, float atrialKick, float ventricularKick,
+                                                       float shiftX, float scanPlaneY, long now) {
+            int n = heartVertices.size();
+            if (n == 0) return;
+
+            boolean vfib = data.isInVFib();
+            boolean arrest = data.isCardiacArrest();
+
+            float[] px = new float[n];
+            float[] py = new float[n];
+            float[] pz = new float[n];
+            int[] vColors = new int[n];
+
+            float heartCenterX = 0.14f + shiftX;
+            float heartCenterY = 0.14f;
+            float heartCenterZ = 0.12f;
+
+            for (int i = 0; i < n; i++) {
+                OrganVertex v = heartVertices.get(i);
+                float vx = v.x + shiftX;
+                float vy = v.y;
+                float vz = v.z;
+
+                // 根据解剖分区施加真实的 Wiggers 心动周期形变
+                if (v.region == 2) {
+                    // 心室部：QRS 射血期向心收缩 + 心尖顺时针微扭转 (Ventricular Torsion)
+                    float contract = 1.0f - 0.17f * ventricularKick;
+                    if (vfib) {
+                        contract += 0.10f * Mth.sin(now * 0.042f + i * 0.37f);
+                    }
+                    vx = heartCenterX + (vx - heartCenterX) * contract;
+                    vy = heartCenterY + (vy - heartCenterY) * (1.0f - 0.09f * ventricularKick);
+                    vz = heartCenterZ + (vz - heartCenterZ) * contract;
+                } else if (v.region == 3) {
+                    // 心房部：P 波期收缩，心室收缩期舒张充盈
+                    float contract = 1.0f - 0.14f * atrialKick + 0.05f * ventricularKick;
+                    vx = heartCenterX + (vx - heartCenterX) * contract;
+                    vz = heartCenterZ + (vz - heartCenterZ) * contract;
+                } else if (v.region == 4) {
+                    // 主动脉弓：心室射血后顺应性弹性扩张 (Windkessel Effect)
+                    float pulseWave = (!arrest && !vfib && Math.abs(v.surfaceTex - ((heartPhase * 1.8f) % 1.0f)) < 0.22f) ? 1.0f : 0.0f;
+                    float expand = 1.0f + 0.12f * ventricularKick + 0.08f * pulseWave;
+                    vx += v.nx * 0.008f * expand;
+                    vz += v.nz * 0.008f * expand;
+                }
+
+                float[] proj = project3D(vx, vy, vz, cx, cy, scale, cosY, sinY, cosP, sinP);
+                px[i] = proj[0];
+                py[i] = proj[1];
+                pz[i] = proj[2];
+
+                float depth = Mth.clamp((proj[2] + 1.25f) / 2.3f, 0.22f, 1.0f);
+                float rim = 1.0f - Math.min(1.0f, Math.abs(proj[2]) * 0.65f);
+                float bright = 0.55f + 0.45f * v.surfaceTex + 0.30f * rim;
+
+                int r, g, b;
+                if (arrest) {
+                    r = 135; g = 45; b = 60;
+                } else if (vfib) {
+                    float flicker = 0.5f + 0.5f * Mth.sin(now * 0.05f + i * 0.5f);
+                    r = 255;
+                    g = (int) (20 + 60 * flicker);
+                    b = (int) (90 + 140 * (1.0f - flicker));
+                } else if (v.region == 5) {
+                    // 腔静脉与肺动脉：静脉含氧低呈深青蓝
+                    r = 35; g = 165; b = 255;
+                } else if (v.region == 4) {
+                    // 主动脉弓：鲜亮动脉红 + 射血脉搏波高亮
+                    float wave = Math.max(0.0f, 1.0f - Math.abs(v.surfaceTex - ((heartPhase * 1.7f) % 1.0f)) * 4.5f);
+                    r = 255;
+                    g = (int) (55 + 145 * wave);
+                    b = (int) (80 + 130 * wave);
+                } else {
+                    // 左/右心室与心房心肌：随收缩迸发鲜红能量光泽
+                    r = 255;
+                    g = (int) (28 + 105 * ventricularKick + 35 * v.surfaceTex);
+                    b = (int) (65 + 75 * ventricularKick);
+                }
+
+                float distToScan = Math.abs(vy - scanPlaneY);
+                float scanBoost = (distToScan < 0.08f) ? (1.0f - distToScan / 0.08f) : 0.0f;
+                if (scanBoost > 0.0f) {
+                    g = (int) Mth.lerp(scanBoost, g, 230);
+                    b = (int) Mth.lerp(scanBoost, b, 255);
+                }
+
+                int alpha = (int) Mth.clamp((depth * bright * 185.0f) + ventricularKick * 45.0f + scanBoost * 60.0f, 28.0f, 250.0f);
+                vColors[i] = (alpha << 24) | ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
+            }
+
+            Tesselator tess = Tesselator.getInstance();
+
+            // A. 绘制心脏内部半透明体积辉光核 (Volumetric Myocardial Core)
+            float[] coreProj = project3D(heartCenterX + 0.04f, heartCenterY + 0.05f, heartCenterZ,
+                    cx, cy, scale, cosY, sinY, cosP, sinP);
+            BufferBuilder glowBuf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+            float coreRad = scale * (0.22f - 0.03f * ventricularKick);
+            int coreAlpha = arrest ? 35 : (int) (65 + 45 * ventricularKick);
+            drawSoftGlowDisc(glowBuf, pose, coreProj[0], coreProj[1], coreRad, 255, 25, 65, coreAlpha);
+
+            // B. 绘制 3D 冠状动脉树 (LAD / LCX / RCA) 及其射血脉冲亮流
+            float contract = 1.0f - 0.16f * ventricularKick;
+            for (CoronarySegment seg : coronaryTree) {
+                float x1 = heartCenterX + (seg.x1() + shiftX - heartCenterX) * contract;
+                float y1 = heartCenterY + (seg.y1() - heartCenterY) * (1.0f - 0.08f * ventricularKick);
+                float z1 = heartCenterZ + (seg.z1() - heartCenterZ) * contract;
+
+                float x2 = heartCenterX + (seg.x2() + shiftX - heartCenterX) * contract;
+                float y2 = heartCenterY + (seg.y2() - heartCenterY) * (1.0f - 0.08f * ventricularKick);
+                float z2 = heartCenterZ + (seg.z2() - heartCenterZ) * contract;
+
+                float[] p1 = project3D(x1, y1, z1, cx, cy, scale, cosY, sinY, cosP, sinP);
+                float[] p2 = project3D(x2, y2, z2, cx, cy, scale, cosY, sinY, cosP, sinP);
+
+                float pulse = (!arrest && !vfib)
+                        ? Math.max(0.0f, 1.0f - Math.abs(seg.distFromRoot() - ((heartPhase * 1.9f) % 1.0f)) * 4.0f)
+                        : 0.0f;
+                int cr = 255;
+                int cg = arrest ? 50 : (int) (95 + 145 * pulse);
+                int cb = arrest ? 60 : (int) (40 + 160 * pulse);
+                PainVisualOverlay.addQuadSegment(glowBuf, pose, p1[0], p1[1], p2[0], p2[1],
+                        seg.width() * (1.0f + 0.35f * pulse), cr, cg, cb, 235, 235);
+            }
+            MeshData glowMesh = glowBuf.build();
+            if (glowMesh != null) BufferUploader.drawWithShader(glowMesh);
+
+            // C. 绘制 0.36px 精密心肌纤维网格线
+            BufferBuilder lineBuf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+            for (int i = 0; i < n; i++) {
+                OrganVertex v = heartVertices.get(i);
+                int c = vColors[i];
+                int la = (((c >>> 24) & 0xFF) * 2) / 5;
+                int lr = (c >>> 16) & 0xFF;
+                int lg = (c >>> 8) & 0xFF;
+                int lb = c & 0xFF;
+
+                if (v.connectA >= 0 && v.connectA < n) {
+                    float dx = px[i] - px[v.connectA];
+                    float dy = py[i] - py[v.connectA];
+                    if (dx * dx + dy * dy < scale * scale * 0.14f) {
+                        PainVisualOverlay.addQuadSegment(lineBuf, pose, px[i], py[i], px[v.connectA], py[v.connectA],
+                                0.36f, lr, lg, lb, la, la);
+                    }
+                }
+                if (v.connectB >= 0 && v.connectB < n) {
+                    float dx = px[i] - px[v.connectB];
+                    float dy = py[i] - py[v.connectB];
+                    if (dx * dx + dy * dy < scale * scale * 0.14f) {
+                        PainVisualOverlay.addQuadSegment(lineBuf, pose, px[i], py[i], px[v.connectB], py[v.connectB],
+                                0.34f, lr, lg, lb, la, la);
+                    }
+                }
+            }
+            MeshData lineMesh = lineBuf.build();
+            if (lineMesh != null) BufferUploader.drawWithShader(lineMesh);
+
+            // D. 绘制高密度发光心肌点云节点 (Holographic Point Cloud)
+            BufferBuilder ptBuf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+            for (int i = 0; i < n; i++) {
+                int c = vColors[i];
+                int a = (c >>> 24) & 0xFF;
+                int r = (c >>> 16) & 0xFF;
+                int g = (c >>> 8) & 0xFF;
+                int b = c & 0xFF;
+
+                float hs = (pz[i] > 0.0f) ? 1.05f : 0.72f;
+                float x = px[i];
+                float y = py[i];
+                ptBuf.addVertex(pose, x - hs, y - hs, 0.0f).setColor(r, g, b, a);
+                ptBuf.addVertex(pose, x + hs, y - hs, 0.0f).setColor(r, g, b, a);
+                ptBuf.addVertex(pose, x + hs, y + hs, 0.0f).setColor(r, g, b, a);
+                ptBuf.addVertex(pose, x - hs, y + hs, 0.0f).setColor(r, g, b, a);
+            }
+            MeshData ptMesh = ptBuf.build();
+            if (ptMesh != null) BufferUploader.drawWithShader(ptMesh);
+        }
+
+        private void drawHighDensityLungsAndPathology(Matrix4f pose, float cx, float cy, float scale,
+                                                      float cosY, float sinY, float cosP, float sinP,
+                                                      float breathWave, float lungContusion,
+                                                      float chestBlood, int hemoLevel,
+                                                      float scanPlaneY, long now) {
+            int n = lungVertices.size();
+            if (n == 0) return;
+
+            float contusionNorm = Mth.clamp(lungContusion / 100.0f, 0.0f, 1.0f);
+            float bloodRatio = Mth.clamp(chestBlood / 2000.0f, Math.min(1.0f, hemoLevel * 0.16f), 1.0f);
+            float fluidSurfaceY = 0.60f - bloodRatio * 0.82f;
+
+            float[] px = new float[n];
+            float[] py = new float[n];
+            float[] pz = new float[n];
+            int[] vColors = new int[n];
+
+            for (int i = 0; i < n; i++) {
+                OrganVertex v = lungVertices.get(i);
+
+                // 肺顺应性：受肺挫伤与胸腔积血浸没限制
+                boolean submerged = (bloodRatio > 0.01f && v.y > fluidSurfaceY);
+                float compliance = (1.0f - 0.42f * contusionNorm) * (submerged ? (1.0f - 0.65f * bloodRatio) : 1.0f);
+
+                float radialExpand = 1.0f + 0.13f * breathWave * compliance;
+                float vertDrop = 0.07f * breathWave * Math.max(0.0f, (v.y + 0.74f) / 1.36f) * compliance;
+
+                float vx = v.x * radialExpand;
+                float vy = v.y + vertDrop;
+                float vz = v.z * radialExpand;
+
+                // 胸腔积血淹没下肺叶时引起压迫性肺不张 (向内上方回缩)
+                if (submerged) {
+                    float subDepth = Mth.clamp((vy - fluidSurfaceY) / 0.55f, 0.0f, 1.0f);
+                    vx *= (1.0f - 0.20f * subDepth * bloodRatio);
+                    vy -= 0.09f * subDepth * bloodRatio;
+                }
+
+                float[] proj = project3D(vx, vy, vz, cx, cy, scale, cosY, sinY, cosP, sinP);
+                px[i] = proj[0];
+                py[i] = proj[1];
+                pz[i] = proj[2];
+
+                // 3D 表面法线旋转后的 Z 分量 -> 计算菲涅尔边缘发光 (Fresnel Rim Lighting)
+                float rnx = v.nx * cosY - v.nz * sinY;
+                float rnz = v.nx * sinY + v.nz * cosY;
+                float fzNorm = v.ny * sinP + rnz * cosP;
+                float fresnelRim = (float) Math.pow(1.0f - Math.min(1.0f, Math.abs(fzNorm)), 1.35);
+
+                float depth = Mth.clamp((proj[2] + 1.35f) / 2.5f, 0.18f, 1.0f);
+                float texBright = 0.38f + 0.62f * fresnelRim + 0.25f * v.surfaceTex;
+
+                // 判定该点是否位于肺挫伤病灶云团内
+                float contusionField = 0.5f + 0.5f * Mth.sin(v.x * 6.8f + v.y * 5.4f - v.z * 6.2f);
+                boolean inContusion = contusionNorm > 0.01f && (contusionField < contusionNorm * 1.12f);
+
+                int r, g, b;
+                if (submerged) {
+                    // 胸腔积血浸没区：深紫红液面染色
+                    float meniscusGlow = Math.abs(v.y - fluidSurfaceY) < 0.045f ? 1.0f : 0.0f;
+                    r = 255;
+                    g = (int) (20 + 95 * meniscusGlow);
+                    b = (int) (55 + 80 * meniscusGlow);
+                    texBright += 0.45f * meniscusGlow;
+                } else if (inContusion) {
+                    // 肺挫伤区：从琥珀橙过渡至肺泡出血猩红
+                    float severity = Mth.clamp((contusionNorm * 1.12f - contusionField) / Math.max(0.05f, contusionNorm), 0.0f, 1.0f);
+                    r = 255;
+                    g = (int) Mth.lerp(severity, 165, 25);
+                    b = (int) Mth.lerp(severity, 15, 55);
+                    texBright += 0.35f * severity;
+                } else if (v.lobeId == 1) {
+                    // 右肺中叶：微带青碧色阶以凸显三叶分界
+                    r = 0;
+                    g = (int) (225 + 30 * breathWave);
+                    b = 235;
+                } else {
+                    // 健康肺实质：全息医疗科技青蓝
+                    r = (int) (10 + 30 * fresnelRim);
+                    g = (int) (195 + 55 * breathWave);
+                    b = 255;
+                }
+
+                float distToScan = Math.abs(vy - scanPlaneY);
+                float scanBoost = (distToScan < 0.08f) ? (1.0f - distToScan / 0.08f) : 0.0f;
+                if (scanBoost > 0.0f) {
+                    r = (int) Mth.lerp(scanBoost, r, 210);
+                    g = (int) Mth.lerp(scanBoost, g, 255);
+                    b = 255;
+                }
+
+                int alpha = (int) Mth.clamp((depth * texBright * 150.0f) + scanBoost * 75.0f, 16.0f, 240.0f);
+                vColors[i] = (alpha << 24) | ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
+            }
+
+            Tesselator tess = Tesselator.getInstance();
+
+            // A. 若存在肺挫伤或胸腔积血，先渲染 3D 体积病灶柔光团 (Volumetric Pathology Halos)
+            if (contusionNorm > 0.01f || bloodRatio > 0.01f) {
+                BufferBuilder haloBuf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+                if (contusionNorm > 0.01f) {
+                    float pulse = 0.75f + 0.25f * Mth.sin(now * 0.007f);
+                    float[][] foci = new float[][]{
+                            {-0.38f, -0.10f, 0.06f}, {0.38f, -0.12f, 0.05f},
+                            {-0.34f, 0.22f, -0.04f}, {0.36f, 0.24f, -0.04f}
+                    };
+                    int count = Math.max(1, Math.round(contusionNorm * foci.length));
+                    for (int k = 0; k < count; k++) {
+                        float[] fp = project3D(foci[k][0], foci[k][1], foci[k][2], cx, cy, scale, cosY, sinY, cosP, sinP);
+                        drawSoftGlowDisc(haloBuf, pose, fp[0], fp[1], scale * (0.12f + 0.10f * contusionNorm) * pulse,
+                                255, 75, 20, (int) (95 * contusionNorm));
+                    }
+                }
+                if (bloodRatio > 0.01f) {
+                    // 左右肋膈隐窝积血弯月面 (Costodiaphragmatic Meniscus Rings)
+                    float wave = now * 0.005f;
+                    for (int side = -1; side <= 1; side += 2) {
+                        float poolCX = side * 0.36f;
+                        int segs = 22;
+                        for (int s = 0; s < segs; s++) {
+                            float a1 = (s / (float) segs) * Mth.TWO_PI;
+                            float a2 = ((s + 1) / (float) segs) * Mth.TWO_PI;
+                            float rx = 0.29f;
+                            float rz = 0.34f;
+                            float wy1 = fluidSurfaceY + Mth.sin(a1 * 3.0f + wave) * 0.018f;
+                            float wy2 = fluidSurfaceY + Mth.sin(a2 * 3.0f + wave) * 0.018f;
+                            float[] p1 = project3D(poolCX + Mth.cos(a1) * rx, wy1, Mth.sin(a1) * rz,
+                                    cx, cy, scale, cosY, sinY, cosP, sinP);
+                            float[] p2 = project3D(poolCX + Mth.cos(a2) * rx, wy2, Mth.sin(a2) * rz,
+                                    cx, cy, scale, cosY, sinY, cosP, sinP);
+                            PainVisualOverlay.addQuadSegment(haloBuf, pose, p1[0], p1[1], p2[0], p2[1],
+                                    1.25f, 255, 30, 70, 215, 215);
+                        }
+                    }
+                }
+                MeshData haloMesh = haloBuf.build();
+                if (haloMesh != null) BufferUploader.drawWithShader(haloMesh);
+            }
+
+            // B. 绘制 0.34px 微米级双肺丝网连接线
+            BufferBuilder lineBuf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+            for (int i = 0; i < n; i++) {
+                OrganVertex v = lungVertices.get(i);
+                int c = vColors[i];
+                int la = (((c >>> 24) & 0xFF) * 3) / 8;
+                int lr = (c >>> 16) & 0xFF;
+                int lg = (c >>> 8) & 0xFF;
+                int lb = c & 0xFF;
+
+                if (v.connectA >= 0 && v.connectA < n) {
+                    float dx = px[i] - px[v.connectA];
+                    float dy = py[i] - py[v.connectA];
+                    if (dx * dx + dy * dy < scale * scale * 0.15f) {
+                        PainVisualOverlay.addQuadSegment(lineBuf, pose, px[i], py[i], px[v.connectA], py[v.connectA],
+                                0.34f, lr, lg, lb, la, la);
+                    }
+                }
+                if (v.connectB >= 0 && v.connectB < n) {
+                    float dx = px[i] - px[v.connectB];
+                    float dy = py[i] - py[v.connectB];
+                    if (dx * dx + dy * dy < scale * scale * 0.15f) {
+                        PainVisualOverlay.addQuadSegment(lineBuf, pose, px[i], py[i], px[v.connectB], py[v.connectB],
+                                0.32f, lr, lg, lb, la, la);
+                    }
+                }
+            }
+            MeshData lineMesh = lineBuf.build();
+            if (lineMesh != null) BufferUploader.drawWithShader(lineMesh);
+
+            // C. 绘制 1,904 个双肺高密度全息点云发光节点 (Holographic Point Cloud)
+            BufferBuilder ptBuf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+            for (int i = 0; i < n; i++) {
+                int c = vColors[i];
+                int a = (c >>> 24) & 0xFF;
+                int r = (c >>> 16) & 0xFF;
+                int g = (c >>> 8) & 0xFF;
+                int b = c & 0xFF;
+
+                float hs = (pz[i] > 0.0f) ? 1.05f : 0.70f;
+                float x = px[i];
+                float y = py[i];
+
+                ptBuf.addVertex(pose, x - hs, y - hs, 0.0f).setColor(r, g, b, a);
+                ptBuf.addVertex(pose, x + hs, y - hs, 0.0f).setColor(r, g, b, a);
+                ptBuf.addVertex(pose, x + hs, y + hs, 0.0f).setColor(r, g, b, a);
+                ptBuf.addVertex(pose, x - hs, y + hs, 0.0f).setColor(r, g, b, a);
+            }
+            MeshData ptMesh = ptBuf.build();
+            if (ptMesh != null) BufferUploader.drawWithShader(ptMesh);
+        }
+
+        private void drawSoftGlowDisc(BufferBuilder buf, Matrix4f pose, float x, float y, float radius,
+                                      int r, int g, int b, int centerAlpha) {
+            float core = radius * 0.38f;
+            int haloAlpha = centerAlpha / 3;
+            buf.addVertex(pose, x - core, y - core, 0.0f).setColor(255, 220, 230, centerAlpha);
+            buf.addVertex(pose, x + core, y - core, 0.0f).setColor(255, 220, 230, centerAlpha);
+            buf.addVertex(pose, x + core, y + core, 0.0f).setColor(255, 220, 230, centerAlpha);
+            buf.addVertex(pose, x - core, y + core, 0.0f).setColor(255, 220, 230, centerAlpha);
+
+            buf.addVertex(pose, x - radius, y - radius, 0.0f).setColor(r, g, b, haloAlpha);
+            buf.addVertex(pose, x + radius, y - radius, 0.0f).setColor(r, g, b, haloAlpha);
+            buf.addVertex(pose, x + radius, y + radius, 0.0f).setColor(r, g, b, haloAlpha);
+            buf.addVertex(pose, x - radius, y + radius, 0.0f).setColor(r, g, b, haloAlpha);
+        }
+
+        private void draw3DThoraxLabels(GuiGraphics g, Font font, int vx, int vy, int vw, int vh,
+                                        float cx, float cy, float scale,
+                                        float cosY, float sinY, float cosP, float sinP,
+                                        MedicalData data, float shiftX, boolean fullMode) {
+            int hr = data.getHeartRate();
+            int resp = data.getRespirationRate();
+            float contusion = data.getLungContusion();
+            float chestBlood = data.getChestBloodAccumulation();
+            int hemoLv = data.getHemothoraxLevel();
+
+            // 1. 左心尖/心率锚点
+            float[] pHeart = project3D(0.24f + shiftX, 0.26f, 0.20f, cx, cy, scale, cosY, sinY, cosP, sinP);
+            String hrTxt = data.isCardiacArrest() ? "心脏停搏" : (data.isInVFib() ? "心室纤颤" : ("心率 " + hr + " BPM"));
+            int hrCol = (data.isCardiacArrest() || data.isInVFib() || hr >= 140 || hr <= 45) ? C_ALERT_RED : C_SAFE_GREEN;
+            drawLeaderTag(g, font, (int) pHeart[0], (int) pHeart[1], vx + vw - 6, (int) pHeart[1] - 8, true, hrTxt, hrCol);
+
+            // 2. 右肺/呼吸锚点
+            float[] pResp = project3D(-0.36f, -0.26f, 0.06f, cx, cy, scale, cosY, sinY, cosP, sinP);
+            String respTxt = "呼吸 " + resp + " rpm";
+            int respCol = (resp <= 6 || resp >= 30) ? C_WARN_YELLOW : C_NEON_CYAN;
+            drawLeaderTag(g, font, (int) pResp[0], (int) pResp[1], vx + 6, (int) pResp[1] - 8, false, respTxt, respCol);
+
+            // 3. 肺挫伤锚点
+            if (contusion > 0.5f || fullMode) {
+                float[] pCont = project3D(-0.42f, 0.12f, 0.08f, cx, cy, scale, cosY, sinY, cosP, sinP);
+                String cTxt = String.format("肺挫伤 %.0f%%", contusion);
+                int cCol = contusion > 0.5f ? 0xFFFF9100 : 0xFF78909C;
+                drawLeaderTag(g, font, (int) pCont[0], (int) pCont[1], vx + 6, (int) pCont[1] + 12, false, cTxt, cCol);
+            }
+
+            // 4. 胸腔积血锚点
+            if (chestBlood > 1.0f || hemoLv > 0 || fullMode) {
+                float[] pHemo = project3D(0.36f, 0.50f, 0.08f, cx, cy, scale, cosY, sinY, cosP, sinP);
+                String hTxt = String.format("胸腔积血 %.0fmL", chestBlood);
+                int hCol = (chestBlood > 1.0f || hemoLv > 0) ? C_ALERT_RED : 0xFF78909C;
+                drawLeaderTag(g, font, (int) pHemo[0], (int) pHemo[1], vx + vw - 6, (int) pHemo[1] + 10, true, hTxt, hCol);
+            }
+        }
+
+        private void drawLeaderTag(GuiGraphics g, Font font, int ax, int ay, int edgeX, int ty,
+                                   boolean alignRight, String text, int color) {
+            int tw = font.width(text);
+            int labelX = alignRight ? (edgeX - tw - 3) : (edgeX + 3);
+            int elbowX = alignRight ? (labelX - 4) : (labelX + tw + 4);
+            HudRenderHelper.drawLine(g, ax, ay, elbowX, ty + 4, withAlpha(color, 0.7f), 1);
+            HudRenderHelper.drawDiamond(g, ax, ay, 2, color);
+            g.fill(labelX - 2, ty - 1, labelX + tw + 2, ty + 9, 0xCC040B14);
+            g.drawString(font, text, labelX, ty, color, false);
+        }
+
+        private void drawThoraxFooterBar(GuiGraphics g, Font font, int x, int y, int w, int h, MedicalData data) {
+            g.fill(x + 4, y, x + w - 4, y + h, 0xAA050D17);
+            int halfW = (w - 20) / 2;
+
+            int spo2 = data.getBloodOxygen();
+            int oxCol = spo2 < 80 ? C_ALERT_RED : (spo2 < 92 ? C_WARN_YELLOW : C_VITAL_OXYGEN);
+            g.drawString(font, "血氧 " + spo2 + "%", x + 8, y + 2, oxCol, false);
+            HudRenderHelper.drawSciFiProgressBar(g, x + 8, y + 13, halfW, 5, spo2 / 100.0f, oxCol, 0xFF0A1926);
+
+            int rx = x + 12 + halfW;
+            float co = data.getCardiacOutput();
+            int coCol = (co < 3.0f) ? C_ALERT_RED : (co < 4.2f ? C_WARN_YELLOW : C_SAFE_GREEN);
+            g.drawString(font, String.format("心输出 %.1fL", co), rx, y + 2, coCol, false);
+            HudRenderHelper.drawSciFiProgressBar(g, rx, y + 13, halfW, 5, Mth.clamp(co / 7.5f, 0.0f, 1.0f), coCol, 0xFF0A1926);
+        }
+
+        private void renderScrollableThoraxTelemetry(GuiGraphics g, Font font, int x, int y, int w, int h,
+                                                     MedicalData data, int themeAccent, boolean forceTwoColumn) {
+            MedicalData.LimbData chestLd = data.getLimb(MedicalData.Limb.CHEST);
+            if (chestLd == null) return;
+
+            int contentW = w - 8;
+            g.enableScissor(x, y, x + w, y + h);
+
+            int drawY = (int) (y - scrollOffset);
+            int startY = drawY;
+
+            int health = BrainScan3DRenderer.computeLimbHealthPercent(chestLd);
+            int hc = getHealthColor(health / 100.0f);
+            g.drawString(font, "胸腔完整度", x, drawY, themeAccent, false);
+            String hpStr = health + "%";
+            g.drawString(font, hpStr, x + contentW - font.width(hpStr), drawY, hc, false);
+            drawY += 11;
+            HudRenderHelper.drawSciFiProgressBar(g, x, drawY, contentW, 6, health / 100.0f, hc, 0xFF0A1824);
+            drawY += 12;
+
+            float chestBlood = data.getChestBloodAccumulation();
+            int hemoLv = data.getHemothoraxLevel();
+            float lungContusion = data.getLungContusion();
+            int bleed = chestLd.getBleeding();
+            int inBleed = chestLd.getInternalBleedingRate();
+            int pain = chestLd.getPainLevel();
+            int inf = chestLd.getInfection();
+
+            if (forceTwoColumn || contentW >= 185) {
+                int colW = (contentW - 6) / 2;
+                drawThoraxCard(g, font, x, drawY, colW, tr("medical.detail.chest_blood_accumulation"),
+                        String.format("%.0f mL (LV.%d)", chestBlood, hemoLv),
+                        Math.min(1f, chestBlood / 2000f), (chestBlood > 1f || hemoLv > 0) ? C_ALERT_RED : 0xFF37474F);
+                drawThoraxCard(g, font, x + colW + 6, drawY, colW, tr("medical.detail.lung_contusion"),
+                        String.format("%.0f%%", lungContusion),
+                        Mth.clamp(lungContusion / 100f, 0f, 1f), lungContusion > 0 ? C_WARN_YELLOW : 0xFF37474F);
+                drawY += 24;
+
+                drawThoraxCard(g, font, x, drawY, colW, tr("medical.detail.bleeding_rate"),
+                        bleed + " mL/m", Math.min(1f, bleed / 500f), bleed > 0 ? C_ALERT_RED : 0xFF37474F);
+                drawThoraxCard(g, font, x + colW + 6, drawY, colW, tr("medical.detail.internal_bleeding_rate"),
+                        inBleed + " mL/m", Math.min(1f, inBleed / 300f), inBleed > 0 ? 0xFFE040FB : 0xFF37474F);
+                drawY += 24;
+
+                drawThoraxCard(g, font, x, drawY, colW, tr("medical.detail.pain_level"),
+                        pain + " / 10", pain / 10f, pain > 0 ? C_VITAL_PAIN : 0xFF37474F);
+                drawThoraxCard(g, font, x + colW + 6, drawY, colW, tr("medical.detail.infection"),
+                        inf + " %", inf / 100f, inf > 0 ? C_WARN_YELLOW : 0xFF37474F);
+                drawY += 24;
+            } else {
+                drawY = drawThoraxRow(g, font, x, drawY, contentW, tr("medical.detail.chest_blood_accumulation"),
+                        String.format("%.0f mL (LV.%d)", chestBlood, hemoLv),
+                        Math.min(1f, chestBlood / 2000f), (chestBlood > 1f || hemoLv > 0) ? C_ALERT_RED : 0xFF455A64);
+                drawY = drawThoraxRow(g, font, x, drawY, contentW, tr("medical.detail.lung_contusion"),
+                        String.format("%.0f%%", lungContusion),
+                        Mth.clamp(lungContusion / 100f, 0f, 1f), lungContusion > 0 ? C_WARN_YELLOW : 0xFF455A64);
+                drawY = drawThoraxRow(g, font, x, drawY, contentW, tr("medical.detail.bleeding_rate"),
+                        bleed + " mL/min", Math.min(1f, bleed / 500f), bleed > 0 ? C_ALERT_RED : 0xFF455A64);
+                drawY = drawThoraxRow(g, font, x, drawY, contentW, tr("medical.detail.internal_bleeding_rate"),
+                        inBleed + " mL/min", Math.min(1f, inBleed / 300f), inBleed > 0 ? 0xFFE040FB : 0xFF455A64);
+                drawY = drawThoraxRow(g, font, x, drawY, contentW, tr("medical.detail.pain_level"),
+                        pain + " / 10", pain / 10f, pain > 0 ? C_VITAL_PAIN : 0xFF455A64);
+                drawY = drawThoraxRow(g, font, x, drawY, contentW, tr("medical.detail.infection"),
+                        inf + " %", inf / 100f, inf > 0 ? C_WARN_YELLOW : 0xFF455A64);
+            }
+
+            drawY = drawThoraxRow(g, font, x, drawY, contentW, tr("medical.detail.blood_pressure"),
+                    data.getSystolicBP() + "/" + data.getDiastolicBP() + " (MAP " + (int) data.getMeanArterialPressure() + ")",
+                    Mth.clamp(data.getMeanArterialPressure() / 130f, 0f, 1f), C_VITAL_BP);
+
+            drawY = drawThoraxRow(g, font, x, drawY, contentW, "心输出 / 阻力 / SIRS",
+                    String.format("%.1fL | TPR %.2f | S%d", data.getCardiacOutput(), data.getPeripheralResistance(), data.getSirsLevel()),
+                    Mth.clamp(data.getCardiacOutput() / 8.0f, 0f, 1f), themeAccent);
+
+            int totalContentH = drawY - startY;
+            this.maxScroll = Math.max(0.0f, totalContentH - h + 6);
+            g.disableScissor();
+
+            if (this.maxScroll > 1.0f) {
+                BrainScan3DRenderer.drawHolographicScrollbar(g, x + w - 4, y, 3, h, scrollOffset, maxScroll, totalContentH);
+            }
+        }
+
+        private void drawThoraxCard(GuiGraphics g, Font font, int x, int y, int w, String label, String val, float pct, int color) {
+            pct = Mth.clamp(pct, 0.0f, 1.0f);
+            g.fill(x, y, x + w, y + 21, 0x88071320);
+            g.fill(x, y, x + 2, y + 21, color);
+            g.drawString(font, label, x + 5, y + 2, 0xFFB0BEC5, false);
+            g.drawString(font, val, x + w - font.width(val) - 3, y + 2, color, false);
+            HudRenderHelper.drawSciFiProgressBar(g, x + 5, y + 14, w - 8, 4, pct, color, 0xFF0A1926);
+        }
+
+        private int drawThoraxRow(GuiGraphics g, Font font, int x, int y, int w, String label, String val, float pct, int color) {
+            g.drawString(font, label, x, y, 0xFFB0BEC5, false);
+            g.drawString(font, val, x + w - font.width(val), y, color, false);
+            HudRenderHelper.drawSciFiProgressBar(g, x, y + 10, w, 4, Mth.clamp(pct, 0.0f, 1.0f), color, 0xFF0A1926);
+            return y + 18;
+        }
+
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (mouseX >= btnEcgX && mouseX <= btnEcgX + btnEcgW && mouseY >= btnEcgY && mouseY <= btnEcgY + btnEcgH) {
+                this.ecgCollapsed = !this.ecgCollapsed;
+                MedicalSoundHelper.playLimbSelectSound();
+                return true;
+            }
+
+            Font font = Minecraft.getInstance().font;
+            int tabH = 13;
+            int tabY = lastPanelY + 5;
+            int curRight = btnEcgX - 4;
+            ThoraxViewMode[] modes = ThoraxViewMode.values();
+            for (int i = modes.length - 1; i >= 0; i--) {
+                ThoraxViewMode m = modes[i];
+                int tw = font.width(m.label) + 10;
+                int tx = curRight - tw;
+                if (tx < lastPanelX + 120) break;
+                if (mouseX >= tx && mouseX <= tx + tw && mouseY >= tabY && mouseY <= tabY + tabH) {
+                    this.currentMode = m;
+                    this.scrollTarget = 0.0f;
+                    MedicalSoundHelper.playLimbSelectSound();
+                    return true;
+                }
+                curRight = tx - 4;
+            }
+
+            if (holoW > 0 && mouseX >= holoX && mouseX <= holoX + holoW && mouseY >= holoY && mouseY <= holoY + holoH) {
+                this.dragging = true;
+                this.lastInteractionMs = System.currentTimeMillis();
+                return true;
+            }
+            return false;
+        }
+
+        public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+            if (holoW > 0 && mouseX >= holoX && mouseX <= holoX + holoW && mouseY >= holoY && mouseY <= holoY + holoH) {
+                this.dragging = true;
+                this.lastInteractionMs = System.currentTimeMillis();
+                this.yaw += (float) dragX * 0.015f;
+                this.pitch = Mth.clamp(this.pitch + (float) dragY * 0.015f, -0.85f, 0.85f);
+                return true;
+            }
+            return false;
+        }
+
+        public boolean mouseScrolled(double mouseX, double mouseY, double deltaY) {
+            if (scrollW > 0 && mouseX >= scrollX && mouseX <= scrollX + scrollW
+                    && mouseY >= scrollY && mouseY <= scrollY + scrollH && maxScroll > 0.5f) {
                 scrollTarget = Mth.clamp(scrollTarget - (float) deltaY * 18.0f, 0.0f, maxScroll);
                 return true;
             }

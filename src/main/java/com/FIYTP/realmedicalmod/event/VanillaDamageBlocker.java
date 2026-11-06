@@ -2,6 +2,7 @@ package com.FIYTP.realmedicalmod.event;
 
 import com.FIYTP.realmedicalmod.capability.MedicalData;
 import com.FIYTP.realmedicalmod.capability.MedicalDataCapability;
+import com.FIYTP.realmedicalmod.config.MedicalConfig;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -16,47 +17,42 @@ import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 /**
  * 原版伤害与原版死亡终极兜底拦截器 (VanillaDamageBlocker)
  *
- * 专门修复原版伤害残留导致玩家在脑健康 (brainHealth > 0) 正常时却发生“原版空血死亡”的严重 Bug：
- *
- * 【原代码存在的 3 处漏网漏洞】：
- * 1. FallDamageHandler.java 漏洞：
- *    仅在坠落距离 distance < safeDist (5格) 时调用了 event.setDamageMultiplier(0.0f)；
- *    而在 distance >= 5 格结算完腿部骨折与脑损伤后，末尾漏写了 event.setDamageMultiplier(0.0f)！
- *    同时 HitPartHandler.java 第 37 行遇到 "fall" 直接 return 而未调用 setNewDamage(0.0f)，
- *    导致 >= 5 格的高空坠落（以及末影珍珠落地）100% 扣除玩家隐藏的原版 20 点血量并直接摔死！
- *
- * 2. HitPartHandler.java 火焰伤害漏洞：
- *    第 70~74 行处理 category == DamageCategory.FIRE（火焰、岩浆、熔岩块、火球）时，
- *    在调用 handleBurnAccumulation(...) 后直接 return，早于第 77 行的 container.setNewDamage(0.0f)，
- *    导致所有火焰与岩浆伤害 100% 扣除玩家隐藏的原版血量并直接烧死！
- *
- * 3. 环境窒息/饥饿与其它未分类伤害漏洞：
- *    当遇到墙体窒息 (inWall)、飞撞墙壁 (flyIntoWall)、饥饿 (starve)、细雪冻伤 (freeze) 或其它模组伤害时，
- *    原版隐藏血条会被暗中扣空，触发非脑死亡的原版死亡。
- *
- * 【本拦截器工作机制】：
- * - 采用 EventPriority.LOWEST（最低优先级），确保在 FallDamageHandler 和 HitPartHandler 完整读取原版伤害数值、
- *   完成所有部位出血、骨折、烧伤、毒素、截肢与脑损伤计算【之后】，再统一将原版扣血归零 (setNewDamage(0.0f))！
- * - 采用 EventPriority.HIGHEST 拦截 LivingDeathEvent：只要死因不是指令杀/脑死亡 (genericKill) 且不是掉入虚空 (outOfWorld)，
- *   且玩家当前 brainHealth > 0，一律取消原版死亡并将隐藏原版血量锁满为 20.0f！
+ * 核心机制：
+ * 1. 保留 >= 安全高度 (SAFE_FALL_DISTANCE) 摔伤时的原版受击反馈（红闪、镜头受击倾斜、摔落骨骼/受击音效）：
+ *    在 LivingFallEvent 的最低优先级中，若坠落高度 >= SAFE_FALL_DISTANCE，保持 damageMultiplier = 1.0f，
+ *    使原版 LivingEntity#causeFallDamage 正常进入 hurt() 触发全套原版受伤视听反馈；
+ *    随后在 LivingDamageEvent.Pre 的最低优先级中将实际扣除的 HP 置为 0 (setNewDamage(0.0f))，做到“有受击反馈、不扣原版血量”。
+ * 2. 拦截火焰、窒息、饥饿等一切非脑死亡原版扣血，并在 brainHealth > 0 时阻止一切非虚空/非指令杀的原版死亡。
  */
 @EventBusSubscriber(modid = "realmedicalmod")
 public class VanillaDamageBlocker {
 
     /**
-     * 1. 在 FallDamageHandler (NORMAL 优先级) 结算完 >=5 格坠落的医疗骨折/脑伤之后，
-     *    以 LOWEST 优先级将原版坠落伤害倍率彻底清零，防止后续产生原版摔落扣血。
+     * 1. 在 FallDamageHandler 结算完医疗骨折/内出血/疼痛之后：
+     *    - 若坠落距离 < SAFE_FALL_DISTANCE（安全高度内），清零伤害倍率以消除无伤小跳抖动；
+     *    - 若坠落距离 >= SAFE_FALL_DISTANCE（实际摔伤），恢复 damageMultiplier = 1.0f，
+     *      让原版 causeFallDamage 正常调用 hurt() 播放摔落音效、身体泛红与受击镜头摇晃！
+     *      （实际 HP 扣减将在随后的 onLivingDamagePostIntercept 中被清零，绝不会扣减原版血量）
      */
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onLivingFallPost(LivingFallEvent event) {
         if (!(event.getEntity() instanceof Player)) return;
-        event.setDamageMultiplier(0.0f);
-        event.getEntity().fallDistance = 0.0f;
+        float safeDist = MedicalConfig.SAFE_FALL_DISTANCE.get().floatValue();
+        if (event.getDistance() < safeDist) {
+            event.setDamageMultiplier(0.0f);
+            event.getEntity().fallDistance = 0.0f;
+        } else {
+            // 恢复非零倍率以触发原版 hurt() 受击反馈（红闪+音效+镜头倾斜），实际伤害由 LivingDamageEvent.Pre 归零
+            if (event.getDamageMultiplier() <= 0.0f) {
+                event.setDamageMultiplier(1.0f);
+            }
+        }
     }
 
     /**
-     * 2. 在 HitPartHandler (NORMAL 优先级) 读取伤害数值并完成部位出血/烧伤/爆炸/毒素结算之后，
+     * 2. 在 HitPartHandler 读取伤害数值并完成部位出血/烧伤/爆炸/毒素结算之后，
      *    以 LOWEST 优先级将所有非虚空、非脑死亡的原版 HP 扣血强制清零！
+     *    （此时原版 hurt() 的受击红闪、受击音效和镜头倾斜包已经触发完毕）
      */
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onLivingDamagePostIntercept(LivingDamageEvent.Pre event) {
@@ -81,7 +77,7 @@ public class VanillaDamageBlocker {
             }
         }
 
-        // 彻底归零原版伤害（涵盖 fall 坠落、FIRE 火焰/岩浆、drown 溺水、物理攻击、魔法、饥饿等全部伤害）
+        // 彻底归零原版 HP 扣血（保留 hurt() 已产生的红闪、镜头倾斜与受击音效）
         event.setNewDamage(0.0f);
 
         // 保持隐藏的原版生命值满血，防止之前残留的扣血累积致死
@@ -113,8 +109,7 @@ public class VanillaDamageBlocker {
 
     /**
      * 4. 每秒巡检一次玩家隐藏的原版血条：
-     *    只要玩家存活且 brainHealth > 0，始终将隐藏的原版生命值锁定在满值 (20.0f)，
-     *    避免任何第三方药水或特殊机制绕过伤害事件直接调用 setHealth 扣死玩家。
+     *    只要玩家存活且 brainHealth > 0，始终将隐藏的原版生命值锁定在满值 (20.0f)。
      */
     @SubscribeEvent
     public static void onPlayerTick(PlayerTickEvent.Post event) {
