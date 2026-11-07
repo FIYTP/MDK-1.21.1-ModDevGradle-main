@@ -1,6 +1,10 @@
 package com.FIYTP.realmedicalmod.treatment;
 
+import com.FIYTP.realmedicalmod.capability.MedicalData;
+import com.FIYTP.realmedicalmod.capability.MedicalDataCapability;
+import com.FIYTP.realmedicalmod.config.MedicalConfig;
 import net.minecraft.ChatFormatting;
+import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
@@ -10,23 +14,90 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.Level;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.fml.loading.FMLEnvironment;
 
 import java.util.List;
 
 /**
- * 通用医疗用品与阿片类镇痛注射器物品类 (BandageItem)
- *
- * 交互方式：
- * 1. 普通医疗用品（卷式绷带、加压绷带等）：
- *    【长按鼠标左键】呼出人体部位面板，移至目标肢体完成包扎，按实际吸收出血量扣除耐久。
- * 2. 阿片类强效镇痛针剂（盐酸吗啡自动注射器 morphine、枸橼酸芬太尼注射器 fentanyl）：
- *    - 【点击鼠标右键】或【长按鼠标左键选定肢体】均会打开「阿片类药物剂量推注滑块界面 (Dose Selection Slider)」，
- *      由玩家自由拖动滑块精确设定注入剂量（1% ~ 100%），并实时预览镇痛效果与延髓呼吸抑制/过量风险。
+ * 医疗用品与阿片类镇痛注射器物品类 (BandageItem)
  */
 public class BandageItem extends Item {
 
+    private static final String[] TIER1_TEMPTATION_NAMES = new String[] {
+            "「再打一点」",
+            "「止痛神水」",
+            "「一针解脱」",
+            "「温暖平静」"
+    };
+
+    private static final String[] TIER2_TEMPTATION_NAMES = new String[] {
+            "「再来一管」",
+            "「推下去吧」",
+            "「液态极乐」",
+            "「别忍着痛」"
+    };
+
+    private static final String[] TIER3_TEMPTATION_NAMES = new String[] {
+            "「全部推光！」",
+            "「推到底！」",
+            "「快给我！」",
+            "「不计代价！」"
+    };
+
     public BandageItem(Properties properties) {
         super(properties);
+    }
+
+    /**
+     * 使用长周期（4.5秒一档）+ 正弦连续占空比判定，使成瘾诱导状态持续时间长、触发概率高
+     */
+    public static boolean isAddictionHallucinating(int tier, long timeBucketSeed) {
+        if (tier <= 0) return false;
+        double chance = switch (tier) {
+            case 1 -> MedicalConfig.ADDICTION_NAME_HALLUCINATION_CHANCE_T1.get();
+            case 2 -> MedicalConfig.ADDICTION_NAME_HALLUCINATION_CHANCE_T2.get();
+            default -> MedicalConfig.ADDICTION_NAME_HALLUCINATION_CHANCE_T3.get();
+        };
+        if (chance >= 0.99) return true;
+        long hash = timeBucketSeed * 6364136223846793005L + 1442695040888963407L;
+        double roll = ((hash >>> 32) & 0xFFFF) / 65535.0;
+        return roll < chance;
+    }
+
+    @Override
+    public Component getName(ItemStack stack) {
+        if (FMLEnvironment.dist == Dist.CLIENT && TreatmentRouter.isOpioidItem(stack)) {
+            Component hallucinated = getClientHallucinatedName(stack);
+            if (hallucinated != null) {
+                return hallucinated;
+            }
+        }
+        return super.getName(stack);
+    }
+
+    private Component getClientHallucinatedName(ItemStack stack) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) return null;
+        MedicalData data = mc.player.getData(MedicalDataCapability.MEDICAL_DATA);
+        if (data == null) return null;
+
+        int tier = ModItems.getAddictionTier(data.getAddictionLevel());
+        if (tier <= 0) return null;
+
+        // 4.5 秒长周期窗口，避免闪烁过快或持续太短
+        long bucket = System.currentTimeMillis() / 4500L;
+        int itemSalt = TreatmentRouter.isFentanylItem(stack) ? 31 : 7;
+        if (!isAddictionHallucinating(tier, bucket + itemSalt)) {
+            return null;
+        }
+
+        String[] pool = (tier == 1) ? TIER1_TEMPTATION_NAMES
+                : (tier == 2 ? TIER2_TEMPTATION_NAMES : TIER3_TEMPTATION_NAMES);
+        int idx = (int) (Math.abs(bucket * 13L + itemSalt) % pool.length);
+        ChatFormatting style = (tier == 1) ? ChatFormatting.LIGHT_PURPLE
+                : (tier == 2 ? ChatFormatting.GOLD : ChatFormatting.RED);
+        return Component.literal(pool[idx]).withStyle(style, ChatFormatting.ITALIC);
     }
 
     @Override
@@ -40,10 +111,10 @@ public class BandageItem extends Item {
             return super.getBarColor(stack);
         }
         if (TreatmentRouter.isFentanylItem(stack)) {
-            return 0xFF00E5FF; // 芬太尼冰青色药液进度条
+            return 0xFF00E5FF;
         }
         if (TreatmentRouter.isOpioidItem(stack)) {
-            return 0xFFFFB300; // 吗啡琥珀金药液进度条
+            return 0xFFFFB300;
         }
         float ratio = Mth.clamp(
                 (float) (stack.getMaxDamage() - stack.getDamageValue()) / (float) stack.getMaxDamage(),
@@ -58,12 +129,11 @@ public class BandageItem extends Item {
         ItemStack stack = player.getItemInHand(hand);
         if (level.isClientSide()) {
             if (TreatmentRouter.isOpioidItem(stack)) {
-                // 手持吗啡或芬太尼右键：直接呼出全息剂量推注滑块面板！
                 TreatmentClientHooks.openOpioidDoseScreen(hand, null);
                 return InteractionResultHolder.success(stack);
             } else {
                 player.displayClientMessage(
-                        Component.literal("长按左键选择部位包扎")
+                        Component.literal("长按左键选部位")
                                 .withStyle(ChatFormatting.AQUA),
                         true
                 );
@@ -75,16 +145,42 @@ public class BandageItem extends Item {
     @Override
     public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltipComponents, TooltipFlag tooltipFlag) {
         super.appendHoverText(stack, context, tooltipComponents, tooltipFlag);
-        for (String line : TreatmentRouter.getItemEffectSummary(stack)) {
-            ChatFormatting color = line.contains("过量") || line.contains("呼吸抑制")
-                    ? ChatFormatting.RED
-                    : ChatFormatting.GRAY;
-            tooltipComponents.add(Component.literal("• " + line).withStyle(color));
+
+        int addictionTier = 0;
+        if (FMLEnvironment.dist == Dist.CLIENT && TreatmentRouter.isOpioidItem(stack)) {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.player != null) {
+                MedicalData data = mc.player.getData(MedicalDataCapability.MEDICAL_DATA);
+                if (data != null) {
+                    addictionTier = ModItems.getAddictionTier(data.getAddictionLevel());
+                }
+            }
         }
+
+        long bucket = System.currentTimeMillis() / 4500L;
+        boolean maskWarning = addictionTier >= 1 && isAddictionHallucinating(addictionTier, bucket + 99L);
+
+        for (String line : TreatmentRouter.getItemEffectSummary(stack)) {
+            if (maskWarning && (line.contains("过量") || line.contains("抑制"))) {
+                tooltipComponents.add(Component.literal("• ✦ 推到底，不再疼痛")
+                        .withStyle(ChatFormatting.LIGHT_PURPLE, ChatFormatting.ITALIC));
+            } else {
+                ChatFormatting color = line.contains("过量") || line.contains("抑制")
+                        ? ChatFormatting.RED
+                        : ChatFormatting.GRAY;
+                tooltipComponents.add(Component.literal("• " + line).withStyle(color));
+            }
+        }
+
         if (TreatmentRouter.isOpioidItem(stack)) {
-            tooltipComponents.add(Component.literal("[右键 / 长按左键] 调节滑块设定推注剂量").withStyle(ChatFormatting.GOLD));
+            if (addictionTier >= 1 && isAddictionHallucinating(addictionTier, bucket + 55L)) {
+                tooltipComponents.add(Component.literal("「快推入静脉...」")
+                        .withStyle(ChatFormatting.LIGHT_PURPLE, ChatFormatting.ITALIC));
+            } else {
+                tooltipComponents.add(Component.literal("[右键/左键] 选剂量注射").withStyle(ChatFormatting.GOLD));
+            }
         } else {
-            tooltipComponents.add(Component.literal("[长按左键] 选择部位施救").withStyle(ChatFormatting.AQUA));
+            tooltipComponents.add(Component.literal("[长按左键] 选部位").withStyle(ChatFormatting.AQUA));
         }
     }
 }

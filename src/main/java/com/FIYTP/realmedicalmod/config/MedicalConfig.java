@@ -214,24 +214,20 @@ public class MedicalConfig {
     public static final ModConfigSpec.DoubleValue IC_LEVEL4_BRAIN_DAMAGE;
 
     // ================= 血压系统 (blood_pressure) =================
-    // 血压基础值
     public static final ModConfigSpec.IntValue NORMAL_SBP;
     public static final ModConfigSpec.IntValue NORMAL_DBP;
     public static final ModConfigSpec.DoubleValue NORMAL_MAP;
     public static final ModConfigSpec.DoubleValue NORMAL_CO;
     public static final ModConfigSpec.DoubleValue MAP_APPROACH_SPEED;
 
-    // 外周阻力
     public static final ModConfigSpec.DoubleValue TPR_NORMAL;
     public static final ModConfigSpec.DoubleValue TPR_COMPENSATED;
     public static final ModConfigSpec.DoubleValue TPR_DECOMPENSATED;
 
-    // 阈值
     public static final ModConfigSpec.DoubleValue MAP_HYPOTENSION;
     public static final ModConfigSpec.DoubleValue MAP_SEVERE_HYPOTENSION;
     public static final ModConfigSpec.IntValue SBP_HYPERTENSIVE_CRISIS;
 
-    // 血压对出血的修正系数
     public static final ModConfigSpec.DoubleValue BLEED_MULT_MAP_BELOW_40;
     public static final ModConfigSpec.DoubleValue BLEED_MULT_MAP_40_55;
     public static final ModConfigSpec.DoubleValue BLEED_MULT_MAP_55_70;
@@ -242,14 +238,12 @@ public class MedicalConfig {
     public static final ModConfigSpec.DoubleValue BLEED_MULT_MAP_145_165;
     public static final ModConfigSpec.DoubleValue BLEED_MULT_MAP_ABOVE_165;
 
-    // 部位类型系数
     public static final ModConfigSpec.DoubleValue EXTERNAL_MULTIPLIER;
     public static final ModConfigSpec.DoubleValue CHEST_EXTERNAL_MULTIPLIER;
     public static final ModConfigSpec.DoubleValue INTERNAL_MULTIPLIER;
     public static final ModConfigSpec.DoubleValue HEMOTHORAX_MULTIPLIER;
     public static final ModConfigSpec.DoubleValue INTRACRANIAL_MULTIPLIER;
 
-    // 意识影响系数
     public static final ModConfigSpec.DoubleValue CONS_PENALTY_MAP_60;
     public static final ModConfigSpec.DoubleValue CONS_PENALTY_MAP_50;
     public static final ModConfigSpec.DoubleValue CONS_PENALTY_MAP_40;
@@ -258,7 +252,6 @@ public class MedicalConfig {
     public static final ModConfigSpec.DoubleValue CONS_PENALTY_SBP_200;
     public static final ModConfigSpec.DoubleValue CONS_PENALTY_SBP_220;
 
-    // 脑健康影响系数
     public static final ModConfigSpec.DoubleValue BRAIN_PENALTY_MAP_BELOW_50;
     public static final ModConfigSpec.DoubleValue BRAIN_PENALTY_SBP_ABOVE_200;
 
@@ -282,7 +275,6 @@ public class MedicalConfig {
     public static final ModConfigSpec.BooleanValue DISINFECTANT_BLOCKS_GROWTH;
 
     // ================= SIRS 全身炎症反应 (sirs) =================
-    // SIRS 触发与晋级
     public static final ModConfigSpec.IntValue SIRS_LIMB_THRESHOLD;
     public static final ModConfigSpec.IntValue SIRS_TOTAL_THRESHOLD;
     public static final ModConfigSpec.IntValue SIRS_PROGRESSION_INTERVAL;
@@ -293,7 +285,6 @@ public class MedicalConfig {
     public static final ModConfigSpec.IntValue SIRS_RECOVERY_INTERVAL_L2_TO_L1;
     public static final ModConfigSpec.IntValue SIRS_RECOVERY_INTERVAL_L1_TO_L0;
 
-    // 环境倍率
     public static final ModConfigSpec.DoubleValue SIRS_ENV_WATER;
     public static final ModConfigSpec.DoubleValue SIRS_ENV_CAVE;
     public static final ModConfigSpec.DoubleValue SIRS_ENV_NETHER;
@@ -301,7 +292,6 @@ public class MedicalConfig {
     public static final ModConfigSpec.DoubleValue SIRS_ENV_INDOOR;
     public static final ModConfigSpec.DoubleValue SIRS_ENV_NORMAL;
 
-    // SIRS 各等级对系统的影响
     public static final ModConfigSpec.IntValue SIRS_HEART_BONUS_PER_LEVEL;
     public static final ModConfigSpec.IntValue SIRS_RESP_BONUS_PER_LEVEL;
     public static final ModConfigSpec.DoubleValue SIRS_OXYGEN_PENALTY_PER_LEVEL;
@@ -309,7 +299,6 @@ public class MedicalConfig {
     public static final ModConfigSpec.DoubleValue SIRS_BLOOD_LOSS_L3;
     public static final ModConfigSpec.DoubleValue SIRS_BLOOD_LOSS_L4;
 
-    // SIRS 对 TPR（血压）的影响
     public static final ModConfigSpec.DoubleValue SIRS_TPR_MODIFIER_L1;
     public static final ModConfigSpec.DoubleValue SIRS_TPR_MODIFIER_L2;
     public static final ModConfigSpec.DoubleValue SIRS_TPR_MODIFIER_L3;
@@ -387,10 +376,8 @@ public class MedicalConfig {
     public static final ModConfigSpec.BooleanValue AMPUTATION_ARM_INTERACTION_ALLOWED;
 
     // ================= 连续仲裁 buff 系统 (arbitrated_buffs) =================
-    // 通用
     public static final ModConfigSpec.DoubleValue ARBITER_MIN_MULTIPLIER;
     public static final ModConfigSpec.IntValue POTION_HYSTERESIS_TICKS;
-    // 疼痛连续系数
     public static final ModConfigSpec.DoubleValue PAIN_LEG_SPEED_SLOPE;
     public static final ModConfigSpec.DoubleValue PAIN_ARM_ATTACK_SLOPE;
     public static final ModConfigSpec.DoubleValue PAIN_ARM_SPEED_SLOPE;
@@ -403,65 +390,52 @@ public class MedicalConfig {
     public static final ModConfigSpec.DoubleValue PAIN_SYSTEMIC_MAX_SPEED_PENALTY;
     public static final ModConfigSpec.DoubleValue PAIN_SYSTEMIC_MAX_ACTION_PENALTY;
     public static final ModConfigSpec.IntValue PAIN_SPRINT_LOCK_THRESHOLD;
-    // 失血与血氧
     public static final ModConfigSpec.DoubleValue BLOOD_LOSS_SPEED_SLOPE;
     public static final ModConfigSpec.DoubleValue BLOOD_LOSS_ATTACK_SLOPE;
     public static final ModConfigSpec.DoubleValue BLOOD_LOSS_DIG_SLOPE;
     public static final ModConfigSpec.IntValue HYPOXIA_ONSET_SPO2;
     public static final ModConfigSpec.DoubleValue HYPOXIA_MAX_PENALTY;
-    // SIRS 感染
     public static final ModConfigSpec.DoubleValue SIRS_FATIGUE_PER_LEVEL;
     public static final ModConfigSpec.DoubleValue SEPSIS_MIN_MULTIPLIER;
-    // 意识压制
     public static final ModConfigSpec.DoubleValue CONSC_IMPACT_FACTOR;
     public static final ModConfigSpec.DoubleValue CONSC_IMPACT_UNCONSCIOUS;
-    // 器官伤
     public static final ModConfigSpec.DoubleValue HEMOTHORAX_L3_SPEED_MULTIPLIER;
     public static final ModConfigSpec.DoubleValue HEMOTHORAX_L4_SPEED_MULTIPLIER;
     public static final ModConfigSpec.DoubleValue CONTUSION_FATIGUE_SLOPE;
     public static final ModConfigSpec.IntValue IC_BLINDNESS_L3;
     public static final ModConfigSpec.IntValue IC_BLINDNESS_L4;
-    // 感知药水插值
     public static final ModConfigSpec.IntValue PERCEIVED_PAIN_BLINDNESS_THRESHOLD;
     public static final ModConfigSpec.IntValue PERCEIVED_PAIN_NAUSEA_THRESHOLD;
-    // 挖掘药水插值（无挖掘属性，DIG_SLOWDOWN 插值）
     public static final ModConfigSpec.IntValue DIG_SLOWDOWN_FRACTURE_MAX_LEVEL;
 
     // ================= 中毒系统 (toxin) =================
-    // 累加与代谢
     public static final ModConfigSpec.DoubleValue TOXIN_ACCUMULATION_RATE;
     public static final ModConfigSpec.DoubleValue TOXIN_DECAY_RATE;
     public static final ModConfigSpec.DoubleValue TOXIN_IMMUNE_DECAY_MULT;
-    // 阈值分级
     public static final ModConfigSpec.DoubleValue TOXIN_MILD_THRESHOLD;
     public static final ModConfigSpec.DoubleValue TOXIN_MID_THRESHOLD;
     public static final ModConfigSpec.DoubleValue TOXIN_SEVERE_THRESHOLD;
     public static final ModConfigSpec.DoubleValue TOXIN_CRITICAL_THRESHOLD;
-    // 症状斜率
     public static final ModConfigSpec.DoubleValue TOXIN_NAUSEA_SLOPE;
     public static final ModConfigSpec.DoubleValue TOXIN_RESP_RATE_SLOPE;
     public static final ModConfigSpec.DoubleValue TOXIN_RESP_SUPPRESSION_SLOPE;
     public static final ModConfigSpec.DoubleValue TOXIN_CONSCIOUSNESS_SLOPE;
     public static final ModConfigSpec.DoubleValue TOXIN_TPR_SLOPE;
     public static final ModConfigSpec.DoubleValue TOXIN_STROKE_VOLUME_SLOPE;
-    // 重度并发症
     public static final ModConfigSpec.DoubleValue TOXIN_INFECTION_RATE;
     public static final ModConfigSpec.DoubleValue TOXIN_VFIB_CHANCE;
     public static final ModConfigSpec.DoubleValue TOXIN_CLOTTING_TIME_MULT;
 
     // ================= 烧伤系统 (burn) =================
-    // 入口与负荷
     public static final ModConfigSpec.DoubleValue BURN_LOAD_PER_DAMAGE;
     public static final ModConfigSpec.DoubleValue BURN_CONVERSION_RATE;
     public static final ModConfigSpec.DoubleValue BURN_AREA_PER_DAMAGE;
     public static final ModConfigSpec.IntValue BURN_HEAT_WINDOW;
     public static final ModConfigSpec.DoubleValue BURN_IRRIGATION_RATE;
-    // 深度阈值
     public static final ModConfigSpec.DoubleValue BURN_DEGREE_I;
     public static final ModConfigSpec.DoubleValue BURN_DEGREE_SHALLOW_II;
     public static final ModConfigSpec.DoubleValue BURN_DEGREE_DEEP_II;
     public static final ModConfigSpec.DoubleValue BURN_DEGREE_III;
-    // TBSA 权重与部位分配
     public static final ModConfigSpec.DoubleValue BURN_TBSA_WEIGHT_HEAD;
     public static final ModConfigSpec.DoubleValue BURN_TBSA_WEIGHT_CHEST;
     public static final ModConfigSpec.DoubleValue BURN_TBSA_WEIGHT_ARM;
@@ -471,18 +445,15 @@ public class MedicalConfig {
     public static final ModConfigSpec.DoubleValue BURN_PLACEMENT_ARM;
     public static final ModConfigSpec.DoubleValue BURN_PLACEMENT_LEG;
     public static final ModConfigSpec.DoubleValue BURN_STICKINESS;
-    // TBSA 锚点
     public static final ModConfigSpec.DoubleValue BURN_TBSA_PAIN_THRESHOLD;
     public static final ModConfigSpec.DoubleValue BURN_TBSA_SHOCK_THRESHOLD;
     public static final ModConfigSpec.DoubleValue BURN_TBSA_COAGULOPATHY_THRESHOLD;
-    // 渗漏休克与回吸收
     public static final ModConfigSpec.DoubleValue BURN_LEAK_BASE;
     public static final ModConfigSpec.IntValue BURN_LEAK_PEAK_TIME;
     public static final ModConfigSpec.IntValue BURN_LEAK_DURATION;
     public static final ModConfigSpec.IntValue BURN_EDEMA_RETURN_START;
     public static final ModConfigSpec.IntValue BURN_EDEMA_RETURN_END;
     public static final ModConfigSpec.DoubleValue BURN_TOXIN_RELEASE;
-    // 疼痛/感染/愈合
     public static final ModConfigSpec.DoubleValue BURN_PAIN_I;
     public static final ModConfigSpec.DoubleValue BURN_PAIN_SHALLOW_II;
     public static final ModConfigSpec.DoubleValue BURN_PAIN_DEEP_II;
@@ -496,7 +467,6 @@ public class MedicalConfig {
     public static final ModConfigSpec.DoubleValue BURN_HEAL_MULT_BANDAGED;
     public static final ModConfigSpec.DoubleValue BURN_PAIN_MULT_BANDAGED;
     public static final ModConfigSpec.DoubleValue BURN_INFECTION_MULT_BANDAGED;
-    // 吸入性损伤与代谢
     public static final ModConfigSpec.DoubleValue BURN_INHALATION_RATE;
     public static final ModConfigSpec.DoubleValue BURN_INHALATION_DECAY;
     public static final ModConfigSpec.DoubleValue BURN_INHALATION_VENT_MULT;
@@ -534,6 +504,29 @@ public class MedicalConfig {
     public static final ModConfigSpec.DoubleValue OPIOID_ACUTE_OVERDOSE_CONSCIOUSNESS_DROP;
     public static final ModConfigSpec.DoubleValue OPIOID_HEART_RATE_SLOPE;
     public static final ModConfigSpec.DoubleValue OPIOID_OVERDOSE_BRADYCARDIA_PENALTY;
+
+    // 阿片三级成瘾惩罚、心理诱导、滑块持续运动与 II/III 级戒断行动受限
+    public static final ModConfigSpec.IntValue ADDICTION_TIER1_THRESHOLD;
+    public static final ModConfigSpec.IntValue ADDICTION_TIER2_THRESHOLD;
+    public static final ModConfigSpec.IntValue ADDICTION_TIER3_THRESHOLD;
+    public static final ModConfigSpec.IntValue ADDICTION_DECAY_INTERVAL_SEC;
+    public static final ModConfigSpec.DoubleValue ADDICTION_NAME_HALLUCINATION_CHANCE_T1;
+    public static final ModConfigSpec.DoubleValue ADDICTION_NAME_HALLUCINATION_CHANCE_T2;
+    public static final ModConfigSpec.DoubleValue ADDICTION_NAME_HALLUCINATION_CHANCE_T3;
+    public static final ModConfigSpec.DoubleValue ADDICTION_BLIND_ZONE_CHANCE_T1;
+    public static final ModConfigSpec.DoubleValue ADDICTION_BLIND_ZONE_CHANCE_T2;
+    public static final ModConfigSpec.DoubleValue ADDICTION_BLIND_ZONE_CHANCE_T3;
+    public static final ModConfigSpec.DoubleValue ADDICTION_SLIDER_DRIFT_SPEED_T1;
+    public static final ModConfigSpec.DoubleValue ADDICTION_SLIDER_DRIFT_SPEED_T2;
+    public static final ModConfigSpec.DoubleValue ADDICTION_SLIDER_DRIFT_SPEED_T3;
+    public static final ModConfigSpec.IntValue ADDICTION_WITHDRAWAL_OPIOID_THRESHOLD;
+    public static final ModConfigSpec.DoubleValue ADDICTION_WITHDRAWAL_SPEED_MULT_T2;
+    public static final ModConfigSpec.DoubleValue ADDICTION_WITHDRAWAL_SPEED_MULT_T3;
+
+    // 注射阿片药物愉悦性视觉效果
+    public static final ModConfigSpec.BooleanValue OPIOID_EUPHORIA_ENABLED;
+    public static final ModConfigSpec.DoubleValue OPIOID_EUPHORIA_MAX_ALPHA;
+    public static final ModConfigSpec.DoubleValue OPIOID_EUPHORIA_RUSH_DURATION_SEC;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -855,7 +848,6 @@ public class MedicalConfig {
         PAIN_SECONDARY_LIMB_WEIGHT = builder
                 .comment("其余受伤肢体按非线性占比叠加的权重系数")
                 .defineInRange("painSecondaryLimbWeight", 30.0, 0.0, 200.0);
-        // ---- 疼痛视觉：红晕血管搏动 vignette ----
         PAIN_VIGNETTE_ENABLED = builder
                 .comment("体感疼痛红晕血管搏动视觉层（频率绑定心率，痛越重心跳越快红晕搏动越急促）")
                 .define("painVignetteEnabled", true);
@@ -868,14 +860,12 @@ public class MedicalConfig {
         PAIN_VIGNETTE_MAX_ALPHA = builder
                 .comment("红晕最大不透明度 (0~1，建议 0.2~0.45 保持可玩性)")
                 .defineInRange("painVignetteMaxAlpha", 0.45, 0.0, 1.0);
-        // ---- 疼痛视觉：重度灰蓝色罩 ----
         PAIN_GRAY_WASH_THRESHOLD = builder
                 .comment("灰蓝色罩（痛到发灰）开始的体感疼痛阈值 (0~100)")
                 .defineInRange("painGrayWashThreshold", 42, 0, 500);
         PAIN_GRAY_WASH_MAX_ALPHA = builder
                 .comment("灰蓝色罩最大不透明度 (0~1，建议不超过 0.2 避免遮挡战场信息)")
                 .defineInRange("painGrayWashMaxAlpha", 0.18, 0.0, 1.0);
-        // ---- 疼痛视觉：剧痛瞬发闪抖 ----
         PAIN_SHOCK_ENABLED = builder
                 .comment("剧痛瞬发效果：体感疼痛骤升（如骨折/烧伤瞬间）触发白闪定格+画面抖动+淡出")
                 .define("painShockEnabled", true);
@@ -894,7 +884,6 @@ public class MedicalConfig {
         PAIN_SHOCK_MAX_OFFSET = builder
                 .comment("画面抖动最大位移 (像素，0 = 关闭抖动只保留白闪)")
                 .defineInRange("painShockMaxOffset", 6.0, 0.0, 30.0);
-        // ---- 疼痛音效：心跳 ----
         HEARTBEAT_TRIGGER_PAIN = builder
                 .comment("体感疼痛达到此值时触发心跳音效 (0~100，与血容量/心率触发条件并联)")
                 .defineInRange("heartbeatTriggerPain", 42, 0, 500);
@@ -1181,19 +1170,15 @@ public class MedicalConfig {
         NORMAL_SBP = builder
                 .comment("正常收缩压 (mmHg)")
                 .defineInRange("normalSBP", 120, 60, 200);
-
         NORMAL_DBP = builder
                 .comment("正常舒张压 (mmHg)")
                 .defineInRange("normalDBP", 80, 30, 130);
-
         NORMAL_MAP = builder
                 .comment("正常平均动脉压 (mmHg)")
                 .defineInRange("normalMAP", 93.0, 40.0, 150.0);
-
         NORMAL_CO = builder
                 .comment("正常心输出量 (L/min)")
                 .defineInRange("normalCO", 5.25, 1.0, 15.0);
-
         MAP_APPROACH_SPEED = builder
                 .comment("血压每秒逼近目标值的速度 (0~1)")
                 .defineInRange("mapApproachSpeed", 0.05, 0.001, 1.0);
@@ -1201,11 +1186,9 @@ public class MedicalConfig {
         TPR_NORMAL = builder
                 .comment("正常外周阻力系数")
                 .defineInRange("tprNormal", 1.0, 0.1, 3.0);
-
         TPR_COMPENSATED = builder
                 .comment("失血代偿期的外周阻力峰值（血液重新分配，血管收缩）")
                 .defineInRange("tprCompensated", 1.1, 0.5, 2.0);
-
         TPR_DECOMPENSATED = builder
                 .comment("失血失代偿期的外周阻力最低值（血管麻痹）")
                 .defineInRange("tprDecompensated", 0.4, 0.1, 2.0);
@@ -1213,289 +1196,221 @@ public class MedicalConfig {
         MAP_HYPOTENSION = builder
                 .comment("低血压阈值 MAP (mmHg)")
                 .defineInRange("mapHypotension", 65.0, 30.0, 100.0);
-
         MAP_SEVERE_HYPOTENSION = builder
                 .comment("严重低血压阈值 MAP (mmHg)")
                 .defineInRange("mapSevereHypotension", 50.0, 20.0, 80.0);
-
         SBP_HYPERTENSIVE_CRISIS = builder
                 .comment("高血压危象阈值 SBP (mmHg)")
                 .defineInRange("sbpHypertensiveCrisis", 180, 140, 250);
 
-        // 血压对出血的修正系数
         BLEED_MULT_MAP_BELOW_40 = builder
                 .comment("MAP <40 时的出血速率修正系数")
                 .defineInRange("bleedMultiplierMapBelow40", 0.3, 0.0, 3.0);
-
         BLEED_MULT_MAP_40_55 = builder
                 .comment("MAP 40~55 时的出血速率修正系数")
                 .defineInRange("bleedMultiplierMap40to55", 0.5, 0.0, 3.0);
-
         BLEED_MULT_MAP_55_70 = builder
                 .comment("MAP 55~70 时的出血速率修正系数")
                 .defineInRange("bleedMultiplierMap55to70", 0.7, 0.0, 3.0);
-
         BLEED_MULT_MAP_70_85 = builder
                 .comment("MAP 70~85 时的出血速率修正系数")
                 .defineInRange("bleedMultiplierMap70to85", 0.9, 0.0, 3.0);
-
         BLEED_MULT_MAP_85_105 = builder
                 .comment("MAP 85~105 时的出血速率修正系数（正常）")
                 .defineInRange("bleedMultiplierMap85to105", 1.0, 0.0, 3.0);
-
         BLEED_MULT_MAP_105_125 = builder
                 .comment("MAP 105~125 时的出血速率修正系数")
                 .defineInRange("bleedMultiplierMap105to125", 1.2, 0.0, 3.0);
-
         BLEED_MULT_MAP_125_145 = builder
                 .comment("MAP 125~145 时的出血速率修正系数")
                 .defineInRange("bleedMultiplierMap125to145", 1.4, 0.0, 3.0);
-
         BLEED_MULT_MAP_145_165 = builder
                 .comment("MAP 145~165 时的出血速率修正系数")
                 .defineInRange("bleedMultiplierMap145to165", 1.6, 0.0, 3.0);
-
         BLEED_MULT_MAP_ABOVE_165 = builder
                 .comment("MAP ≥165 时的出血速率修正系数")
                 .defineInRange("bleedMultiplierMapAbove165", 1.8, 0.0, 3.0);
 
-        // 部位类型系数
         EXTERNAL_MULTIPLIER = builder
                 .comment("外出血（四肢/头部）的部位系数")
                 .defineInRange("externalMultiplier", 1.0, 0.0, 2.0);
-
         CHEST_EXTERNAL_MULTIPLIER = builder
                 .comment("外出血（胸部）的部位系数")
                 .defineInRange("chestExternalMultiplier", 0.8, 0.0, 2.0);
-
         INTERNAL_MULTIPLIER = builder
                 .comment("内出血（非胸腔）的部位系数")
                 .defineInRange("internalMultiplier", 0.7, 0.0, 2.0);
-
         HEMOTHORAX_MULTIPLIER = builder
                 .comment("内出血（胸腔/血胸）的部位系数")
                 .defineInRange("hemothoraxMultiplier", 0.5, 0.0, 2.0);
-
         INTRACRANIAL_MULTIPLIER = builder
                 .comment("颅内出血的部位系数")
                 .defineInRange("intracranialMultiplier", 0.3, 0.0, 2.0);
 
-        // 意识影响系数
         CONS_PENALTY_MAP_60 = builder
                 .comment("MAP 60~70 时每秒意识惩罚")
                 .defineInRange("consPenaltyMap60", 0.1, 0.0, 10.0);
-
         CONS_PENALTY_MAP_50 = builder
                 .comment("MAP 50~60 时每秒意识惩罚")
                 .defineInRange("consPenaltyMap50", 0.3, 0.0, 10.0);
-
         CONS_PENALTY_MAP_40 = builder
                 .comment("MAP 40~50 时每秒意识惩罚")
                 .defineInRange("consPenaltyMap40", 0.8, 0.0, 10.0);
-
         CONS_PENALTY_MAP_BELOW_40 = builder
                 .comment("MAP <40 时每秒意识惩罚")
                 .defineInRange("consPenaltyMapBelow40", 2.0, 0.0, 20.0);
-
         CONS_PENALTY_SBP_180 = builder
                 .comment("SBP 180~200 时每秒意识惩罚")
                 .defineInRange("consPenaltySbp180", 0.5, 0.0, 10.0);
-
         CONS_PENALTY_SBP_200 = builder
                 .comment("SBP 200~220 时每秒意识惩罚")
                 .defineInRange("consPenaltySbp200", 1.5, 0.0, 10.0);
-
         CONS_PENALTY_SBP_220 = builder
                 .comment("SBP >220 时每秒意识惩罚")
                 .defineInRange("consPenaltySbp220", 3.0, 0.0, 20.0);
 
-        // 脑健康影响系数
         BRAIN_PENALTY_MAP_BELOW_50 = builder
                 .comment("MAP <50 时每秒脑健康损失系数")
                 .defineInRange("brainPenaltyMapBelow50", 0.5, 0.0, 5.0);
-
         BRAIN_PENALTY_SBP_ABOVE_200 = builder
                 .comment("SBP >200 时每秒脑健康损失系数")
                 .defineInRange("brainPenaltySbpAbove200", 0.3, 0.0, 5.0);
 
         builder.pop(); // blood_pressure
 
-        // 13. 感染系统
+        // 感染系统
         builder.comment("感染系统").push("infection");
-
         INFECTION_BASE_RATE = builder
                 .comment("未包扎伤口的每秒感染增长")
                 .defineInRange("baseInfectionRate", 0.12, 0.0, 2.0);
-
         INFECTION_BANDAGE_REDUCTION = builder
                 .comment("包扎后保留的感染增长率比例（0.3 = 降低70%）")
                 .defineInRange("bandageReduction", 0.3, 0.0, 1.0);
-
         INFECTION_WET_BONUS = builder
                 .comment("潮湿环境的感染加成")
                 .defineInRange("wetBonus", 0.3, 0.0, 2.0);
-
         INFECTION_FRACTURE_BONUS = builder
                 .comment("骨折伤口感染加成")
                 .defineInRange("fractureBonus", 0.5, 0.0, 2.0);
-
         INFECTION_WINDOW_PERIOD = builder
                 .comment("受伤后前 N 秒不产生感染（窗口期）")
                 .defineInRange("windowPeriod", 30, 0, 300);
-
         INFECTION_SYSTEMIC_THRESHOLD = builder
                 .comment("触发全身扩散的局部感染值阈值")
                 .defineInRange("systemicThreshold", 80, 20, 100);
-
         builder.pop();
 
         builder.comment("免疫治疗系统").push("immunity");
-
         IMMUNE_BASE_RATE = builder
                 .comment("基础免疫治疗速率（每秒降低的感染值）",
                         "100 点感染值从满到 0 需要约 1/0.10 = 1000 秒 ≈ 17 分钟")
                 .defineInRange("immuneBaseRate", 0.10, 0.0, 5.0);
-
         IMMUNE_HUNGER_HIGH_MULT = builder
                 .comment("饱食度 ≥ 18（饱腹）时的免疫治疗倍率")
                 .defineInRange("immuneHungerHighMult", 2.5, 0.0, 10.0);
-
         IMMUNE_HUNGER_MID_MULT = builder
                 .comment("饱食度 14~17 时的免疫治疗倍率")
                 .defineInRange("immuneHungerMidMult", 1.5, 0.0, 10.0);
-
         IMMUNE_HUNGER_LOW_MULT = builder
                 .comment("饱食度 8~13（正常）时的免疫治疗倍率")
                 .defineInRange("immuneHungerLowMult", 1.0, 0.0, 10.0);
-
         IMMUNE_HUNGER_CRIT_MULT = builder
                 .comment("饱食度 3~7（饥饿）时的免疫治疗倍率")
                 .defineInRange("immuneHungerCritMult", 0.5, 0.0, 10.0);
-
         IMMUNE_HUNGER_STARVE_MULT = builder
                 .comment("饱食度 < 3（濒饿）时的免疫治疗倍率")
                 .defineInRange("immuneHungerStarveMult", 0.2, 0.0, 10.0);
-
         DISINFECTANT_DURATION = builder
                 .comment("消毒剂效果持续秒数")
                 .defineInRange("disinfectantDuration", 60, 1, 600);
-
         DISINFECTANT_IMMUNE_MULT = builder
                 .comment("消毒剂生效期间的免疫治疗加速倍率")
                 .defineInRange("disinfectantImmuneMult", 2.0, 1.0, 10.0);
-
         DISINFECTANT_BLOCKS_GROWTH = builder
                 .comment("消毒剂生效期间是否完全阻止感染值增长")
                 .define("disinfectantBlocksGrowth", true);
-
         builder.pop();
 
-        // 14. SIRS 全身炎症反应
+        // SIRS
         builder.comment("SIRS 全身炎症反应").push("sirs");
-
         SIRS_LIMB_THRESHOLD = builder
                 .comment("SIRS 触发的最高肢体感染值阈值")
                 .defineInRange("limbThreshold", 40, 10, 100);
-
         SIRS_TOTAL_THRESHOLD = builder
                 .comment("SIRS 触发的全身感染总值阈值")
                 .defineInRange("totalThreshold", 60, 10, 300);
-
         SIRS_PROGRESSION_INTERVAL = builder
                 .comment("SIRS 晋级间隔（秒），按环境倍率调整")
                 .defineInRange("progressionInterval", 180, 30, 600);
-
         SIRS_RECOVERY_LIMB_THRESHOLD = builder
                 .comment("SIRS 开始降级的最高肢体感染值门槛（必须低于此值才开始降级）")
                 .defineInRange("recoveryLimbThreshold", 20, 0, 100);
-
         SIRS_RECOVERY_TOTAL_THRESHOLD = builder
                 .comment("SIRS 开始降级的全身感染总值门槛")
                 .defineInRange("recoveryTotalThreshold", 30, 0, 300);
-
         SIRS_RECOVERY_INTERVAL_L4_TO_L3 = builder
                 .comment("SIRS 4 级降为 3 级所需时间（秒）")
                 .defineInRange("recoveryIntervalL4toL3", 300, 30, 3600);
-
         SIRS_RECOVERY_INTERVAL_L3_TO_L2 = builder
                 .comment("SIRS 3 级降为 2 级所需时间（秒）")
                 .defineInRange("recoveryIntervalL3toL2", 240, 30, 3600);
-
         SIRS_RECOVERY_INTERVAL_L2_TO_L1 = builder
                 .comment("SIRS 2 级降为 1 级所需时间（秒）")
                 .defineInRange("recoveryIntervalL2toL1", 180, 30, 3600);
-
         SIRS_RECOVERY_INTERVAL_L1_TO_L0 = builder
                 .comment("SIRS 1 级降为 0 级所需时间（秒）")
                 .defineInRange("recoveryIntervalL1toL0", 120, 30, 3600);
-
         SIRS_ENV_WATER = builder
                 .comment("水下环境对 SIRS 晋级的倍率（倍率越小，SIRS 晋级越快）")
                 .defineInRange("envWater", 0.7, 0.1, 2.0);
-
         SIRS_ENV_CAVE = builder
                 .comment("洞穴深处环境对 SIRS 晋级的倍率（倍率越小，SIRS 晋级越快）")
                 .defineInRange("envCave", 0.85, 0.1, 2.0);
-
         SIRS_ENV_NETHER = builder
                 .comment("下界/末地环境对 SIRS 晋级的倍率（倍率越小，SIRS 晋级越快）")
                 .defineInRange("envNether", 0.9, 0.1, 2.0);
-
         SIRS_ENV_RAIN = builder
                 .comment("淋雨环境对 SIRS 晋级的倍率（倍率越小，SIRS 晋级越快）")
                 .defineInRange("envRain", 0.8, 0.1, 2.0);
-
         SIRS_ENV_INDOOR = builder
                 .comment("室内环境对 SIRS 晋级的倍率（倍率越小，SIRS 晋级越快）")
                 .defineInRange("envIndoor", 1.2, 0.5, 3.0);
-
         SIRS_ENV_NORMAL = builder
                 .comment("正常户外环境对 SIRS 晋级的倍率（倍率越小，SIRS 晋级越快）")
                 .defineInRange("envNormal", 1.0, 0.5, 3.0);
-
         SIRS_HEART_BONUS_PER_LEVEL = builder
                 .comment("SIRS 每级对心率的加成 (bpm)")
                 .defineInRange("heartBonusPerLevel", 15, 0, 50);
-
         SIRS_RESP_BONUS_PER_LEVEL = builder
                 .comment("SIRS 每级对呼吸的加成 (次/分)")
                 .defineInRange("respBonusPerLevel", 4, 0, 20);
-
         SIRS_OXYGEN_PENALTY_PER_LEVEL = builder
                 .comment("SIRS 每级对血氧的每秒惩罚")
                 .defineInRange("oxygenPenaltyPerLevel", 0.1, 0.0, 5.0);
-
         SIRS_BLOOD_LOSS_L2 = builder
                 .comment("SIRS 2 级每秒血容量损失 (mL)")
                 .defineInRange("bloodLossL2", 0.1, 0.0, 10.0);
-
         SIRS_BLOOD_LOSS_L3 = builder
                 .comment("SIRS 3 级每秒血容量损失 (mL)")
                 .defineInRange("bloodLossL3", 0.2, 0.0, 10.0);
-
         SIRS_BLOOD_LOSS_L4 = builder
                 .comment("SIRS 4 级每秒血容量损失 (mL)")
                 .defineInRange("bloodLossL4", 0.3, 0.0, 10.0);
-
         SIRS_TPR_MODIFIER_L1 = builder
                 .comment("SIRS 1 级的外周阻力倍率")
                 .defineInRange("sirsTprModifierL1", 0.95, 0.1, 1.5);
-
         SIRS_TPR_MODIFIER_L2 = builder
                 .comment("SIRS 2 级的外周阻力倍率")
                 .defineInRange("sirsTprModifierL2", 0.85, 0.1, 1.5);
-
         SIRS_TPR_MODIFIER_L3 = builder
                 .comment("SIRS 3 级的外周阻力倍率")
                 .defineInRange("sirsTprModifierL3", 0.70, 0.1, 1.5);
-
         SIRS_TPR_MODIFIER_L4 = builder
                 .comment("SIRS 4 级的外周阻力倍率")
                 .defineInRange("sirsTprModifierL4", 0.50, 0.1, 1.5);
-
         builder.pop();
 
-        // 17. 伤害类型细化
+        // 伤害类型细化
         builder.comment("伤害类型细化配置").push("damage_type");
         PIERCING_EXTERNAL_RATIO = builder
                 .comment("穿刺伤外出血比例")
@@ -1506,7 +1421,6 @@ public class MedicalConfig {
         PIERCING_FRACTURE_OPEN_CHANCE = builder
                 .comment("穿刺伤引发开放性骨折概率")
                 .defineInRange("piercingFractureOpenChance", 1.00, 0.0, 1.0);
-
         SLASHING_EXTERNAL_RATIO = builder
                 .comment("斩击伤外出血比例")
                 .defineInRange("slashingExternalRatio", 0.95, 0.0, 1.0);
@@ -1516,7 +1430,6 @@ public class MedicalConfig {
         SLASHING_FRACTURE_OPEN_CHANCE = builder
                 .comment("斩击伤引发开放性骨折概率")
                 .defineInRange("slashingFractureOpenChance", 0.80, 0.0, 1.0);
-
         BLUNT_EXTERNAL_RATIO = builder
                 .comment("钝击伤外出血比例")
                 .defineInRange("bluntExternalRatio", 0.80, 0.0, 1.0);
@@ -1526,7 +1439,6 @@ public class MedicalConfig {
         BLUNT_FRACTURE_OPEN_CHANCE = builder
                 .comment("钝击伤引发开放性骨折概率")
                 .defineInRange("bluntFractureOpenChance", 0.00, 0.0, 1.0);
-
         MIXED_EXTERNAL_RATIO = builder
                 .comment("混合伤外出血比例")
                 .defineInRange("mixedExternalRatio", 0.70, 0.0, 1.0);
@@ -1536,7 +1448,6 @@ public class MedicalConfig {
         MIXED_FRACTURE_OPEN_CHANCE = builder
                 .comment("混合伤引发开放性骨折概率")
                 .defineInRange("mixedFractureOpenChance", 0.50, 0.0, 1.0);
-
         EXPLOSION_EXTERNAL_RATIO = builder
                 .comment("爆炸伤外出血比例")
                 .defineInRange("explosionExternalRatio", 0.30, 0.0, 1.0);
@@ -1557,7 +1468,7 @@ public class MedicalConfig {
                 .defineInRange("explosionLegRatio", 0.12, 0.0, 1.0);
         builder.pop();
 
-        // 18. 骨折系统
+        // 骨折系统
         builder.comment("骨折系统配置").push("fracture");
         MIN_DAMAGE_FOR_FRACTURE = builder
                 .comment("骨折判定最低伤害")
@@ -1651,7 +1562,7 @@ public class MedicalConfig {
                 .defineInRange("armFractureSplintAttackMultiplier", 0.7, 0.0, 1.0);
         builder.pop();
 
-        // 19. 断肢系统
+        // 断肢系统
         builder.comment("断肢系统配置：四肢受极大伤害按概率截断，头/躯干永不截肢").push("amputation");
         AMPUTATION_ENABLED = builder
                 .comment("断肢系统总开关")
@@ -1706,7 +1617,7 @@ public class MedicalConfig {
                 .define("amputationArmInteractionAllowed", true);
         builder.pop();
 
-        // 19. 连续仲裁 buff 系统
+        // 连续仲裁 buff 系统
         builder.comment("连续仲裁 buff 系统：伤情→能力倍率连续插值，属性仲裁与感知药水统一配置").push("arbitrated_buffs");
         ARBITER_MIN_MULTIPLIER = builder
                 .comment("属性仲裁器每维度倍率下限（防归零保护）")
@@ -1803,7 +1714,7 @@ public class MedicalConfig {
                 .defineInRange("digSlowdownFractureMaxLevel", 3, 0, 10);
         builder.pop();
 
-        // ================= 中毒系统 (toxin) =================
+        // 中毒系统
         builder.comment("中毒系统：poison 伤害转毒素条（0~100），全身性生理影响（呼吸/血氧/意识/血压/凝血/感染/心律）").push("toxin");
         TOXIN_ACCUMULATION_RATE = builder
                 .comment("每次 poison 伤害事件转毒素条的累加系数（毒素 += 伤害量 × 系数）",
@@ -1857,7 +1768,7 @@ public class MedicalConfig {
                 .defineInRange("clottingTimeMult", 1.5, 0.1, 10.0);
         builder.pop();
 
-        // ================= 烧伤系统 (burn) =================
+        // 烧伤系统
         builder.comment("烧伤系统：火伤负荷累加→深度定型（I/浅II/深II/III度），TBSA 驱动渗漏休克/感染/凝血/代谢").push("burn");
         BURN_LOAD_PER_DAMAGE = builder
                 .comment("每次火伤事件的烧伤负荷累加系数（负荷 += 伤害量 × 系数；盔甲部位减半）",
@@ -1998,7 +1909,7 @@ public class MedicalConfig {
         builder.pop();
 
         // ==================== 阿片类药物系统 (opioid) ====================
-        builder.comment("阿片类强效镇痛与过量呼吸抑制系统配置 (盐酸吗啡 & 枸橼酸芬太尼)").push("opioid");
+        builder.comment("阿片类强效镇痛、过量呼吸抑制、三级成瘾诱导/戒断行动受限与多巴胺欣快感视觉配置").push("opioid");
 
         // 1. 盐酸吗啡 (Morphine Sulfate)
         MORPHINE_MAX_DOSE_UNITS = builder
@@ -2017,8 +1928,8 @@ public class MedicalConfig {
                 .comment("吗啡全支 (100% 剂量) 推注增加的体内阿片血药浓度百分比 (默认 50.0%，单支半量 25% 处于安全窗，连打两支过量)")
                 .defineInRange("morphineConcentrationPerFullDose", 50.0, 5.0, 200.0);
         MORPHINE_ADDICTION_GAIN = builder
-                .comment("吗啡全支推注增加的成瘾值 (默认 12.0)")
-                .defineInRange("morphineAddictionGain", 12.0, 0.0, 100.0);
+                .comment("吗啡全支推注增加的成瘾度数值 (默认 25.0，单支全推即可达到 I 级成瘾)")
+                .defineInRange("morphineAddictionGain", 25.0, 0.0, 100.0);
 
         // 2. 枸橼酸芬太尼 (Fentanyl Citrate)
         FENTANYL_MAX_DOSE_UNITS = builder
@@ -2037,8 +1948,8 @@ public class MedicalConfig {
                 .comment("芬太尼全支 (100% 剂量) 推注增加的体内阿片血药浓度百分比 (默认 115.0%！治疗窗极窄：推注 25%~40% 即可强效镇痛；单支推注 >= 70% 即刻触发 >=80% 浓度的延髓呼吸骤停!)")
                 .defineInRange("fentanylConcentrationPerFullDose", 115.0, 10.0, 300.0);
         FENTANYL_ADDICTION_GAIN = builder
-                .comment("芬太尼全支推注增加的成瘾值 (默认 28.0)")
-                .defineInRange("fentanylAddictionGain", 28.0, 0.0, 100.0);
+                .comment("芬太尼全支推注增加的成瘾度数值 (默认 45.0)")
+                .defineInRange("fentanylAddictionGain", 45.0, 0.0, 100.0);
 
         // 3. 中枢 μ-阿片受体镇痛与代谢动力学
         OPIOID_ANALGESIA_FULL_CONCENTRATION = builder
@@ -2088,6 +1999,71 @@ public class MedicalConfig {
         OPIOID_OVERDOSE_BRADYCARDIA_PENALTY = builder
                 .comment("阿片过量 (>=60%) 时额外叠加的迷走神经心动过缓心率扣减值 (默认 28.0 BPM)")
                 .defineInRange("opioidOverdoseBradycardiaPenalty", 28.0, 0.0, 100.0);
+
+        // 5. 阿片成瘾三级 Buff 阈值、高频心理诱导、滑块持续运动与 II/III 级戒断行动受限参数
+        ADDICTION_TIER1_THRESHOLD = builder
+                .comment("触发「阿片成瘾 I 级」Buff 的成瘾度阈值 (默认 20)")
+                .defineInRange("addictionTier1Threshold", 20, 1, 100);
+        ADDICTION_TIER2_THRESHOLD = builder
+                .comment("触发「阿片成瘾 II 级」Buff 的成瘾度阈值 (默认 50)")
+                .defineInRange("addictionTier2Threshold", 50, 1, 100);
+        ADDICTION_TIER3_THRESHOLD = builder
+                .comment("触发「阿片成瘾 III 级」Buff 的成瘾度阈值 (默认 80)")
+                .defineInRange("addictionTier3Threshold", 80, 1, 100);
+        ADDICTION_DECAY_INTERVAL_SEC = builder
+                .comment("体内无阿片残留时，成瘾度自然消退 1 点所需的秒数 (默认 240 秒，使成瘾症状持久生效)")
+                .defineInRange("addictionDecayIntervalSec", 240, 5, 3600);
+
+        ADDICTION_NAME_HALLUCINATION_CHANCE_T1 = builder
+                .comment("I 级成瘾时阿片药物名称与医疗面板出现诱导话语的概率占空比 (默认 0.70)")
+                .defineInRange("addictionNameHallucinationChanceT1", 0.70, 0.0, 1.0);
+        ADDICTION_NAME_HALLUCINATION_CHANCE_T2 = builder
+                .comment("II 级成瘾时阿片药物名称与医疗面板出现诱导话语的概率占空比 (默认 0.90)")
+                .defineInRange("addictionNameHallucinationChanceT2", 0.90, 0.0, 1.0);
+        ADDICTION_NAME_HALLUCINATION_CHANCE_T3 = builder
+                .comment("III 级成瘾时阿片药物名称与医疗面板出现诱导话语的概率占空比 (默认 1.00)")
+                .defineInRange("addictionNameHallucinationChanceT3", 1.00, 0.0, 1.0);
+
+        ADDICTION_BLIND_ZONE_CHANCE_T1 = builder
+                .comment("I 级成瘾在注射界面无法观察到安全剂量区间的概率占空比 (默认 0.85，一级成瘾即很难观察到安全剂量)")
+                .defineInRange("addictionBlindZoneChanceT1", 0.85, 0.0, 1.0);
+        ADDICTION_BLIND_ZONE_CHANCE_T2 = builder
+                .comment("II 级成瘾在注射界面无法观察到安全剂量区间的概率占空比 (默认 0.95)")
+                .defineInRange("addictionBlindZoneChanceT2", 0.95, 0.0, 1.0);
+        ADDICTION_BLIND_ZONE_CHANCE_T3 = builder
+                .comment("III 级成瘾在注射界面无法观察到安全剂量区间的概率占空比 (默认 1.00，完全遮蔽安全剂量)")
+                .defineInRange("addictionBlindZoneChanceT3", 1.00, 0.0, 1.0);
+
+        ADDICTION_SLIDER_DRIFT_SPEED_T1 = builder
+                .comment("I 级成瘾在注射界面剂量滑块持续自主晃动/右移的速度 (刻度/秒，默认 24.0)")
+                .defineInRange("addictionSliderDriftSpeedT1", 24.0, 0.0, 200.0);
+        ADDICTION_SLIDER_DRIFT_SPEED_T2 = builder
+                .comment("II 级成瘾在注射界面剂量滑块持续自主晃动/右移的速度 (刻度/秒，默认 42.0)")
+                .defineInRange("addictionSliderDriftSpeedT2", 42.0, 0.0, 200.0);
+        ADDICTION_SLIDER_DRIFT_SPEED_T3 = builder
+                .comment("III 级成瘾在注射界面剂量滑块持续强行冲向满剂量的速度 (刻度/秒，默认 68.0)")
+                .defineInRange("addictionSliderDriftSpeedT3", 68.0, 0.0, 200.0);
+
+        ADDICTION_WITHDRAWAL_OPIOID_THRESHOLD = builder
+                .comment("II/III 级成瘾者压制戒断行动受限所需的最低体内阿片血药浓度 (% ，默认 15；低于此浓度即触发戒断行动受限)")
+                .defineInRange("addictionWithdrawalOpioidThreshold", 15, 1, 80);
+        ADDICTION_WITHDRAWAL_SPEED_MULT_T2 = builder
+                .comment("II 级成瘾未注射阿片（处于戒断状态）时的移动速度与动作倍率上限 (默认 0.42，禁止疾跑且移速削减 58%)")
+                .defineInRange("addictionWithdrawalSpeedMultT2", 0.42, 0.05, 1.0);
+        ADDICTION_WITHDRAWAL_SPEED_MULT_T3 = builder
+                .comment("III 级成瘾未注射阿片（处于重度戒断状态）时的移动速度与动作倍率上限 (默认 0.16，禁止疾跑与跳跃，移速削减 84%)")
+                .defineInRange("addictionWithdrawalSpeedMultT3", 0.16, 0.05, 1.0);
+
+        // 6. 注射阿片药物愉悦性 (Euphoria) 视觉效果参数
+        OPIOID_EUPHORIA_ENABLED = builder
+                .comment("是否启用注射阿片类药物后的多巴胺欣快感/温暖柔光视觉特效 (默认 true)")
+                .define("opioidEuphoriaEnabled", true);
+        OPIOID_EUPHORIA_MAX_ALPHA = builder
+                .comment("阿片欣快感视觉光晕与漂浮粒子的最大不透明度强度 (默认 0.58)")
+                .defineInRange("opioidEuphoriaMaxAlpha", 0.58, 0.0, 1.0);
+        OPIOID_EUPHORIA_RUSH_DURATION_SEC = builder
+                .comment("推注阿片药物瞬间「暖流冲顶波 (Euphoria Rush)」持续秒数 (默认 8.0 秒)")
+                .defineInRange("opioidEuphoriaRushDurationSec", 8.0, 1.0, 60.0);
 
         builder.pop();
 

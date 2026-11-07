@@ -1,6 +1,5 @@
 package com.FIYTP.realmedicalmod.treatment;
 
-import com.FIYTP.realmedicalmod.client.gui.PainVisualOverlay;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.BufferUploader;
@@ -22,55 +21,44 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 3A 医疗用品 3D 素材库 (MedicalAssetLibrary)
+ * 3D 全息投影医疗器械渲染库 (MedicalAssetLibrary —— 稳定可靠全息线框投影版)
  *
- * 功能职责：
- * 1. 提供高精细度参数化 3D 医疗器械模型（卷式纱布绷带、以色列战术加压绷带、盐酸吗啡自动注射器、
- *    枸橼酸芬太尼精密微量注射器、CAT 旋转止血带、通用医用注射器、铝塑骨折夹板、外用消毒瓶/口服药瓶）。
- * 2. 支持在「长按左键人体治疗面板」与「阿片类药物剂量推注滑块面板」中实时渲染 360° 旋转的 3D 立体模型，
- *    并在调节剂量滑块时实时驱动 3D 注射器活塞推杆与内部药液柱液位变化。
+ * 采用纯三维透视投影线框 ({@link Line3D}) 与全息扫描线渲染左键快捷面板与定量注射面板左侧的 3D 旋转器械动画，
+ * 简单、清晰、零贴图错位，并支持随剂量滑块实时联动推进内部活塞推杆与药液液位环。
  */
 public final class MedicalAssetLibrary {
 
     public enum AssetType {
-        BANDAGE_ROLL,       // 3D 卷式医用绷带
-        PRESSURE_BANDAGE,   // 3D 以色列战术加压绷带
-        MORPHINE_INJECTOR,  // 3D 盐酸吗啡军规自动注射器（琥珀金药液窗 + 战术防滑环 + 顶部橙色击发帽）
-        FENTANYL_SYRINGE,   // 3D 枸橼酸芬太尼精密微量注射器（透明微管 + 冰青色药液 + 双翼指托 + 品红高危环 + 十字推杆）
-        TOURNIQUET,         // 3D CAT 战术旋转止血带
-        SYRINGE,            // 3D 通用医用注射器
-        SPLINT,             // 3D 卷式骨折固定夹板
-        MEDICINE_BOTTLE     // 3D 外用消毒液 / 口服药瓶
+        BANDAGE_ROLL,
+        PRESSURE_BANDAGE,
+        MORPHINE_INJECTOR,
+        FENTANYL_SYRINGE,
+        TOURNIQUET,
+        SYRINGE,
+        SPLINT,
+        MEDICINE_BOTTLE
     }
 
-    public static class Line3D {
+    public static final class Line3D {
         public final float x1, y1, z1;
         public final float x2, y2, z2;
-        public final int r, g, b, a;
+        public final int color;
         public final float width;
 
-        public Line3D(float x1, float y1, float z1, float x2, float y2, float z2,
-                      int r, int g, int b, int a, float width) {
-            this.x1 = x1; this.y1 = y1; this.z1 = z1;
-            this.x2 = x2; this.y2 = y2; this.z2 = z2;
-            this.r = r; this.g = g; this.b = b; this.a = a;
+        public Line3D(float x1, float y1, float z1, float x2, float y2, float z2, int color, float width) {
+            this.x1 = x1;
+            this.y1 = y1;
+            this.z1 = z1;
+            this.x2 = x2;
+            this.y2 = y2;
+            this.z2 = z2;
+            this.color = color;
             this.width = width;
         }
     }
 
-    private static final Map<AssetType, List<Line3D>> MESH_CACHE = new HashMap<>();
     private static final Map<ResourceLocation, AssetType> CUSTOM_ITEM_ASSETS = new HashMap<>();
-
-    static {
-        MESH_CACHE.put(AssetType.BANDAGE_ROLL, build3DBandageMesh(false));
-        MESH_CACHE.put(AssetType.PRESSURE_BANDAGE, build3DBandageMesh(true));
-        MESH_CACHE.put(AssetType.MORPHINE_INJECTOR, build3DOpioidSyringeMesh(false, 1.0f, 0.4f));
-        MESH_CACHE.put(AssetType.FENTANYL_SYRINGE, build3DOpioidSyringeMesh(true, 1.0f, 0.35f));
-        MESH_CACHE.put(AssetType.TOURNIQUET, build3DTourniquetMesh());
-        MESH_CACHE.put(AssetType.SYRINGE, build3DSyringeMesh());
-        MESH_CACHE.put(AssetType.SPLINT, build3DSplintMesh());
-        MESH_CACHE.put(AssetType.MEDICINE_BOTTLE, build3DBottleMesh());
-    }
+    private static final Map<AssetType, List<Line3D>> GEOMETRY_CACHE = new HashMap<>();
 
     private MedicalAssetLibrary() {}
 
@@ -111,382 +99,342 @@ public final class MedicalAssetLibrary {
         return AssetType.BANDAGE_ROLL;
     }
 
+    /**
+     * 在屏幕指定中心渲染 360° 旋转的 3D 全息投影医疗器械模型
+     */
     public static void render3DMedicalItem(GuiGraphics g, float centerX, float centerY, float scale,
                                            ItemStack stack, long nowMs) {
         AssetType type = resolveAssetType(stack);
         if (type == AssetType.MORPHINE_INJECTOR || type == AssetType.FENTANYL_SYRINGE) {
             float remRatio = 1.0f;
-            if (stack != null && stack.isDamageableItem() && stack.getMaxDamage() > 0) {
+            if (stack.isDamageableItem() && stack.getMaxDamage() > 0) {
                 remRatio = Mth.clamp((float) (stack.getMaxDamage() - stack.getDamageValue()) / stack.getMaxDamage(), 0.0f, 1.0f);
             }
             render3DOpioidSyringeWithPlunger(g, centerX, centerY, scale, type == AssetType.FENTANYL_SYRINGE, remRatio, 0.0f, nowMs);
             return;
         }
-        List<Line3D> lines = MESH_CACHE.getOrDefault(type, MESH_CACHE.get(AssetType.BANDAGE_ROLL));
-        renderLineMesh3D(g, lines, centerX, centerY, scale, nowMs);
+        List<Line3D> lines = GEOMETRY_CACHE.computeIfAbsent(type, MedicalAssetLibrary::buildGeometry);
+        renderLines3D(g, lines, centerX, centerY, scale, nowMs);
     }
 
     /**
-     * 在剂量推注滑块界面中实时渲染带动态活塞推杆与药液液位的 3D 吗啡/芬太尼注射器
-     *
-     * @param isFentanyl        true=枸橼酸芬太尼精密微量注射器，false=盐酸吗啡自动注射器
-     * @param remainingRatio    当前注射器内剩余药量占满容量的比例 (0.0 ~ 1.0)
-     * @param selectedDoseRatio 玩家在滑块上选定的本次拟推注剂量占满容量的比例 (0.0 ~ remainingRatio)
+     * 在定量注射面板左侧渲染带动态活塞推杆与药液液位全息环的 3D 全息投影注射器
      */
     public static void render3DOpioidSyringeWithPlunger(GuiGraphics g, float centerX, float centerY, float scale,
                                                         boolean isFentanyl, float remainingRatio, float selectedDoseRatio, long nowMs) {
-        List<Line3D> dynamicLines = build3DOpioidSyringeMesh(isFentanyl, remainingRatio, selectedDoseRatio);
-        renderLineMesh3D(g, dynamicLines, centerX, centerY, scale, nowMs);
+        List<Line3D> lines = isFentanyl
+                ? buildDynamicFentanylSyringe(remainingRatio, selectedDoseRatio)
+                : buildDynamicMorphineAutoinjector(remainingRatio, selectedDoseRatio);
+        renderLines3D(g, lines, centerX, centerY, scale, nowMs);
     }
 
-    private static void renderLineMesh3D(GuiGraphics g, List<Line3D> lines, float centerX, float centerY, float scale, long nowMs) {
+    private static void renderLines3D(GuiGraphics g, List<Line3D> lines, float centerX, float centerY, float scale, long nowMs) {
         if (lines == null || lines.isEmpty()) return;
 
-        float yaw = (nowMs % 7200L) / 7200.0f * ((float) Math.PI * 2.0f);
-        float pitch = 0.36f + 0.10f * Mth.sin(nowMs * 0.002f);
-        float roll = -0.24f;
+        // 全息投影底座扫描线光环
+        float scanOffset = ((nowMs % 2400L) / 2400.0f) * 2.0f - 1.0f;
+        int scanY = Math.round(centerY + scanOffset * scale * 0.85f);
+        g.fill(Math.round(centerX - scale * 0.72f), scanY, Math.round(centerX + scale * 0.72f), scanY + 1, 0x3800E5FF);
+
+        float yaw = (nowMs % 7500L) / 7500.0f * Mth.TWO_PI;
+        float pitch = 0.35f + 0.10f * Mth.sin(nowMs * 0.0022f);
+        float roll = -0.32f;
 
         float cy = Mth.cos(yaw), sy = Mth.sin(yaw);
         float cp = Mth.cos(pitch), sp = Mth.sin(pitch);
         float cr = Mth.cos(roll), sr = Mth.sin(roll);
 
         Matrix4f pose = g.pose().last().pose();
+
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
+        RenderSystem.disableCull();
         RenderSystem.disableDepthTest();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
 
         Tesselator tess = Tesselator.getInstance();
         BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        boolean hasVerts = false;
 
         for (Line3D ln : lines) {
-            float[] p1 = transform3D(ln.x1, ln.y1, ln.z1, centerX, centerY, scale, cy, sy, cp, sp, cr, sr);
-            float[] p2 = transform3D(ln.x2, ln.y2, ln.z2, centerX, centerY, scale, cy, sy, cp, sp, cr, sr);
+            float[] p1 = project(ln.x1, ln.y1, ln.z1, centerX, centerY, scale, cy, sy, cp, sp, cr, sr);
+            float[] p2 = project(ln.x2, ln.y2, ln.z2, centerX, centerY, scale, cy, sy, cp, sp, cr, sr);
 
-            float depth = Mth.clamp(((p1[2] + p2[2]) * 0.5f + 1.4f) / 2.6f, 0.30f, 1.15f);
-            int alpha = Mth.clamp((int) (ln.a * depth), 15, 255);
-            float w = ln.width * (0.75f + 0.35f * depth);
+            float avgZ = (p1[2] + p2[2]) * 0.5f;
+            float depthShade = Mth.clamp(0.76f + 0.28f * avgZ, 0.42f, 1.15f);
 
-            PainVisualOverlay.addQuadSegment(buf, pose, p1[0], p1[1], p2[0], p2[1], w, ln.r, ln.g, ln.b, alpha, alpha);
+            int a = (ln.color >>> 24) & 0xFF;
+            int r = Mth.clamp((int) (((ln.color >>> 16) & 0xFF) * depthShade), 0, 255);
+            int gr = Mth.clamp((int) (((ln.color >>> 8) & 0xFF) * depthShade), 0, 255);
+            int b = Mth.clamp((int) ((ln.color & 0xFF) * depthShade), 0, 255);
+
+            // 外层柔和全息辉光
+            int glowA = Math.max(18, a / 4);
+            if (emitQuadSegment(buf, pose, p1[0], p1[1], p2[0], p2[1], ln.width * 2.2f, r, gr, b, glowA)) {
+                hasVerts = true;
+            }
+            // 核心全息高亮线条
+            if (emitQuadSegment(buf, pose, p1[0], p1[1], p2[0], p2[1], ln.width, r, gr, b, a)) {
+                hasVerts = true;
+            }
         }
 
-        MeshData mesh = buf.build();
-        if (mesh != null) {
-            BufferUploader.drawWithShader(mesh);
+        if (hasVerts) {
+            MeshData mesh = buf.build();
+            if (mesh != null) {
+                BufferUploader.drawWithShader(mesh);
+            }
         }
 
+        RenderSystem.enableCull();
         RenderSystem.enableDepthTest();
         RenderSystem.disableBlend();
     }
 
-    private static float[] transform3D(float x, float y, float z, float cx, float cy, float scale,
-                                       float cosY, float sinY, float cosP, float sinP, float cosR, float sinR) {
-        float x1 = x * cosR - y * sinR;
-        float y1 = x * sinR + y * cosR;
-        float x2 = x1 * cosY - z * sinY;
-        float z2 = x1 * sinY + z * cosY;
-        float y3 = y1 * cosP - z2 * sinP;
-        float z3 = y1 * sinP + z2 * cosP;
+    private static float[] project(float x, float y, float z, float cx, float cy, float scale,
+                                   float cosY, float sinY, float cosP, float sinP, float cosR, float sinR) {
+        float x1 = x * cosY - z * sinY;
+        float z1 = x * sinY + z * cosY;
+        float y2 = y * cosP - z1 * sinP;
+        float z2 = y * sinP + z1 * cosP;
+        float x3 = x1 * cosR - y2 * sinR;
+        float y3 = x1 * sinR + y2 * cosR;
 
-        float fov = 3.0f / (3.0f - z3 * 0.45f);
-        return new float[]{cx + x2 * scale * fov, cy + y3 * scale * fov, z3};
+        float fov = 3.0f / (3.0f - z2 * 0.45f);
+        return new float[]{cx + x3 * scale * fov, cy + y3 * scale * fov, z2};
     }
 
-    /**
-     * 构建高细节 3D 盐酸吗啡自动注射器 / 枸橼酸芬太尼精密微量注射器网格
-     * 包含：
-     * - 16 段圆柱玻璃/金属针筒外壁与精密容量刻度环
-     * - 内部动态药液柱（区分「推注后保留药液」与「本次滑块选定拟推注高亮药液段」）
-     * - 动态随滑块推进的橡胶密封活塞与十字推杆 / 自动击发顶帽
-     * - 双侧指托翼 (Finger Flange) 与品红/琥珀毒麻警示环
-     * - 前端鲁尔锁 (Luer-Lock) 锥头与超细穿刺针
-     */
-    private static List<Line3D> build3DOpioidSyringeMesh(boolean isFentanyl, float remainingRatio, float selectedDoseRatio) {
-        List<Line3D> list = new ArrayList<>();
+    private static boolean emitQuadSegment(BufferBuilder buf, Matrix4f pose,
+                                           float x1, float y1, float x2, float y2,
+                                           float width, int r, int g, int b, int a) {
+        float dx = x2 - x1;
+        float dy = y2 - y1;
+        float len = Mth.sqrt(dx * dx + dy * dy);
+        if (len < 0.05f) return false;
+
+        float nx = -dy / len * (width * 0.5f);
+        float ny = dx / len * (width * 0.5f);
+
+        buf.addVertex(pose, x1 + nx, y1 + ny, 0.0f).setColor(r, g, b, a);
+        buf.addVertex(pose, x2 + nx, y2 + ny, 0.0f).setColor(r, g, b, a);
+        buf.addVertex(pose, x2 - nx, y2 - ny, 0.0f).setColor(r, g, b, a);
+        buf.addVertex(pose, x1 - nx, y1 - ny, 0.0f).setColor(r, g, b, a);
+        return true;
+    }
+
+    private static List<Line3D> buildGeometry(AssetType type) {
+        List<Line3D> out = new ArrayList<>();
+        switch (type) {
+            case BANDAGE_ROLL -> buildBandageRoll(out, false);
+            case PRESSURE_BANDAGE -> buildBandageRoll(out, true);
+            case MORPHINE_INJECTOR -> out.addAll(buildDynamicMorphineAutoinjector(1.0f, 0.0f));
+            case FENTANYL_SYRINGE -> out.addAll(buildDynamicFentanylSyringe(1.0f, 0.0f));
+            case TOURNIQUET -> buildTourniquet(out);
+            case SYRINGE -> buildSyringe(out);
+            case SPLINT -> buildSplint(out);
+            case MEDICINE_BOTTLE -> buildMedicineBottle(out);
+        }
+        return out;
+    }
+
+    private static void addCylinderY(List<Line3D> out, float radius, float yTop, float yBot,
+                                     int segments, int ringColor, int pillarColor, float width) {
+        for (int i = 0; i < segments; i++) {
+            float a1 = (i / (float) segments) * Mth.TWO_PI;
+            float a2 = ((i + 1) / (float) segments) * Mth.TWO_PI;
+            float x1 = Mth.cos(a1) * radius;
+            float z1 = Mth.sin(a1) * radius;
+            float x2 = Mth.cos(a2) * radius;
+            float z2 = Mth.sin(a2) * radius;
+
+            out.add(new Line3D(x1, yTop, z1, x2, yTop, z2, ringColor, width));
+            out.add(new Line3D(x1, yBot, z1, x2, yBot, z2, ringColor, width));
+            if (i % 2 == 0) {
+                out.add(new Line3D(x1, yTop, z1, x1, yBot, z1, pillarColor, width * 0.85f));
+            }
+        }
+    }
+
+    private static void addRingY(List<Line3D> out, float radius, float y, int segments, int color, float width) {
+        for (int i = 0; i < segments; i++) {
+            float a1 = (i / (float) segments) * Mth.TWO_PI;
+            float a2 = ((i + 1) / (float) segments) * Mth.TWO_PI;
+            out.add(new Line3D(
+                    Mth.cos(a1) * radius, y, Mth.sin(a1) * radius,
+                    Mth.cos(a2) * radius, y, Mth.sin(a2) * radius,
+                    color, width
+            ));
+        }
+    }
+
+    // ==================== 1. 盐酸吗啡军规自动注射器 (3D 全息投影模型) ====================
+    private static List<Line3D> buildDynamicMorphineAutoinjector(float remainingRatio, float selectedDoseRatio) {
+        List<Line3D> out = new ArrayList<>();
         remainingRatio = Mth.clamp(remainingRatio, 0.0f, 1.0f);
         selectedDoseRatio = Mth.clamp(selectedDoseRatio, 0.0f, remainingRatio);
 
-        float barrelTopY = -0.52f;
-        float barrelBotY = 0.42f;
-        float barrelRadius = isFentanyl ? 0.22f : 0.27f;
-        int segs = 16;
+        int cCapOrange = 0xFFFF6D00;
+        int cBodySteel = 0xFF90A4AE;
+        int cGripDark  = 0xFF64B5F6;
+        int cGlass     = 0xCCE1F5FE;
+        int cAmberLiq  = 0xFFFFB300;
+        int cDoseGlow  = 0xFFFFEA00;
+        int cNeedle    = 0xFFFFFFFF;
 
-        // 配色定义：吗啡为军规钛金+琥珀橙药液；芬太尼为高透冷白玻璃+冰蓝青药液+品红高危环
-        int bodyR = isFentanyl ? 185 : 145;
-        int bodyG = isFentanyl ? 235 : 165;
-        int bodyB = isFentanyl ? 255 : 155;
+        // 1. 顶部保险插销与安全橙击发帽
+        addCylinderY(out, 0.17f, -0.78f, -0.56f, 10, cCapOrange, cCapOrange, 1.5f);
+        addRingY(out, 0.09f, -0.82f, 8, cNeedle, 1.3f);
 
-        int liqR = isFentanyl ? 0 : 255;
-        int liqG = isFentanyl ? 225 : 168;
-        int liqB = isFentanyl ? 255 : 25;
+        // 2. 上段军规套筒与防滑握环
+        addCylinderY(out, 0.24f, -0.56f, -0.02f, 12, cBodySteel, cGripDark, 1.4f);
+        addRingY(out, 0.255f, -0.42f, 12, cAmberLiq, 1.7f);
+        addRingY(out, 0.255f, -0.22f, 12, cGripDark, 1.4f);
 
-        int bandR = isFentanyl ? 255 : 255;
-        int bandG = isFentanyl ? 35 : 140;
-        int bandB = isFentanyl ? 135 : 0;
+        // 3. 下段高硼硅观察窗与动态琥珀药液全息环
+        float windowTop = -0.02f;
+        float windowBot = 0.44f;
+        addCylinderY(out, 0.22f, windowTop, windowBot, 12, cGlass, 0x8881D4FA, 1.25f);
 
-        // 1. 针筒圆柱上下端环与 4 道容量刻度圈
-        int rings = 5;
-        for (int r = 0; r <= rings; r++) {
-            float y = Mth.lerp(r / (float) rings, barrelTopY, barrelBotY);
-            boolean isEnd = (r == 0 || r == rings);
-            boolean isHazardRing = (r == 1);
-            int cr = isHazardRing ? bandR : bodyR;
-            int cg = isHazardRing ? bandG : bodyG;
-            int cb = isHazardRing ? bandB : bodyB;
-            int ca = isEnd || isHazardRing ? 245 : 135;
-            float cw = isEnd || isHazardRing ? 1.25f : 0.75f;
-
-            for (int i = 0; i < segs; i++) {
-                float a1 = (i / (float) segs) * Mth.TWO_PI;
-                float a2 = ((i + 1) / (float) segs) * Mth.TWO_PI;
-                list.add(new Line3D(
-                        Mth.cos(a1) * barrelRadius, y, Mth.sin(a1) * barrelRadius,
-                        Mth.cos(a2) * barrelRadius, y, Mth.sin(a2) * barrelRadius,
-                        cr, cg, cb, ca, cw
-                ));
-            }
+        for (int k = 1; k <= 3; k++) {
+            float gy = Mth.lerp(k / 4.0f, windowTop, windowBot);
+            out.add(new Line3D(-0.23f, gy, 0.0f, -0.14f, gy, 0.0f, cNeedle, 1.2f));
+            out.add(new Line3D(0.14f, gy, 0.0f, 0.23f, gy, 0.0f, cNeedle, 1.2f));
         }
 
-        // 2. 针筒纵向母线棱柱
-        for (int i = 0; i < segs; i += 2) {
-            float a = (i / (float) segs) * Mth.TWO_PI;
-            float x = Mth.cos(a) * barrelRadius;
-            float z = Mth.sin(a) * barrelRadius;
-            list.add(new Line3D(x, barrelTopY, z, x, barrelBotY, z, bodyR, bodyG, bodyB, 155, 0.8f));
-        }
-
-        // 3. 内部药液柱（底部为 barrelBotY，液面高度随 remainingRatio 动态变化）
-        if (remainingRatio > 0.01f) {
-            float liqTopY = Mth.lerp(remainingRatio, barrelBotY, barrelTopY + 0.06f);
-            float afterDoseRatio = Math.max(0.0f, remainingRatio - selectedDoseRatio);
-            float splitY = Mth.lerp(afterDoseRatio, barrelBotY, barrelTopY + 0.06f);
-            float liqRad = barrelRadius * 0.76f;
-
-            // 推注后剩余药液段（常规药液色）
-            if (afterDoseRatio > 0.01f) {
-                for (int i = 0; i < segs; i += 2) {
-                    float a = (i / (float) segs) * Mth.TWO_PI;
-                    float x = Mth.cos(a) * liqRad;
-                    float z = Mth.sin(a) * liqRad;
-                    list.add(new Line3D(x, splitY, z, x, barrelBotY, z, liqR, liqG, liqB, 215, 1.15f));
-                }
-            }
-            // 本次滑块选定即将推入体内的药液段（高亮脉冲闪烁色）
-            if (selectedDoseRatio > 0.005f) {
-                int selR = isFentanyl ? 255 : 255;
-                int selG = isFentanyl ? 90 : 230;
-                int selB = isFentanyl ? 185 : 90;
-                for (int i = 0; i < segs; i++) {
-                    float a1 = (i / (float) segs) * Mth.TWO_PI;
-                    float a2 = ((i + 1) / (float) segs) * Mth.TWO_PI;
-                    list.add(new Line3D(
-                            Mth.cos(a1) * liqRad, liqTopY, Mth.sin(a1) * liqRad,
-                            Mth.cos(a2) * liqRad, liqTopY, Mth.sin(a2) * liqRad,
-                            selR, selG, selB, 250, 1.35f
-                    ));
-                    if (i % 2 == 0) {
-                        float x = Mth.cos(a1) * liqRad;
-                        float z = Mth.sin(a1) * liqRad;
-                        list.add(new Line3D(x, liqTopY, z, x, splitY, z, selR, selG, selB, 240, 1.3f));
-                    }
-                }
-            }
-        }
-
-        // 4. 动态活塞与顶部推杆 / 击发结构（随 selectedDoseRatio 向下推进！）
         float effectivePlungerRatio = Math.max(0.0f, remainingRatio - selectedDoseRatio);
-        float plungerY = Mth.lerp(effectivePlungerRatio, barrelBotY - 0.04f, barrelTopY + 0.04f);
-        float rodTopY = plungerY - 0.44f;
+        float plungerY = Mth.lerp(effectivePlungerRatio, windowBot - 0.03f, windowTop + 0.04f);
 
-        // 橡胶密封活塞环
-        float stopperRad = barrelRadius * 0.86f;
-        for (int i = 0; i < segs; i++) {
-            float a1 = (i / (float) segs) * Mth.TWO_PI;
-            float a2 = ((i + 1) / (float) segs) * Mth.TWO_PI;
-            list.add(new Line3D(
-                    Mth.cos(a1) * stopperRad, plungerY, Mth.sin(a1) * stopperRad,
-                    Mth.cos(a2) * stopperRad, plungerY, Mth.sin(a2) * stopperRad,
-                    255, 255, 255, 240, 1.3f
-            ));
+        // 内部动态推进弹簧推杆与活塞圆盘
+        out.add(new Line3D(0.0f, windowTop, 0.0f, 0.0f, plungerY, 0.0f, cNeedle, 1.8f));
+        addRingY(out, 0.17f, plungerY, 10, 0xFFCFD8DC, 1.8f);
+
+        if (remainingRatio > 0.01f) {
+            float liqTopY = Mth.lerp(remainingRatio, windowBot - 0.02f, windowTop + 0.04f);
+            float afterInjectY = Mth.lerp(effectivePlungerRatio, windowBot - 0.02f, windowTop + 0.04f);
+
+            int rings = 5;
+            for (int r = 0; r <= rings; r++) {
+                float ry = Mth.lerp(r / (float) rings, liqTopY, windowBot - 0.02f);
+                boolean inSelectedSlice = (ry <= afterInjectY + 0.005f) && (selectedDoseRatio > 0.005f);
+                int col = inSelectedSlice ? cDoseGlow : cAmberLiq;
+                addRingY(out, 0.165f, ry, 10, col, inSelectedSlice ? 1.8f : 1.3f);
+            }
         }
-        // 十字形推杆与顶部拇指推盘
-        list.add(new Line3D(-0.08f, rodTopY, 0.0f, -0.08f, plungerY, 0.0f, 210, 240, 255, 230, 1.1f));
-        list.add(new Line3D(0.08f, rodTopY, 0.0f, 0.08f, plungerY, 0.0f, 210, 240, 255, 230, 1.1f));
-        list.add(new Line3D(0.0f, rodTopY, -0.08f, 0.0f, plungerY, -0.08f, 210, 240, 255, 230, 1.1f));
-        list.add(new Line3D(0.0f, rodTopY, 0.08f, 0.0f, plungerY, 0.08f, 210, 240, 255, 230, 1.1f));
 
-        // 顶部按压圆盘 + 双侧指托翼 (Finger Flange)
-        float thumbRad = isFentanyl ? 0.26f : 0.24f;
-        for (int i = 0; i < 12; i++) {
-            float a1 = (i / 12.0f) * Mth.TWO_PI;
-            float a2 = ((i + 1) / 12.0f) * Mth.TWO_PI;
-            list.add(new Line3D(
-                    Mth.cos(a1) * thumbRad, rodTopY, Mth.sin(a1) * thumbRad,
-                    Mth.cos(a2) * thumbRad, rodTopY, Mth.sin(a2) * thumbRad,
-                    bandR, bandG, bandB, 250, 1.45f
-            ));
-        }
-        // 指托翼 (位于 barrelTopY)
-        float flangeSpan = barrelRadius + 0.22f;
-        list.add(new Line3D(-flangeSpan, barrelTopY, -0.10f, flangeSpan, barrelTopY, -0.10f, bodyR, bodyG, bodyB, 235, 1.3f));
-        list.add(new Line3D(-flangeSpan, barrelTopY, 0.10f, flangeSpan, barrelTopY, 0.10f, bodyR, bodyG, bodyB, 235, 1.3f));
-        list.add(new Line3D(-flangeSpan, barrelTopY, -0.10f, -flangeSpan, barrelTopY, 0.10f, bodyR, bodyG, bodyB, 235, 1.3f));
-        list.add(new Line3D(flangeSpan, barrelTopY, -0.10f, flangeSpan, barrelTopY, 0.10f, bodyR, bodyG, bodyB, 235, 1.3f));
+        // 4. 底部护针座与穿刺针头
+        addCylinderY(out, 0.18f, 0.44f, 0.58f, 10, cGripDark, cBodySteel, 1.4f);
+        addRingY(out, 0.08f, 0.64f, 8, cBodySteel, 1.4f);
+        out.add(new Line3D(0.0f, 0.58f, 0.0f, 0.0f, 0.90f, 0.0f, cNeedle, 1.9f));
 
-        // 5. 底部鲁尔锁金属锥头 (Luer-Lock Hub) 与超细不锈钢穿刺针头
-        float hubBotY = barrelBotY + 0.16f;
-        float needleTipY = barrelBotY + 0.56f;
-        for (int i = 0; i < 8; i++) {
-            float a = (i / 8.0f) * Mth.TWO_PI;
-            list.add(new Line3D(
-                    Mth.cos(a) * (barrelRadius * 0.65f), barrelBotY, Mth.sin(a) * (barrelRadius * 0.65f),
-                    Mth.cos(a) * 0.07f, hubBotY, Mth.sin(a) * 0.07f,
-                    200, 225, 245, 235, 1.0f
-            ));
-        }
-        list.add(new Line3D(0.0f, hubBotY, 0.0f, 0.0f, needleTipY, 0.0f, 235, 248, 255, 255, 1.35f));
-
-        return list;
+        return out;
     }
 
-    private static List<Line3D> build3DBandageMesh(boolean isPressure) {
-        List<Line3D> list = new ArrayList<>();
+    // ==================== 2. 枸橼酸芬太尼精密微量注射器 (3D 全息投影模型) ====================
+    private static List<Line3D> buildDynamicFentanylSyringe(float remainingRatio, float selectedDoseRatio) {
+        List<Line3D> out = new ArrayList<>();
+        remainingRatio = Mth.clamp(remainingRatio, 0.0f, 1.0f);
+        selectedDoseRatio = Mth.clamp(selectedDoseRatio, 0.0f, remainingRatio);
 
-        int mainR = isPressure ? 110 : 238;
-        int mainG = isPressure ? 235 : 246;
-        int mainB = isPressure ? 195 : 255;
+        int cBarrelGlass = 0xDD80D8FF;
+        int cFentanylLiq = 0xFF00E5FF;
+        int cDosePulse   = 0xFFFF4081;
+        int cHazardRing  = 0xFFF50057;
+        int cPlungerRod  = 0xFFB3E5FC;
+        int cStopper     = 0xFF90A4AE;
+        int cNeedle      = 0xFFFFFFFF;
 
-        int subR = isPressure ? 45 : 175;
-        int subG = isPressure ? 175 : 205;
-        int subB = isPressure ? 150 : 225;
+        float barrelTop = -0.32f;
+        float barrelBot = 0.46f;
+        float barrelRad = 0.19f;
 
-        int coreR = isPressure ? 90 : 210;
-        int coreG = isPressure ? 120 : 170;
-        int coreB = isPressure ? 140 : 120;
+        // 1. 针筒尾部宽翼指托
+        out.add(new Line3D(-0.42f, barrelTop, 0.0f, 0.42f, barrelTop, 0.0f, cPlungerRod, 2.0f));
+        out.add(new Line3D(0.0f, barrelTop, -0.26f, 0.0f, barrelTop, 0.26f, cPlungerRod, 1.5f));
+        addRingY(out, 0.24f, barrelTop, 12, cPlungerRod, 1.6f);
 
-        float halfLen = 0.62f;
-        float outerRad = 0.68f;
-        float innerRad = 0.24f;
-        int segs = 28;
+        // 2. 高硼硅针筒与品红警示环
+        addCylinderY(out, barrelRad, barrelTop, barrelBot, 12, cBarrelGlass, 0x9940C4FF, 1.3f);
+        addRingY(out, barrelRad + 0.015f, barrelTop + 0.07f, 12, cHazardRing, 1.8f);
+        addRingY(out, barrelRad + 0.015f, barrelBot - 0.06f, 12, cHazardRing, 1.8f);
 
-        int spiralSteps = 72;
-        for (int side = -1; side <= 1; side += 2) {
-            float z = side * halfLen;
-            for (int i = 0; i < spiralSteps; i++) {
-                float t1 = i / (float) spiralSteps;
-                float t2 = (i + 1) / (float) spiralSteps;
-                float ang1 = t1 * ((float) Math.PI * 8.0f);
-                float ang2 = t2 * ((float) Math.PI * 8.0f);
-                float rad1 = Mth.lerp(t1, innerRad, outerRad);
-                float rad2 = Mth.lerp(t2, innerRad, outerRad);
+        for (int k = 1; k <= 5; k++) {
+            float gy = Mth.lerp(k / 6.0f, barrelTop + 0.08f, barrelBot - 0.06f);
+            float tickLen = (k % 2 == 0) ? 0.09f : 0.05f;
+            out.add(new Line3D(-barrelRad, gy, 0.0f, -barrelRad + tickLen, gy, 0.0f, cNeedle, 1.2f));
+            out.add(new Line3D(barrelRad - tickLen, gy, 0.0f, barrelRad, gy, 0.0f, cNeedle, 1.2f));
+        }
 
-                list.add(new Line3D(
-                        Mth.cos(ang1) * rad1, Mth.sin(ang1) * rad1, z,
-                        Mth.cos(ang2) * rad2, Mth.sin(ang2) * rad2, z,
-                        mainR, mainG, mainB, 215, 0.95f
-                ));
+        // 3. 随滑块实时推进的十字推杆与拇指推盘
+        float effectivePlungerRatio = Math.max(0.0f, remainingRatio - selectedDoseRatio);
+        float stopperY = Mth.lerp(effectivePlungerRatio, barrelBot - 0.04f, barrelTop + 0.06f);
+        float rodTopY = stopperY - 0.54f;
+
+        addRingY(out, 0.22f, rodTopY, 10, cHazardRing, 1.8f);
+        out.add(new Line3D(-0.22f, rodTopY, 0.0f, 0.22f, rodTopY, 0.0f, cPlungerRod, 1.8f));
+        out.add(new Line3D(0.0f, rodTopY, 0.0f, 0.0f, stopperY, 0.0f, cPlungerRod, 1.8f));
+        out.add(new Line3D(-0.08f, rodTopY, 0.0f, -0.08f, stopperY, 0.0f, 0xAA81D4FA, 1.1f));
+        out.add(new Line3D(0.08f, rodTopY, 0.0f, 0.08f, stopperY, 0.0f, 0xAA81D4FA, 1.1f));
+
+        addRingY(out, barrelRad * 0.86f, stopperY - 0.03f, 10, cStopper, 1.8f);
+        addRingY(out, barrelRad * 0.86f, stopperY, 10, cStopper, 1.8f);
+
+        // 4. 冰青色药液全息环
+        if (remainingRatio > 0.01f) {
+            float liqTopY = Mth.lerp(remainingRatio, barrelBot - 0.03f, barrelTop + 0.06f);
+            float afterInjectY = Mth.lerp(effectivePlungerRatio, barrelBot - 0.03f, barrelTop + 0.06f);
+
+            int rings = 6;
+            for (int r = 0; r <= rings; r++) {
+                float ry = Mth.lerp(r / (float) rings, liqTopY, barrelBot - 0.03f);
+                boolean inSelectedSlice = (ry <= afterInjectY + 0.005f) && (selectedDoseRatio > 0.005f);
+                int col = inSelectedSlice ? cDosePulse : cFentanylLiq;
+                addRingY(out, barrelRad * 0.80f, ry, 10, col, inSelectedSlice ? 1.8f : 1.3f);
             }
-            for (int i = 0; i < 20; i++) {
-                float a1 = (i / 20.0f) * ((float) Math.PI * 2.0f);
-                float a2 = ((i + 1) / 20.0f) * ((float) Math.PI * 2.0f);
-                list.add(new Line3D(
-                        Mth.cos(a1) * innerRad, Mth.sin(a1) * innerRad, z * 1.06f,
-                        Mth.cos(a2) * innerRad, Mth.sin(a2) * innerRad, z * 1.06f,
-                        coreR, coreG, coreB, 235, 1.15f
-                ));
-            }
         }
 
-        int rings = 5;
-        for (int r = 0; r <= rings; r++) {
-            float z = Mth.lerp(r / (float) rings, -halfLen, halfLen);
-            boolean isEnd = (r == 0 || r == rings);
-            for (int i = 0; i < segs; i++) {
-                float a1 = (i / (float) segs) * ((float) Math.PI * 2.0f);
-                float a2 = ((i + 1) / (float) segs) * ((float) Math.PI * 2.0f);
-                list.add(new Line3D(
-                        Mth.cos(a1) * outerRad, Mth.sin(a1) * outerRad, z,
-                        Mth.cos(a2) * outerRad, Mth.sin(a2) * outerRad, z,
-                        isEnd ? mainR : subR, isEnd ? mainG : subG, isEnd ? mainB : subB,
-                        isEnd ? 245 : 140, isEnd ? 1.25f : 0.7f
-                ));
-            }
-        }
-        for (int i = 0; i < segs; i += 2) {
-            float a = (i / (float) segs) * ((float) Math.PI * 2.0f);
-            float x = Mth.cos(a) * outerRad;
-            float y = Mth.sin(a) * outerRad;
-            list.add(new Line3D(x, y, -halfLen, x, y, halfLen, subR, subG, subB, 130, 0.65f));
-        }
+        // 5. 鲁尔锁锥头与穿刺针
+        addCylinderY(out, 0.08f, barrelBot, barrelBot + 0.14f, 8, cPlungerRod, cBarrelGlass, 1.4f);
+        out.add(new Line3D(0.0f, barrelBot + 0.14f, 0.0f, 0.0f, barrelBot + 0.46f, 0.0f, cNeedle, 1.8f));
 
-        int tailSteps = 8;
-        float prevTx = outerRad;
-        float prevTy = 0.0f;
-        for (int s = 1; s <= tailSteps; s++) {
-            float t = s / (float) tailSteps;
-            float tx = outerRad + t * 0.28f + Mth.sin(t * 4.5f) * 0.08f;
-            float ty = t * 0.78f;
-            float tzSpan = halfLen * (0.88f - 0.10f * t);
+        return out;
+    }
 
-            list.add(new Line3D(prevTx, prevTy, -tzSpan, tx, ty, -tzSpan, mainR, mainG, mainB, 220, 1.0f));
-            list.add(new Line3D(prevTx, prevTy, tzSpan, tx, ty, tzSpan, mainR, mainG, mainB, 220, 1.0f));
-            list.add(new Line3D(tx, ty, -tzSpan, tx, ty, tzSpan, subR, subG, subB, 175, 0.8f));
+    private static void buildBandageRoll(List<Line3D> out, boolean isPressure) {
+        int mainCol = isPressure ? 0xFF66BB6A : 0xFFE0F7FA;
+        int subCol  = isPressure ? 0xFF43A047 : 0xFF4DD0E1;
+        int accent  = isPressure ? 0xFFFFCA28 : 0xFFFF5252;
 
-            prevTx = tx;
-            prevTy = ty;
-        }
+        addCylinderY(out, 0.56f, -0.45f, 0.45f, 16, mainCol, subCol, 1.5f);
+        addCylinderY(out, 0.22f, -0.46f, 0.46f, 12, accent, subCol, 1.2f);
+        addRingY(out, 0.39f, -0.45f, 14, subCol, 1.1f);
+        addRingY(out, 0.39f, 0.45f, 14, subCol, 1.1f);
 
-        if (!isPressure) {
-            float cyTop = -outerRad - 0.03f;
-            list.add(new Line3D(-0.18f, cyTop, 0.0f, 0.18f, cyTop, 0.0f, 255, 35, 55, 250, 1.8f));
-            list.add(new Line3D(0.0f, cyTop, -0.18f, 0.0f, cyTop, 0.18f, 255, 35, 55, 250, 1.8f));
+        if (isPressure) {
+            out.add(new Line3D(-0.18f, -0.48f, -0.64f, 0.18f, -0.48f, -0.64f, accent, 2.0f));
+            out.add(new Line3D(-0.18f, 0.48f, -0.64f, 0.18f, 0.48f, -0.64f, accent, 2.0f));
+            out.add(new Line3D(-0.18f, -0.48f, -0.64f, -0.18f, 0.48f, -0.64f, accent, 2.0f));
+            out.add(new Line3D(0.18f, -0.48f, -0.64f, 0.18f, 0.48f, -0.64f, accent, 2.0f));
         } else {
-            float barY = -outerRad - 0.14f;
-            list.add(new Line3D(-0.32f, -outerRad, -0.45f, -0.22f, barY, -0.45f, 255, 200, 40, 250, 1.5f));
-            list.add(new Line3D(-0.22f, barY, -0.45f, 0.28f, barY, -0.45f, 255, 200, 40, 250, 1.6f));
-            list.add(new Line3D(-0.22f, barY, 0.45f, 0.28f, barY, 0.45f, 255, 200, 40, 250, 1.6f));
-            list.add(new Line3D(-0.22f, barY, -0.45f, -0.22f, barY, 0.45f, 255, 200, 40, 250, 1.6f));
-            list.add(new Line3D(0.28f, barY, -0.45f, 0.28f, barY, 0.45f, 255, 200, 40, 250, 1.6f));
+            out.add(new Line3D(-0.14f, 0.0f, -0.58f, 0.14f, 0.0f, -0.58f, accent, 2.0f));
+            out.add(new Line3D(0.0f, -0.14f, -0.58f, 0.0f, 0.14f, -0.58f, accent, 2.0f));
         }
-
-        return list;
     }
 
-    private static List<Line3D> build3DTourniquetMesh() {
-        List<Line3D> list = new ArrayList<>();
-        int segs = 24;
-        float rad = 0.65f;
-        for (int i = 0; i < segs; i++) {
-            float a1 = (i / (float) segs) * ((float) Math.PI * 2.0f);
-            float a2 = ((i + 1) / (float) segs) * ((float) Math.PI * 2.0f);
-            list.add(new Line3D(Mth.cos(a1) * rad, Mth.sin(a1) * rad, -0.25f, Mth.cos(a2) * rad, Mth.sin(a2) * rad, -0.25f, 255, 145, 0, 240, 1.3f));
-            list.add(new Line3D(Mth.cos(a1) * rad, Mth.sin(a1) * rad, 0.25f, Mth.cos(a2) * rad, Mth.sin(a2) * rad, 0.25f, 255, 145, 0, 240, 1.3f));
-        }
-        list.add(new Line3D(-0.75f, -rad - 0.15f, 0.0f, 0.75f, -rad - 0.15f, 0.0f, 255, 40, 40, 255, 2.0f));
-        return list;
+    private static void buildTourniquet(List<Line3D> out) {
+        addCylinderY(out, 0.62f, -0.22f, 0.22f, 16, 0xFFEF5350, 0xFFB71C1C, 1.6f);
+        out.add(new Line3D(-0.70f, 0.0f, -0.68f, 0.70f, 0.0f, -0.68f, 0xFFECEFF1, 2.2f));
     }
 
-    private static List<Line3D> build3DSyringeMesh() {
-        return build3DOpioidSyringeMesh(false, 0.75f, 0.0f);
+    private static void buildSyringe(List<Line3D> out) {
+        out.addAll(buildDynamicMorphineAutoinjector(1.0f, 0.0f));
     }
 
-    private static List<Line3D> build3DSplintMesh() {
-        List<Line3D> list = new ArrayList<>();
-        list.add(new Line3D(-0.45f, -0.75f, -0.2f, -0.45f, 0.75f, -0.2f, 0, 255, 140, 235, 1.5f));
-        list.add(new Line3D(0.45f, -0.75f, -0.2f, 0.45f, 0.75f, -0.2f, 0, 255, 140, 235, 1.5f));
-        list.add(new Line3D(-0.45f, -0.5f, -0.2f, 0.45f, -0.5f, -0.2f, 0, 220, 255, 200, 1.1f));
-        list.add(new Line3D(-0.45f, 0.0f, -0.2f, 0.45f, 0.0f, -0.2f, 0, 220, 255, 200, 1.1f));
-        list.add(new Line3D(-0.45f, 0.5f, -0.2f, 0.45f, 0.5f, -0.2f, 0, 220, 255, 200, 1.1f));
-        return list;
+    private static void buildSplint(List<Line3D> out) {
+        addCylinderY(out, 0.35f, -0.75f, 0.75f, 8, 0xFFFFB74D, 0xFFFFA726, 1.5f);
     }
 
-    private static List<Line3D> build3DBottleMesh() {
-        List<Line3D> list = new ArrayList<>();
-        list.add(new Line3D(-0.35f, -0.35f, 0.0f, 0.35f, -0.35f, 0.0f, 0, 230, 255, 230, 1.3f));
-        list.add(new Line3D(-0.35f, 0.65f, 0.0f, 0.35f, 0.65f, 0.0f, 0, 230, 255, 230, 1.3f));
-        list.add(new Line3D(-0.35f, -0.35f, 0.0f, -0.35f, 0.65f, 0.0f, 0, 230, 255, 230, 1.3f));
-        list.add(new Line3D(0.35f, -0.35f, 0.0f, 0.35f, 0.65f, 0.0f, 0, 230, 255, 230, 1.3f));
-        list.add(new Line3D(-0.18f, -0.65f, 0.0f, 0.18f, -0.65f, 0.0f, 255, 200, 40, 245, 1.5f));
-        return list;
+    private static void buildMedicineBottle(List<Line3D> out) {
+        addCylinderY(out, 0.46f, -0.15f, 0.68f, 14, 0xFF29B6F6, 0xFF0288D1, 1.5f);
+        addCylinderY(out, 0.28f, -0.62f, -0.34f, 12, 0xFFFFCA28, 0xFFFFB300, 1.6f);
     }
 }

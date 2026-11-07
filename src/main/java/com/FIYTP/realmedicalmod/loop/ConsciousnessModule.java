@@ -20,6 +20,8 @@ import net.minecraft.util.Mth;
  */
 public class ConsciousnessModule implements UpdateModule {
 
+    private int addictionDecayTick = 0;
+
     @Override
     public void process(MedicalData data) {
         // ====== 0. 每秒代谢体内阿片血药浓度 ======
@@ -35,6 +37,13 @@ public class ConsciousnessModule implements UpdateModule {
                 data.setOpioidConcentration(Math.round(nextOpioid));
             }
             opioidConc = nextOpioid;
+            addictionDecayTick = 0;
+        } else if (data.getAddictionLevel() > 0) {
+            int decayInterval = Math.max(5, MedicalConfig.ADDICTION_DECAY_INTERVAL_SEC.get());
+            if (++addictionDecayTick >= decayInterval) {
+                addictionDecayTick = 0;
+                data.setAddictionLevel(Math.max(0, data.getAddictionLevel() - 1));
+            }
         }
 
         // 心脏骤停时，意识直接归零且不再恢复

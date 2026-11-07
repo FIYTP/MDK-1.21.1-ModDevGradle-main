@@ -415,14 +415,12 @@ public final class TreatmentRouter {
             float ratio = maxU > 0 ? (remU / (float) maxU) : 0.0f;
             if (fentanyl) {
                 float maxMcg = MedicalConfig.FENTANYL_MAX_MCG.get().floatValue();
-                lines.add(String.format("药量: %.0f / %.0f mcg (%d%%)", ratio * maxMcg, maxMcg, Math.round(ratio * 100)));
-                lines.add("效力: 超强效中枢 μ-受体镇痛");
-                lines.add("高危: 治疗窗极窄，过量致呼吸骤停");
+                lines.add(String.format("余量: %.0f / %.0f mcg", ratio * maxMcg, maxMcg));
+                lines.add("极强镇痛 | 过量停呼吸");
             } else {
                 float maxMg = MedicalConfig.MORPHINE_MAX_MG.get().floatValue();
-                lines.add(String.format("药量: %.1f / %.1f mg (%d%%)", ratio * maxMg, maxMg, Math.round(ratio * 100)));
-                lines.add("效力: 强效全身与局部中枢镇痛");
-                lines.add("警示: 过量推注将引发延髓呼吸抑制");
+                lines.add(String.format("余量: %.1f / %.1f mg", ratio * maxMg, maxMg));
+                lines.add("强效镇痛 | 过量呼吸抑制");
             }
             return lines;
         }
@@ -534,7 +532,7 @@ public final class TreatmentRouter {
             float acuteConsDrop = MedicalConfig.OPIOID_ACUTE_OVERDOSE_CONSCIOUSNESS_DROP.get().floatValue();
             data.setConsciousnessFloat(Math.max(0.0f, data.getConsciousnessFloat() - acuteConsDrop));
             player.displayClientMessage(
-                    Component.literal("☠ 致命阿片过量！已推注 " + drugLabel + " (血药浓度 " + Math.round(newConc) + "% -> 延髓呼吸骤停!)")
+                    Component.literal("☠ 阿片致命过量！浓度 " + Math.round(newConc) + "% (呼吸骤停)")
                             .withStyle(ChatFormatting.DARK_RED, ChatFormatting.BOLD),
                     true
             );
@@ -546,7 +544,7 @@ public final class TreatmentRouter {
             data.setRespirationRate(Math.max(1, Math.round(data.getRespirationRate() * minFactor)));
             data.setConsciousnessFloat(Math.max(0.0f, data.getConsciousnessFloat() - 15.0f));
             player.displayClientMessage(
-                    Component.literal("⚠ 阿片过量警告！已推注 " + drugLabel + " (血药浓度 " + Math.round(newConc) + "% -> 重度呼吸抑制!)")
+                    Component.literal("⚠ 阿片过量！浓度 " + Math.round(newConc) + "% (重度呼吸抑制)")
                             .withStyle(ChatFormatting.RED, ChatFormatting.BOLD),
                     true
             );
@@ -554,13 +552,13 @@ public final class TreatmentRouter {
                     SoundEvents.WARDEN_HEARTBEAT, SoundSource.PLAYERS, 0.9f, 0.85f);
         } else if (newConc >= respDepStart) {
             player.displayClientMessage(
-                    Component.literal("已推注 " + drugLabel + " (血药浓度 " + Math.round(newConc) + "% | 强效镇痛生效，轻度呼吸减慢)")
+                    Component.literal("已注射 " + drugLabel + " (浓度 " + Math.round(newConc) + "%)")
                             .withStyle(ChatFormatting.GOLD),
                     true
             );
         } else {
             player.displayClientMessage(
-                    Component.literal("已推注 " + drugLabel + " (血药浓度 " + Math.round(newConc) + "% | 强效中枢镇痛生效)")
+                    Component.literal("已注射 " + drugLabel + " (浓度 " + Math.round(newConc) + "%)")
                             .withStyle(ChatFormatting.GREEN),
                     true
             );

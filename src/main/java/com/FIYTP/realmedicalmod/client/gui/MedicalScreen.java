@@ -2037,11 +2037,14 @@ public class MedicalScreen extends Screen {
                         data.getBloodOxygen() / 100f, C_VITAL_OXYGEN);
                 if (data.getOpioidConcentration() > 0 || data.getAddictionLevel() > 0) {
                     int op = data.getOpioidConcentration();
+                    int addLv = data.getAddictionLevel();
+                    int addTier = com.FIYTP.realmedicalmod.treatment.ModItems.getAddictionTier(addLv);
+                    String tierRoman = addTier == 1 ? "I" : (addTier == 2 ? "II" : (addTier >= 3 ? "III" : "-"));
                     int opCol = op >= MedicalConfig.OPIOID_OVERDOSE_THRESHOLD.get() ? C_ALERT_RED
-                            : (op >= MedicalConfig.OPIOID_RESP_DEPRESSION_START.get() ? C_WARN_YELLOW : 0xFFCE93D8);
-                    drawMetricCard(g, font, x + colW + 6, y, colW, tr("medical.detail.opioid_concentration"),
-                            op + "% | 成瘾 " + data.getAddictionLevel() + "%",
-                            op / 100f, opCol);
+                            : (addTier >= 2 ? 0xFFE040FB : (op >= MedicalConfig.OPIOID_RESP_DEPRESSION_START.get() ? C_WARN_YELLOW : 0xFFCE93D8));
+                    drawMetricCard(g, font, x + colW + 6, y, colW, "阿片浓度 / 成瘾",
+                            op + "% | 成瘾 " + tierRoman + " (" + addLv + "%)",
+                            Math.max(op / 100f, addLv / 100f), opCol);
                 } else {
                     drawMetricCard(g, font, x + colW + 6, y, colW, "SIRS / 烧伤面积",
                             "SIRS " + data.getSirsLevel() + " | " + String.format("%.1f%%", data.getBurnTBSA()),
@@ -2049,6 +2052,24 @@ public class MedicalScreen extends Screen {
                             (data.getSirsLevel() > 0 || data.getBurnTBSA() > 0) ? C_WARN_YELLOW : 0xFF37474F);
                 }
                 y += 24;
+                int addTierWhisper = com.FIYTP.realmedicalmod.treatment.ModItems.getAddictionTier(data.getAddictionLevel());
+                if (addTierWhisper > 0) {
+                    long wBucket = System.currentTimeMillis() / 4500L;
+                    boolean inWithdrawal = com.FIYTP.realmedicalmod.treatment.ModItems.isInWithdrawalMovementRestriction(data);
+                    if (inWithdrawal || com.FIYTP.realmedicalmod.treatment.BandageItem.isAddictionHallucinating(addTierWhisper, wBucket)) {
+                        String[] whispers = (addTierWhisper == 1)
+                                ? new String[]{"✦ 「再打一点就不痛了...」", "✦ 「一针就能平息一切...」"}
+                                : (addTierWhisper == 2
+                                ? new String[]{"⚠ 戒断受限：「快推一针恢复行动！」", "✦ 「身体在发抖...需要吗啡...」"}
+                                : new String[]{"☠ 重度戒断：「不注射就寸步难行！」", "☠ 「全部推光！马上注射！」"});
+                        String wTxt = whispers[(int) (Math.abs(wBucket) % whispers.length)];
+                        int wCol = (addTierWhisper >= 3) ? C_ALERT_RED : 0xFFE040FB;
+                        g.fill(x, y, x + w, y + 14, withAlpha(wCol, 0.20f));
+                        g.fill(x, y, x + 2, y + 14, wCol);
+                        g.drawString(font, wTxt, x + 6, y + 3, wCol, false);
+                        y += 17;
+                    }
+                }
             } else {
                 y = drawFullRow(g, font, x, y, w, tr("medical.detail.blood_volume"),
                         data.getBloodVolume() + " mL", data.getBloodVolume() / 5000f, C_VITAL_HEART);

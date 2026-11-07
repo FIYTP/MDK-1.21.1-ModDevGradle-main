@@ -3,6 +3,7 @@ package com.FIYTP.realmedicalmod.client.gui;
 import com.FIYTP.realmedicalmod.capability.MedicalData;
 import com.FIYTP.realmedicalmod.capability.MedicalDataCapability;
 import com.FIYTP.realmedicalmod.config.MedicalConfig;
+import com.FIYTP.realmedicalmod.treatment.ModItems;
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
@@ -70,6 +71,11 @@ public class CriticalOverlay {
     private static float arrestTransitionFlash = 0.0f;
     private static float arrestCollapseProgress = 0.0f;
     private static boolean wasCardiacArrest = false;
+
+    // 阿片类药物推注「多巴胺欣快感 (Opioid Euphoria)」状态追踪
+    private static int lastOpioidConcentration = 0;
+    private static float euphoriaRushTimer = 0.0f;
+    private static float smoothEuphoriaIntensity = 0.0f;
 
     /**
      * 3D 摄像机生理反馈：心动过速心搏微震、室颤电痉挛抖动、失血休克眩晕与心脏骤停失重倾斜
@@ -228,6 +234,19 @@ public class CriticalOverlay {
             return;
         }
 
+        // ===== 优先级 2.5：阿片类药物多巴胺欣快感视觉层 & II/III 级戒断行动受限提示 =====
+        updateAndRenderOpioidEuphoria3A(g, w, h, data, dt, nowMs);
+        if (ModItems.isInWithdrawalMovementRestriction(data)) {
+            int tier = ModItems.getAddictionTier(data.getAddictionLevel());
+            float wPulse = 0.55f + 0.45f * Mth.sin(nowMs * 0.008f);
+            PainVisualOverlay.drawEllipticalRing(g.pose().last().pose(), w, h,
+                    0.72f, 0.0f, 1.35f, (tier >= 3 ? 0.38f : 0.24f) * wPulse,
+                    185, 20, 140, 0.0f, 0.0f, 0.0f, 0.0f);
+            String wMsg = (tier >= 3) ? "☠ 重度戒断: 行动受限 (需注射阿片)" : "⚠ 阿片戒断: 行动受限 (需注射阿片)";
+            int wCol = (tier >= 3) ? 0xFFFF1744 : 0xFFE040FB;
+            g.drawCenteredString(mc.font, wMsg, w / 2, h - 58, wCol);
+        }
+
         // ===== 优先级 3：背景生理障碍层（心动过速、呼吸异常、血胸、颅内出血无缝径向暗角） =====
         renderSubCriticalRadialLayers(g, mc.font, w, h, data, nowMs);
 
@@ -235,6 +254,120 @@ public class CriticalOverlay {
         if (data.isInCriticalState() && data.getCriticalTimer() > 0) {
             renderCriticalHypovolemicCountdown3A(g, mc.font, w, h, data, nowMs);
         }
+    }
+
+
+    // =========================================================================
+    // 2.5 注射阿片类药物「多巴胺欣快感 / 极乐微醺」3A 视觉特效 (Opioid Euphoria Visuals)
+    // =========================================================================
+    private static void updateAndRenderOpioidEuphoria3A(GuiGraphics g, int w, int h, MedicalData data, float dt, long nowMs) {
+        if (!MedicalConfig.OPIOID_EUPHORIA_ENABLED.get()) {
+            lastOpioidConcentration = data.getOpioidConcentration();
+            return;
+        }
+
+        int curOpioid = data.getOpioidConcentration();
+        // 检测玩家刚刚完成阿片推注（血药浓度跃升）：触发强烈的「多巴胺暖流冲顶波 (Euphoria Rush)」
+        if (curOpioid > lastOpioidConcentration + 2) {
+            euphoriaRushTimer = MedicalConfig.OPIOID_EUPHORIA_RUSH_DURATION_SEC.get().floatValue();
+        }
+        lastOpioidConcentration = curOpioid;
+
+        if (euphoriaRushTimer > 0.0f) {
+            euphoriaRushTimer = Math.max(0.0f, euphoriaRushTimer - dt);
+        }
+
+        // 若处于重度窒息或呼吸骤停濒死期，欣快感被缺氧紫绀逐渐吞噬；正常镇痛期内呈现温暖丝绒光晕
+        int apneaThresh = MedicalConfig.OPIOID_APNEA_THRESHOLD.get();
+        float rushFactor = Mth.clamp(euphoriaRushTimer / Math.max(1.0f, MedicalConfig.OPIOID_EUPHORIA_RUSH_DURATION_SEC.get().floatValue()), 0.0f, 1.0f);
+        float sustainFactor = (curOpioid > 0 && curOpioid < apneaThresh && data.getBloodOxygen() >= 75)
+                ? Mth.clamp(curOpioid / 55.0f, 0.15f, 0.85f)
+                : 0.0f;
+        float targetEuphoria = Math.max(rushFactor, sustainFactor * 0.72f);
+        smoothEuphoriaIntensity = Mth.lerp(Math.min(1.0f, dt * 2.8f), smoothEuphoriaIntensity, targetEuphoria);
+
+        if (smoothEuphoriaIntensity <= 0.01f) {
+            return;
+        }
+
+        float maxAlphaCfg = MedicalConfig.OPIOID_EUPHORIA_MAX_ALPHA.get().floatValue();
+        float slowBreath = 0.5f + 0.5f * Mth.sin(nowMs * 0.0018f); // 极其舒缓柔和的慢节律呼吸波
+
+        Matrix4f pose = g.pose().last().pose();
+        RenderSystem.enableBlend();
+        // 采用加法发光混合 (SRC_ALPHA, ONE)，呈现温暖、轻盈、如梦似幻的多巴胺丝绒辉光
+        RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
+        RenderSystem.disableDepthTest();
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+
+        // 1. 外圈：温暖琥珀香槟金丝绒柔光 (Warm Champagne Gold Bloom, RGB: 255, 195, 95)
+        float innerR = Mth.lerp(smoothEuphoriaIntensity, 0.78f, 0.46f) + 0.04f * slowBreath;
+        float goldAlpha = Mth.clamp(smoothEuphoriaIntensity * maxAlphaCfg * (0.75f + 0.25f * slowBreath), 0.0f, 0.75f);
+        PainVisualOverlay.drawEllipticalRing(pose, w, h,
+                innerR, 0.0f,
+                1.38f, goldAlpha,
+                255, 195, 95,
+                0.08f, 0.12f, 0.0f, 0.0f);
+
+        // 2. 中圈：玫瑰粉与梦境紫罗兰多巴胺内晕 (Rose-Pink & Velvet Violet Aura, RGB: 255, 105, 195)
+        float roseAlpha = Mth.clamp(smoothEuphoriaIntensity * maxAlphaCfg * 0.62f * (1.0f - 0.2f * slowBreath), 0.0f, 0.65f);
+        PainVisualOverlay.drawEllipticalRing(pose, w, h,
+                innerR - 0.10f, 0.0f,
+                innerR + 0.28f, roseAlpha,
+                255, 105, 195,
+                0.15f, 0.0f, 0.15f, 0.0f);
+
+        // 3. 推注瞬间的「暖流冲顶波 (Warm Rush Wave)」：从外向内温柔漫溢的金色光环
+        if (rushFactor > 0.05f) {
+            float waveRadius = Mth.lerp(1.0f - rushFactor, 0.95f, 0.22f);
+            float waveAlpha = Mth.sin(rushFactor * Mth.PI) * maxAlphaCfg * 0.68f;
+            PainVisualOverlay.drawEllipticalRing(pose, w, h,
+                    Math.max(0.05f, waveRadius - 0.12f), 0.0f,
+                    waveRadius + 0.12f, waveAlpha,
+                    255, 225, 140,
+                    0.0f, 0.0f, 0.0f, 0.0f);
+        }
+
+        // 4. 视野四周缓缓向上升腾漂浮的 32 颗「多巴胺暖金/樱花粉微光粒子 (Floating Bokeh Motes)」
+        Tesselator tess = Tesselator.getInstance();
+        BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        int moteCount = 32;
+        float timeSec = (nowMs % 120000L) / 1000.0f;
+        for (int i = 0; i < moteCount; i++) {
+            float seed = i * 1.6180339f;
+            // 分布在屏幕左右两侧与上下边缘视野带，不遮挡准星
+            float side = (i % 2 == 0) ? 1.0f : -1.0f;
+            float normX = 0.5f + side * (0.28f + 0.20f * ((i * 7 % 13) / 13.0f))
+                    + 0.035f * Mth.sin(timeSec * 0.9f + seed * 4.0f);
+            float cycleY = (1.0f - ((timeSec * (0.045f + (i % 5) * 0.008f) + seed) % 1.0f));
+            float px = normX * w;
+            float py = cycleY * h;
+
+            float twinkle = 0.5f + 0.5f * Mth.sin(timeSec * 2.6f + seed * 6.0f);
+            float edgeFade = Mth.sin(cycleY * Mth.PI);
+            int mAlpha = Mth.clamp((int) (smoothEuphoriaIntensity * maxAlphaCfg * 210.0f * twinkle * edgeFade), 0, 220);
+            if (mAlpha <= 4) continue;
+
+            float rad = 2.2f + (i % 3) * 1.4f;
+            boolean isGold = (i % 3 != 0);
+            int mr = 255;
+            int mg = isGold ? 215 : 130;
+            int mb = isGold ? 115 : 215;
+
+            // 绘制柔和菱形光斑
+            buf.addVertex(pose, px, py - rad, 0.0f).setColor(mr, mg, mb, mAlpha);
+            buf.addVertex(pose, px - rad, py, 0.0f).setColor(mr, mg, mb, mAlpha);
+            buf.addVertex(pose, px, py + rad, 0.0f).setColor(mr, mg, mb, mAlpha);
+            buf.addVertex(pose, px + rad, py, 0.0f).setColor(mr, mg, mb, mAlpha);
+        }
+        MeshData mesh = buf.build();
+        if (mesh != null) {
+            BufferUploader.drawWithShader(mesh);
+        }
+
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.enableDepthTest();
+        RenderSystem.disableBlend();
     }
 
     // =========================================================================
@@ -591,6 +724,42 @@ public class CriticalOverlay {
                     1.40f, icAlpha,
                     12, 4, 18,
                     0.0f, 0.0f, 0.35f, 0.0f);
+        }
+
+        // ---------- E. 阿片类药物镇静 / 过量呼吸抑制「针尖样瞳孔 (Miosis)」紫青视野缩窄与危象浮标 ----------
+        int opioidConc = data.getOpioidConcentration();
+        int sedationStart = MedicalConfig.OPIOID_SEDATION_START.get();
+        int overdoseThresh = MedicalConfig.OPIOID_OVERDOSE_THRESHOLD.get();
+        int apneaThresh = MedicalConfig.OPIOID_APNEA_THRESHOLD.get();
+        if (opioidConc >= sedationStart) {
+            float opRatio = Mth.clamp((opioidConc - sedationStart) / Math.max(1.0f, 100.0f - sedationStart), 0.0f, 1.0f);
+            float slowWave = 0.5f + 0.5f * Mth.sin(nowMs * 0.0035f);
+            // 针尖样瞳孔 (Pinpoint Pupils) 隧道内径：随过量程度从 0.72 收缩至 0.26
+            float miosisInner = Mth.lerp(opRatio, 0.72f, 0.26f) - 0.02f * slowWave;
+            float miosisAlpha = Mth.clamp(0.25f + opRatio * 0.65f, 0.0f, 0.90f);
+            PainVisualOverlay.drawEllipticalRing(pose, w, h,
+                    miosisInner, 0.0f,
+                    1.40f, miosisAlpha,
+                    18, 6, 32,
+                    0.0f, 0.0f, 0.0f, 0.0f);
+
+            if (opioidConc >= overdoseThresh && Minecraft.getInstance().screen == null) {
+                boolean isApnea = opioidConc >= apneaThresh || data.getRespirationRate() <= 0;
+                int bx = 12;
+                int by = 12;
+                int bw = 178;
+                int bh = 30;
+                int bdCol = isApnea ? C_ALERT_RED : C_WARN_AMBER;
+                HudRenderHelper.drawSciFiCard(g, bx, by, bw, bh, 3, 0xCC0A0412, bdCol);
+                g.fill(bx, by + 2, bx + 3, by + bh - 2, bdCol);
+                String odTitle = isApnea
+                        ? ("☠ 阿片呼吸骤停: 浓度 " + opioidConc + "%")
+                        : ("⚠ 阿片过量抑制: 浓度 " + opioidConc + "%");
+                g.drawString(font, odTitle, bx + 7, by + 4, bdCol, false);
+                String odSub = "呼吸: " + data.getRespirationRate() + " rpm | SpO2: " + data.getBloodOxygen() + "%";
+                g.drawString(font, odSub, bx + 7, by + 16, 0xFFE1BEE7, false);
+                RenderSystem.setShader(GameRenderer::getPositionColorShader);
+            }
         }
 
         RenderSystem.enableDepthTest();

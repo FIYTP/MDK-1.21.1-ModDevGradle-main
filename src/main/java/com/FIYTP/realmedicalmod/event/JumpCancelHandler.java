@@ -3,6 +3,7 @@ package com.FIYTP.realmedicalmod.event;
 import com.FIYTP.realmedicalmod.capability.MedicalData;
 import com.FIYTP.realmedicalmod.capability.MedicalDataCapability;
 import com.FIYTP.realmedicalmod.config.MedicalConfig;
+import com.FIYTP.realmedicalmod.treatment.ModItems;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -10,12 +11,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.entity.living.LivingEvent;
 
 /**
- * 跳跃拦截器（客户端 + 服务端双端同步生效版）
- *
- * 修复说明：
- * 原版代码在开头写了 {@code if (player.level().isClientSide()) return;}，
- * 而 Minecraft 玩家的起跳物理冲量是在客户端本地线程计算的，仅在服务端取消会导致客户端人物依然能正常跳起。
- * 现已移除客户端短路判断，双端同步拦截昏迷、心脏骤停、腿部骨折与腿部截肢时的跳跃。
+ * 跳跃拦截器（客户端 + 服务端双端同步生效版 —— 含 II/III 级阿片戒断行动受限拦截）
  */
 @EventBusSubscriber(modid = "realmedicalmod")
 public class JumpCancelHandler {
@@ -31,6 +27,22 @@ public class JumpCancelHandler {
         if (data.getConsciousness() <= 0 || data.isCardiacArrest()) {
             cancelJumpAndMomentum(player);
             return;
+        }
+
+        // 优先级 1.5: II 级 / III 级阿片成瘾未注射阿片（处于戒断行动受限状态）
+        if (ModItems.isInWithdrawalMovementRestriction(data)) {
+            int tier = ModItems.getAddictionTier(data.getAddictionLevel());
+            player.setSprinting(false);
+            if (tier >= 3) {
+                // III 级重度戒断：完全禁止起跳
+                cancelJump(player);
+                return;
+            } else {
+                // II 级中度戒断：大幅削弱跳跃高度与水平冲量
+                Vec3 motion = player.getDeltaMovement();
+                player.setDeltaMovement(motion.x * 0.5, motion.y * 0.45, motion.z * 0.5);
+                return;
+            }
         }
 
         // 优先级 2: 腿部骨折且配置禁止跳跃 -> 取消跳跃

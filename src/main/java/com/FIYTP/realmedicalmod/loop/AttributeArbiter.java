@@ -4,6 +4,7 @@ import com.FIYTP.realmedicalmod.RealMedicalMod;
 import com.FIYTP.realmedicalmod.capability.MedicalData;
 import com.FIYTP.realmedicalmod.capability.MedicalDataCapability;
 import com.FIYTP.realmedicalmod.config.MedicalConfig;
+import com.FIYTP.realmedicalmod.treatment.ModItems;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
@@ -19,12 +20,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * 连续属性仲裁器（表现层统一入口 —— 含意识归零完全失能锁死）
- *
- * 各影响评估模块把伤情换算为 0~1 连续倍率，按维度提交到此；
- * 每维度取所有来源的 min（最重损伤决定能力），平时受 ARBITER_MIN_MULTIPLIER (默认 0.05) 下限保护；
- * 但当玩家意识归零 (consciousness <= 0) 或心脏骤停 (isCardiacArrest) 时，强制突破 0.05 下限将移动速度、
- * 攻击力与攻速锁死为 0.0f（倍率 -1.0 ADD_MULTIPLIED_TOTAL），确保昏迷状态下人物彻底无法移动！
+ * 连续属性仲裁器（表现层统一入口 —— 含意识归零完全失能锁死 + II/III 级阿片成瘾未注射戒断行动受限）
  */
 @EventBusSubscriber(modid = RealMedicalMod.MODID)
 public class AttributeArbiter {
@@ -71,7 +67,20 @@ public class AttributeArbiter {
 
         MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
         boolean unconscious = (data != null) && (data.getConsciousness() <= 0 || data.isCardiacArrest());
-        if (unconscious && player.isSprinting()) {
+
+        // ★ II 级与 III 级阿片成瘾：若未注射阿片（体内阿片浓度低于压制阈值），触发戒断行动受限！ ★
+        boolean withdrawalRestricted = (data != null) && ModItems.isInWithdrawalMovementRestriction(data);
+        if (withdrawalRestricted) {
+            int tier = ModItems.getAddictionTier(data.getAddictionLevel());
+            float withdrawalMult = (tier >= 3)
+                    ? MedicalConfig.ADDICTION_WITHDRAWAL_SPEED_MULT_T3.get().floatValue()
+                    : MedicalConfig.ADDICTION_WITHDRAWAL_SPEED_MULT_T2.get().floatValue();
+            suggest(player, Dimension.MOVEMENT_SPEED, "opioid_withdrawal", withdrawalMult);
+            suggest(player, Dimension.ATTACK_DAMAGE, "opioid_withdrawal", withdrawalMult);
+            suggest(player, Dimension.ATTACK_SPEED, "opioid_withdrawal", withdrawalMult);
+        }
+
+        if ((unconscious || withdrawalRestricted) && player.isSprinting()) {
             player.setSprinting(false);
         }
 
