@@ -528,6 +528,33 @@ public class MedicalConfig {
     public static final ModConfigSpec.DoubleValue OPIOID_EUPHORIA_MAX_ALPHA;
     public static final ModConfigSpec.DoubleValue OPIOID_EUPHORIA_RUSH_DURATION_SEC;
 
+    // 3A 脑损伤升级视觉效果（历史画面闪回、定格撕裂震荡、四态神经变色）配置
+    public static ModConfigSpec.BooleanValue BRAIN_VFX_UPGRADE_ENABLED;
+    public static ModConfigSpec.DoubleValue BRAIN_VFX_FLASHBACK_INTENSITY;
+    public static ModConfigSpec.IntValue BRAIN_VFX_FREEZE_DURATION_MS;
+    public static ModConfigSpec.DoubleValue BRAIN_VFX_SHAKE_AMPLITUDE;
+    public static ModConfigSpec.DoubleValue BRAIN_VFX_COLOR_SHIFT_INTENSITY;
+
+    // ==================== 肾上腺素系统（受创内源性应激 Buff + 外源性肾上腺素自动注射器）配置 ====================
+    public static ModConfigSpec.BooleanValue ADRENALINE_TRAUMA_ENABLED;
+    public static ModConfigSpec.DoubleValue ADRENALINE_TRAUMA_MIN_DAMAGE;
+    public static ModConfigSpec.DoubleValue ADRENALINE_TRAUMA_GAIN;
+    public static ModConfigSpec.IntValue ADRENALINE_TRAUMA_DURATION_SEC;
+    public static ModConfigSpec.IntValue ADRENALINE_TRAUMA_COOLDOWN_SEC;
+    public static ModConfigSpec.DoubleValue ADRENALINE_INJECTOR_GAIN;
+    public static ModConfigSpec.DoubleValue ADRENALINE_DECAY_RATE_PER_SEC;
+    public static ModConfigSpec.IntValue ADRENALINE_TIER1_THRESHOLD;
+    public static ModConfigSpec.IntValue ADRENALINE_TIER2_THRESHOLD;
+    public static ModConfigSpec.IntValue ADRENALINE_TIER3_THRESHOLD;
+    public static ModConfigSpec.DoubleValue ADRENALINE_MAX_HR_BOOST;
+    public static ModConfigSpec.DoubleValue ADRENALINE_MAX_RESP_BOOST;
+    public static ModConfigSpec.DoubleValue ADRENALINE_MAX_PAIN_SLOW_RELIEF;
+    public static ModConfigSpec.DoubleValue ADRENALINE_SPEED_BOOST_T1;
+    public static ModConfigSpec.DoubleValue ADRENALINE_SPEED_BOOST_T2;
+    public static ModConfigSpec.DoubleValue ADRENALINE_UNBANDAGED_BLEED_MULT;
+    public static ModConfigSpec.IntValue ADRENALINE_CRASH_DURATION_SEC;
+    public static ModConfigSpec.DoubleValue ADRENALINE_CRASH_SPEED_MULT;
+
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
 
@@ -2064,6 +2091,82 @@ public class MedicalConfig {
         OPIOID_EUPHORIA_RUSH_DURATION_SEC = builder
                 .comment("推注阿片药物瞬间「暖流冲顶波 (Euphoria Rush)」持续秒数 (默认 8.0 秒)")
                 .defineInRange("opioidEuphoriaRushDurationSec", 8.0, 1.0, 60.0);
+
+        // 7. 3A 脑损伤视觉升级（真实帧缓冲历史闪回、画面定格撕裂震荡、四态皮层变色）
+        BRAIN_VFX_UPGRADE_ENABLED = builder
+                .comment("是否启用 3A 脑损伤升级视觉特效（历史帧闪回残影、画面硬定格撕裂震荡、RGB 棱镜色散与皮层变色，默认 true）")
+                .define("brainVfxUpgradeEnabled", true);
+        BRAIN_VFX_FLASHBACK_INTENSITY = builder
+                .comment("脑损伤「闪回 (Temporal Flashback)」历史帧重影与记忆回闪的最大强度 (默认 0.85)")
+                .defineInRange("brainVfxFlashbackIntensity", 0.85, 0.0, 1.0);
+        BRAIN_VFX_FREEZE_DURATION_MS = builder
+                .comment("脑损伤「画面定格震荡 (Frame-Freeze Concussion)」单次硬定格持续毫秒数 (默认 320 ms)")
+                .defineInRange("brainVfxFreezeDurationMs", 320, 50, 2000);
+        BRAIN_VFX_SHAKE_AMPLITUDE = builder
+                .comment("脑损伤「定格撕裂震荡」画面位移与水平切片错位强度倍率 (默认 1.0)")
+                .defineInRange("brainVfxShakeAmplitude", 1.0, 0.0, 3.0);
+        BRAIN_VFX_COLOR_SHIFT_INTENSITY = builder
+                .comment("脑损伤「皮层神经变色 (Cortical Color Shift)」与 RGB 通道分离色散的最大强度 (默认 0.82)")
+                .defineInRange("brainVfxColorShiftIntensity", 0.82, 0.0, 1.0);
+
+
+        // 8. 肾上腺素系统（受创短暂内源性应激 Buff + 外源性肾上腺素自动注射器 EpiPen）
+        ADRENALINE_TRAUMA_ENABLED = builder
+                .comment("是否启用受伤时短暂赋予内源性「肾上腺素激增 I」应激 Buff (默认 true)")
+                .define("adrenalineTraumaEnabled", true);
+        ADRENALINE_TRAUMA_MIN_DAMAGE = builder
+                .comment("触发受创内源性肾上腺素应激所需的最低原始伤害阈值 (默认 1.0)")
+                .defineInRange("adrenalineTraumaMinDamage", 2.5, 0.1, 20.0);
+        ADRENALINE_TRAUMA_GAIN = builder
+                .comment("单次受伤应激赋予的体内肾上腺素浓度百分比 (默认 32.0%)")
+                .defineInRange("adrenalineTraumaGain", 24.0, 5.0, 100.0);
+        ADRENALINE_TRAUMA_DURATION_SEC = builder
+                .comment("受创内源性肾上腺素应激 Buff 持续秒数 (默认 8 秒)")
+                .defineInRange("adrenalineTraumaDurationSec", 3, 2, 60);
+        ADRENALINE_TRAUMA_COOLDOWN_SEC = builder
+                .comment("受创内源性肾上腺素应激的生理不应期冷却秒数 (默认 18 秒，防止高频小伤害无限刷)")
+                .defineInRange("adrenalineTraumaCooldownSec", 25, 1, 300);
+        ADRENALINE_INJECTOR_GAIN = builder
+                .comment("单支肾上腺素自动注射器 (0.3mg) 推注增加的肾上腺素浓度百分比 (默认 65.0%)")
+                .defineInRange("adrenalineInjectorGain", 55.0, 10.0, 100.0);
+        ADRENALINE_DECAY_RATE_PER_SEC = builder
+                .comment("外源性肾上腺素每秒自然代谢清除速率 (%/s，默认 1.45，单支约维持 45 秒)")
+                .defineInRange("adrenalineDecayRatePerSec", 4.5, 0.1, 20.0);
+        ADRENALINE_TIER1_THRESHOLD = builder
+                .comment("「肾上腺素激增 I 级」浓度阈值 (% ，默认 15)")
+                .defineInRange("adrenalineTier1Threshold", 15, 1, 100);
+        ADRENALINE_TIER2_THRESHOLD = builder
+                .comment("「肾上腺素激增 II 级」浓度阈值 (% ，默认 45)")
+                .defineInRange("adrenalineTier2Threshold", 45, 1, 100);
+        ADRENALINE_TIER3_THRESHOLD = builder
+                .comment("「肾上腺素激增 III 级 (交感过载临界)」浓度阈值 (% ，默认 75)")
+                .defineInRange("adrenalineTier3Threshold", 75, 1, 100);
+        ADRENALINE_MAX_HR_BOOST = builder
+                .comment("100% 肾上腺素浓度时对心率的最大交感兴奋拉升值 (BPM，默认 58.0)")
+                .defineInRange("adrenalineMaxHrBoost", 36.0, 0.0, 150.0);
+        ADRENALINE_MAX_RESP_BOOST = builder
+                .comment("100% 肾上腺素浓度时对呼吸频率的最大支气管扩张拉升值 (rpm，默认 10.0)")
+                .defineInRange("adrenalineMaxRespBoost", 10.0, 0.0, 40.0);
+        ADRENALINE_MAX_PAIN_SLOW_RELIEF = builder
+                .comment("肾上腺素激增期间最高可临时豁免的疼痛移速/攻速惩罚比例 (默认 0.85 = 豁免 85% 痛觉减速)")
+                .defineInRange("adrenalineMaxPainSlowRelief", 0.85, 0.0, 1.0);
+        ADRENALINE_SPEED_BOOST_T1 = builder
+                .comment("I 级肾上腺素激增提供的应急移动速度倍率上限 (默认 1.08 = +8% 移速)")
+                .defineInRange("adrenalineSpeedBoostT1", 1.08, 1.0, 1.5);
+        ADRENALINE_SPEED_BOOST_T2 = builder
+                .comment("II/III 级肾上腺素激增提供的强效移动速度倍率上限 (默认 1.15 = +15% 移速)")
+                .defineInRange("adrenalineSpeedBoostT2", 1.15, 1.0, 1.8);
+        ADRENALINE_UNBANDAGED_BLEED_MULT = builder
+                .comment("肾上腺素升压期间，未包扎/未绑止血带的开放性伤口额外加剧的外出血倍率 (默认 0.30 = +30% 出血)")
+                .defineInRange("adrenalineUnbandagedBleedMult", 0.30, 0.0, 2.0);
+        ADRENALINE_CRASH_DURATION_SEC = builder
+                .comment("高浓度外源性肾上腺素代谢归零后的交感透支疲惫期秒数 (默认 12 秒)")
+                .defineInRange("adrenalineCrashDurationSec", 4, 0, 120);
+        ADRENALINE_CRASH_SPEED_MULT = builder
+                .comment("肾上腺素退潮透支期内的移动速度与攻速倍率 (默认 0.88 = -12% 移速)")
+                .defineInRange("adrenalineCrashSpeedMult", 0.88, 0.3, 1.0);
+
+
 
         builder.pop();
 

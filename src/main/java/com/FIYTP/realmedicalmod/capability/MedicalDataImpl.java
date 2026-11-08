@@ -49,6 +49,12 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
     private float opioidConcentration = 0.0f;
     private int addictionLevel = 0;
 
+    // ====== 肾上腺素系统（受创内源性应激 + 外源性自动注射器） ======
+    private float adrenalineLevel = 0.0f;
+    private int adrenalineCooldownSec = 0;
+    private int adrenalineCrashSec = 0;
+    private boolean adrenalineFromInjector = false;
+
     // ====== 肢体数据 ======
     private final Map<Limb, LimbData> limbs = new EnumMap<>(Limb.class);
 
@@ -289,6 +295,19 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         this.addictionLevel = Math.max(0, Math.min(100, value));
     }
 
+    // ====== 肾上腺素 Getter / Setter ======
+    public synchronized int getAdrenalineLevel() { return Math.round(adrenalineLevel); }
+    public synchronized float getAdrenalineLevelFloat() { return adrenalineLevel; }
+    public synchronized void setAdrenalineLevelFloat(float value) {
+        this.adrenalineLevel = Math.max(0.0f, Math.min(100.0f, value));
+    }
+    public synchronized int getAdrenalineCooldownSec() { return adrenalineCooldownSec; }
+    public synchronized void setAdrenalineCooldownSec(int sec) { this.adrenalineCooldownSec = Math.max(0, sec); }
+    public synchronized int getAdrenalineCrashSec() { return adrenalineCrashSec; }
+    public synchronized void setAdrenalineCrashSec(int sec) { this.adrenalineCrashSec = Math.max(0, sec); }
+    public synchronized boolean isAdrenalineFromInjector() { return adrenalineFromInjector; }
+    public synchronized void setAdrenalineFromInjector(boolean fromInjector) { this.adrenalineFromInjector = fromInjector; }
+
     @Override
     public synchronized int getTotalPainLevel() {
         int total = 0;
@@ -400,6 +419,12 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
                 ? oImpl.getOpioidConcentrationFloat()
                 : (float) other.getOpioidConcentration();
         this.addictionLevel = other.getAddictionLevel();
+        if (other instanceof MedicalDataImpl oAdr) {
+            this.adrenalineLevel = oAdr.getAdrenalineLevelFloat();
+            this.adrenalineCooldownSec = oAdr.getAdrenalineCooldownSec();
+            this.adrenalineCrashSec = oAdr.getAdrenalineCrashSec();
+            this.adrenalineFromInjector = oAdr.isAdrenalineFromInjector();
+        }
         this.burnTBSA = other.getBurnTBSA();
         this.burnEdema = other.getBurnEdema();
         this.inhalationInjury = other.getInhalationInjury();
@@ -467,6 +492,10 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         tag.putBoolean("bradycardiaSevere", bradycardiaSevere);
         tag.putFloat("opioidConcentration", opioidConcentration);
         tag.putInt("addictionLevel", addictionLevel);
+        tag.putFloat("adrenalineLevel", adrenalineLevel);
+        tag.putInt("adrenalineCooldownSec", adrenalineCooldownSec);
+        tag.putInt("adrenalineCrashSec", adrenalineCrashSec);
+        tag.putBoolean("adrenalineFromInjector", adrenalineFromInjector);
         tag.putFloat("chestBloodAccumulation", chestBloodAccumulation);
         tag.putInt("hemothoraxLevel", hemothoraxLevel);
         tag.putInt("hemothoraxVomitTimer", hemothoraxVomitTimer);
@@ -563,6 +592,10 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
                 ? tag.getFloat("opioidConcentration")
                 : (tag.contains("opioidConcentration") ? (float) tag.getInt("opioidConcentration") : 0.0f);
         addictionLevel = tag.contains("addictionLevel") ? tag.getInt("addictionLevel") : 0;
+        adrenalineLevel = tag.contains("adrenalineLevel") ? tag.getFloat("adrenalineLevel") : 0.0f;
+        adrenalineCooldownSec = tag.contains("adrenalineCooldownSec") ? tag.getInt("adrenalineCooldownSec") : 0;
+        adrenalineCrashSec = tag.contains("adrenalineCrashSec") ? tag.getInt("adrenalineCrashSec") : 0;
+        adrenalineFromInjector = tag.contains("adrenalineFromInjector") && tag.getBoolean("adrenalineFromInjector");
         inCriticalState = tag.getBoolean("inCriticalState");
         criticalTimer = tag.getInt("criticalTimer");
         chestBloodAccumulation = tag.getFloat("chestBloodAccumulation");

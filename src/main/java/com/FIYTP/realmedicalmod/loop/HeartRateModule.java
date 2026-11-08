@@ -1,21 +1,12 @@
 package com.FIYTP.realmedicalmod.loop;
 
 import com.FIYTP.realmedicalmod.capability.MedicalData;
+import com.FIYTP.realmedicalmod.treatment.ModItems;
 import com.FIYTP.realmedicalmod.config.MedicalConfig;
 import net.minecraft.util.Mth;
 
 /**
- * 心率动态演进模块（修复高痛昏迷时交感风暴被意识修正错误抵消 + 适配体感疼痛上限配置）
- *
- * 【修复说明】：
- * 1. 疼痛交感驱动适配 0 ~ MAX_PERCEIVED_PAIN (100)：
- *    原代码仅使用 getTotalPainLevel() (6部位简单相加)，当体感疼痛 getPerceivedPain() 达到 100 时，
- *    若只受损 2~3 个部位，totalPain 可能偏低。现综合体感疼痛占比与部位总痛感计算交感心率加成。
- * 2. 交感神经风暴对抗昏迷迷走减速 (sympatheticShield)：
- *    原代码在意识下降或归零时无条件施加最高 -70 BPM 的 consciousnessMod，
- *    导致玩家在 100 剧痛（HR > 200 BPM）进入室颤倒计时第 5 秒昏迷的瞬间，心率被强行减去 70 BPM 跌破室颤阈值 (190 BPM)，
- *    从而中断室颤触发。现实生理中，剧痛引发的儿茶酚胺交感风暴属于自主神经反射，不会因皮层昏迷而瞬间消失；
- *    因此当存在剧烈疼痛交感驱动时，按疼痛强度比例屏蔽无痛昏迷的迷走心率抑制。
+ * 心率动态演进模块（集成阿片镇痛平抑交感心动过速 + 过量迷走神经心动过缓）
  */
 public class HeartRateModule implements UpdateModule {
 
@@ -42,16 +33,14 @@ public class HeartRateModule implements UpdateModule {
 
         float bloodMod;
         if (ratio > 0.15f) {
-            // 代偿期：血容量下降，心率上升
             float normalRange = (0.75f - Math.min(ratio, 0.75f)) / 0.60f;
-            bloodMod = 10 + normalRange * 60; // 10~70
+            bloodMod = 10 + normalRange * 60;
             if (ratio > 0.75f) {
                 bloodMod = 10;
             }
         } else {
-            // 失代偿期：血容量极低，心率骤降
             float crash = (0.15f - ratio) / 0.15f;
-            bloodMod = 70 - crash * 70; // 70~0
+            bloodMod = 70 - crash * 70;
             if (ratio < 0.02f) {
                 data.setCardiacArrest(true);
                 data.setHeartRate(0);
@@ -59,14 +48,22 @@ public class HeartRateModule implements UpdateModule {
             }
         }
 
-        // ★ 疼痛交感神经修正（全部系数读取自 MedicalConfig） ★
+        // ★ 疼痛交感神经修正（严格基于各部位实际总痛感 totalPain，避免单腿摔伤被放大导致室颤） ★
         int totalPain = data.getTotalPainLevel();
         int perceivedPain = data.getPerceivedPain();
+        int opioid = data.getOpioidConcentration();
         float maxPerceivedPain = Math.max(10.0f, MedicalConfig.MAX_PERCEIVED_PAIN.get().floatValue());
-        float maxTotalPain = Math.max(10.0f, MedicalConfig.MAX_PAIN_LEVEL.get().floatValue() * 6.0f);
         float painRatio = Mth.clamp(perceivedPain / maxPerceivedPain, 0.0f, 1.0f);
-        float effectivePain = Math.max((float) totalPain, painRatio * maxTotalPain);
-        float painMod = effectivePain * MedicalConfig.PAIN_HEART_RATE_MULTIPLIER.get().floatValue();
+
+        float effectivePain = (float) totalPain;
+        if (opioid > 0) {
+            float fullConc = Math.max(1.0f, MedicalConfig.OPIOID_ANALGESIA_FULL_CONCENTRATION.get().floatValue());
+            float blockMax = MedicalConfig.OPIOID_PAIN_TRANSMISSION_BLOCK.get().floatValue();
+            float block = Mth.clamp(opioid / fullConc, 0.0f, 1.0f) * blockMax;
+            effectivePain *= Math.max(0.0f, 1.0f - block);
+        }
+        // 单纯肢体疼痛对心率的拉升上限限制在 +52 BPM 以内，绝不会因摔伤腿部直接冲上 200 BPM 室颤线
+        float painMod = Math.min(52.0f, effectivePain * MedicalConfig.PAIN_HEART_RATE_MULTIPLIER.get().floatValue());
 
         // ★ 意识修正（当存在剧痛交感风暴时，自主交感兴奋会抵消无痛昏迷的迷走降心率效应） ★
         int consciousness = data.getConsciousness();
@@ -82,31 +79,37 @@ public class HeartRateModule implements UpdateModule {
         }
         consciousnessMod *= (1.0f - painRatio);
 
-        // 运动贡献（由主循环更新）
+        // 运动贡献
         float exerciseMod = data.getExerciseContribution();
 
-        // 阿片类药物影响
-        int opioid = data.getOpioidConcentration();
-        float opioidMod = -opioid * 0.5f;
+        // ★ 阿片类药物迷走神经兴奋与过量心动过缓（全部系数读取自 MedicalConfig） ★
+        float opioidSlope = MedicalConfig.OPIOID_HEART_RATE_SLOPE.get().floatValue();
+        float opioidMod = -opioid * opioidSlope;
+        int overdoseThreshold = MedicalConfig.OPIOID_OVERDOSE_THRESHOLD.get();
+        if (opioid >= overdoseThreshold) {
+            float overdoseBrady = MedicalConfig.OPIOID_OVERDOSE_BRADYCARDIA_PENALTY.get().floatValue();
+            float odRatio = Mth.clamp((opioid - overdoseThreshold) / Math.max(1.0f, 100.0f - overdoseThreshold), 0.0f, 1.0f);
+            opioidMod -= overdoseBrady * (0.5f + 0.5f * odRatio);
+        }
 
         // ★ 呼吸频率对心率的影响 ★
         int respRate = data.getRespirationRate();
         float respMod = 0;
         if (respRate <= 0) {
-            respMod = MedicalConfig.RESP_MOD_STOP.get().floatValue();         // 呼吸停止 -> 心率下降
+            respMod = MedicalConfig.RESP_MOD_STOP.get().floatValue();
         } else if (respRate < 8) {
-            respMod = MedicalConfig.RESP_MOD_SLOW.get().floatValue();         // 呼吸过缓
+            respMod = MedicalConfig.RESP_MOD_SLOW.get().floatValue();
         } else if (respRate <= 20) {
-            respMod = 0;                  // 正常范围
+            respMod = 0;
         } else if (respRate <= 30) {
-            respMod = (respRate - 20) * 1.0f; // 轻微加快
+            respMod = (respRate - 20) * 1.0f;
         } else if (respRate <= 45) {
-            respMod = 10 + (respRate - 30) * 1.5f; // 明显加快
+            respMod = 10 + (respRate - 30) * 1.5f;
         } else {
-            respMod = 32.5f + (respRate - 45) * 2.0f; // 极度加快
+            respMod = 32.5f + (respRate - 45) * 2.0f;
         }
 
-        // ★ 颅内出血库欣反应（等级 2/3 心率代偿性升高，等级 4 脑疝骤降） ★
+        // ★ 颅内出血库欣反应 ★
         float cushingMod = 0;
         if (data.getIntracranialOnsetTimer() >= MedicalConfig.ONSET_DELAY.get()) {
             int icLevel = data.getIntracranialLevel();
@@ -115,11 +118,11 @@ public class HeartRateModule implements UpdateModule {
             } else if (icLevel == 3) {
                 cushingMod = 25.0f;
             } else if (icLevel == 4) {
-                cushingMod = -40.0f; // 脑疝形成，心率骤降
+                cushingMod = -40.0f;
             }
         }
 
-        // ★ 血压反射代偿（低血压心动过速代偿，高血压迷走神经反射减慢） ★
+        // ★ 血压反射代偿 ★
         float bpReflexMod = 0;
         float map = data.getMeanArterialPressure();
         float hypotensionThreshold = MedicalConfig.MAP_HYPOTENSION.get().floatValue();
@@ -147,7 +150,35 @@ public class HeartRateModule implements UpdateModule {
             default -> 0.0f;
         };
 
-        float heartRate = MedicalConfig.RESTING_HEART_RATE.get() + bloodMod + painMod + consciousnessMod + exerciseMod + opioidMod + respMod + cushingMod + bpReflexMod + sirsMod + hemoHeartMod;
+        float baseHr = MedicalConfig.RESTING_HEART_RATE.get() + bloodMod + painMod + consciousnessMod + exerciseMod + opioidMod + respMod + cushingMod + bpReflexMod + sirsMod + hemoHeartMod;
+
+        // ★ 肾上腺素心率修正：受伤内源性应激绝不推高心率致室颤；单支注射器安全封顶，仅多支过量(III级)可冲入室颤区 ★
+        float adrLevel = ModItems.getAdrenalineLevel(data);
+        boolean fromInj = (data instanceof com.FIYTP.realmedicalmod.capability.MedicalDataImpl impl) && impl.isAdrenalineFromInjector();
+        float adrenalineMod = 0.0f;
+        if (adrLevel > 0.0f) {
+            if (!fromInj) {
+                // 受伤短暂内源性肾上腺素：仅在心率低于 120 时温和提升最多 +6 BPM，绝不叠加出室颤
+                if (baseHr < 120.0f) {
+                    adrenalineMod = Math.min(6.0f, 120.0f - baseHr);
+                }
+            } else {
+                int adrTier = ModItems.getAdrenalineTier(adrLevel);
+                int vfibSafeCap = Math.max(150, MedicalConfig.VFIB_THRESHOLD.get() - 15);
+                if (adrTier >= 3) {
+                    // 连续注射多支过量 (III级)：允许触发交感风暴与室颤风险
+                    adrenalineMod = (adrLevel / 100.0f) * MedicalConfig.ADRENALINE_MAX_HR_BOOST.get().floatValue();
+                } else {
+                    // 单支正常急救注射 (I/II级)：温和强心 +16 BPM，且严格限制在室颤阈值安全线以下
+                    float rawBoost = (adrLevel / 100.0f) * 26.0f;
+                    if (baseHr < vfibSafeCap) {
+                        adrenalineMod = Math.min(rawBoost, vfibSafeCap - baseHr);
+                    }
+                }
+            }
+        }
+
+        float heartRate = baseHr + adrenalineMod;
 
         if (heartRate <= 0) {
             data.setCardiacArrest(true);

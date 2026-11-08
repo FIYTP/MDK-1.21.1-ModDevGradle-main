@@ -3,6 +3,8 @@ package com.FIYTP.realmedicalmod.event;
 import com.FIYTP.realmedicalmod.capability.MedicalData;
 import com.FIYTP.realmedicalmod.capability.MedicalDataCapability;
 import com.FIYTP.realmedicalmod.config.MedicalConfig;
+import com.FIYTP.realmedicalmod.treatment.ModItems;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -46,6 +48,12 @@ public class VanillaDamageBlocker {
             if (event.getDamageMultiplier() <= 0.0f) {
                 event.setDamageMultiplier(1.0f);
             }
+            if (event.getEntity() instanceof ServerPlayer sp && event.getDistance() >= safeDist + 1.0f) {
+                MedicalData data = sp.getData(MedicalDataCapability.MEDICAL_DATA);
+                if (data != null) {
+                    ModItems.triggerTraumaAdrenalineRush(sp, data, event.getDistance() - safeDist + 1.5f);
+                }
+            }
         }
     }
 
@@ -74,6 +82,17 @@ public class VanillaDamageBlocker {
                 data.setBloodOxygen(Math.max(0, data.getBloodOxygen() - 5));
                 data.setRespirationRate(0);
                 player.syncData(MedicalDataCapability.MEDICAL_DATA);
+            }
+        }
+
+        // 受伤时赋予短暂的内源性「肾上腺素激增 I」应激 Buff
+        if (player instanceof ServerPlayer sp && !"inWall".equals(msgId) && !"drown".equals(msgId) && !"starve".equals(msgId)) {
+            float rawDmg = Math.max(event.getOriginalDamage(), event.getNewDamage());
+            if (rawDmg >= MedicalConfig.ADRENALINE_TRAUMA_MIN_DAMAGE.get().floatValue()) {
+                MedicalData data = sp.getData(MedicalDataCapability.MEDICAL_DATA);
+                if (data != null) {
+                    ModItems.triggerTraumaAdrenalineRush(sp, data, rawDmg);
+                }
             }
         }
 

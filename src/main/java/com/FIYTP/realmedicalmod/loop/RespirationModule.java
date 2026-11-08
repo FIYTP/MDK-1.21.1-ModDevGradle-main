@@ -1,6 +1,7 @@
 package com.FIYTP.realmedicalmod.loop;
 
 import com.FIYTP.realmedicalmod.capability.MedicalData;
+import com.FIYTP.realmedicalmod.treatment.ModItems;
 import com.FIYTP.realmedicalmod.config.MedicalConfig;
 import net.minecraft.util.Mth;
 
@@ -146,6 +147,13 @@ public class RespirationModule implements UpdateModule {
         else if (lungContusion >= 20) lungMult = MedicalConfig.CONTUSION_40_RESPIRATION_MULT.get().floatValue();
         else if (lungContusion > 0) lungMult = MedicalConfig.CONTUSION_20_RESPIRATION_MULT.get().floatValue();
         respiration *= lungMult;
+
+        // ★ 外源性肾上腺素注射器轻度支气管扩张（内源性应激不额外叠加呼吸率，避免联动推高心率） ★
+        if (data instanceof com.FIYTP.realmedicalmod.capability.MedicalDataImpl adrImpl
+                && adrImpl.isAdrenalineFromInjector()
+                && adrImpl.getAdrenalineLevelFloat() > 0.0f) {
+            respiration += (adrImpl.getAdrenalineLevelFloat() / 100.0f) * 4.0f;
+        }
 
         int maxResp = MedicalConfig.MAX_RESPIRATION.get();
         respiration = Math.max(0.0f, Math.min(maxResp, respiration));

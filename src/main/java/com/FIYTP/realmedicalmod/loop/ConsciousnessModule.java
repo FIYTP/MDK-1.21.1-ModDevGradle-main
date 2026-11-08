@@ -24,7 +24,8 @@ public class ConsciousnessModule implements UpdateModule {
 
     @Override
     public void process(MedicalData data) {
-        // ====== 0. 每秒代谢体内阿片血药浓度 ======
+        // ====== 0. 每秒代谢体内阿片血药浓度（肾上腺素衰减已由 ModItems 每秒统一驱动） ======
+
         float opioidConc = (data instanceof MedicalDataImpl impl)
                 ? impl.getOpioidConcentrationFloat()
                 : (float) data.getOpioidConcentration();
@@ -149,7 +150,10 @@ public class ConsciousnessModule implements UpdateModule {
             else bpPenalty += MedicalConfig.CONS_PENALTY_SBP_220.get().floatValue();
         }
 
-        float change = baseRecovery - painPenalty - oxygenPenalty - hemothoraxPenalty - intracranialPenalty - bpPenalty - toxinPenalty - opioidPenalty;
+        float adrBonus = (data instanceof MedicalDataImpl aImpl && aImpl.getAdrenalineLevelFloat() > 0.0f)
+                ? (aImpl.getAdrenalineLevelFloat() / 100.0f) * 1.8f
+                : 0.0f;
+        float change = baseRecovery + adrBonus - painPenalty - oxygenPenalty - hemothoraxPenalty - intracranialPenalty - bpPenalty - toxinPenalty - opioidPenalty;
 
         // 若当前高于痛觉保底线，而扣减完全是由疼痛引起（无缺氧/阿片过量/低血压/颅内出血/血胸/中毒），则最低扣至 painFloor
         float nonPainPenalties = oxygenPenalty + hemothoraxPenalty + intracranialPenalty + bpPenalty + toxinPenalty + opioidPenalty;

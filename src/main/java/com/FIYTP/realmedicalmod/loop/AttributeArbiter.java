@@ -3,6 +3,7 @@ package com.FIYTP.realmedicalmod.loop;
 import com.FIYTP.realmedicalmod.RealMedicalMod;
 import com.FIYTP.realmedicalmod.capability.MedicalData;
 import com.FIYTP.realmedicalmod.capability.MedicalDataCapability;
+import com.FIYTP.realmedicalmod.capability.MedicalDataImpl;
 import com.FIYTP.realmedicalmod.config.MedicalConfig;
 import com.FIYTP.realmedicalmod.treatment.ModItems;
 import net.minecraft.resources.ResourceLocation;
@@ -80,6 +81,18 @@ public class AttributeArbiter {
             suggest(player, Dimension.ATTACK_SPEED, "opioid_withdrawal", withdrawalMult);
         }
 
+        // ★ 肾上腺素退潮透支期 (Adrenaline Crash)：轻微移速与攻速疲惫惩罚 ★
+        if (data instanceof MedicalDataImpl adrImpl && adrImpl.getAdrenalineLevelFloat() <= 0.0f && adrImpl.getAdrenalineCrashSec() > 0) {
+            float crashMult = MedicalConfig.ADRENALINE_CRASH_SPEED_MULT.get().floatValue();
+            suggest(player, Dimension.MOVEMENT_SPEED, "adrenaline_crash", crashMult);
+            suggest(player, Dimension.ATTACK_SPEED, "adrenaline_crash", crashMult);
+        }
+
+        int adrTier = (data != null) ? ModItems.getAdrenalineTier(ModItems.getAdrenalineLevel(data)) : 0;
+        float adrBoost = (adrTier >= 2)
+                ? MedicalConfig.ADRENALINE_SPEED_BOOST_T2.get().floatValue()
+                : (adrTier == 1 ? MedicalConfig.ADRENALINE_SPEED_BOOST_T1.get().floatValue() : 1.0f);
+
         if ((unconscious || withdrawalRestricted) && player.isSprinting()) {
             player.setSprinting(false);
         }
@@ -99,19 +112,21 @@ public class AttributeArbiter {
             }
 
             Map<String, Float> map = (byDim == null) ? null : byDim.get(dim);
-            if (map == null || map.isEmpty()) {
-                attr.removeModifier(dim.modifierId());
-                continue;
-            }
-
             float min = 1.0f;
-            for (float m : map.values()) {
-                if (m < min) min = m;
+            if (map != null && !map.isEmpty()) {
+                for (float m : map.values()) {
+                    if (m < min) min = m;
+                }
+                min = Math.max(MedicalConfig.ARBITER_MIN_MULTIPLIER.get().floatValue(), min);
             }
-            min = Math.max(MedicalConfig.ARBITER_MIN_MULTIPLIER.get().floatValue(), min);
+            if (adrTier >= 1 && (dim == Dimension.MOVEMENT_SPEED || dim == Dimension.ATTACK_SPEED)) {
+                float floorWithAdr = (adrTier >= 2) ? 0.78f : 0.62f;
+                min = Math.min(adrBoost, Math.max(min, Math.min(1.0f, min + 0.35f)) * adrBoost);
+                min = Math.max(min, floorWithAdr);
+            }
 
             attr.removeModifier(dim.modifierId());
-            if (min < 1.0f) {
+            if (Math.abs(min - 1.0f) > 0.005f) {
                 attr.addTransientModifier(new AttributeModifier(
                         dim.modifierId(), min - 1.0f, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
             }

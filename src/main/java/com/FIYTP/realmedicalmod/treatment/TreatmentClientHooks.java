@@ -12,6 +12,7 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.BufferUploader;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
@@ -34,21 +35,6 @@ import net.neoforged.neoforge.client.event.RenderGuiLayerEvent;
 import org.joml.Matrix4f;
 import org.lwjgl.glfw.GLFW;
 
-import java.util.List;
-
-/**
- * 3A 级医疗用品左键长按战术人体面板 + 阿片类药物定量推注滑块界面 (TreatmentClientHooks)
- *
- * 交互流程：
- * 1. 普通医疗用品（卷式绷带、加压绷带等）：
- *    按住鼠标左键呼出人体部位面板 -> 移至受伤部位读条（或松开左键）直接完成包扎。
- * 2. 阿片类强效镇痛针剂（盐酸吗啡 morphine / 枸橼酸芬太尼 fentanyl）：
- *    - 方式 A：直接点击鼠标右键（{@link BandageItem#use}）；
- *    - 方式 B：按住鼠标左键在人体面板上选中目标肢体；
- *    均会立即呼出「阿片类药物定量推注滑块界面 ({@link DoseSelectionScreen})」，
- *    让玩家通过交互式滑块（支持拖拽、点击轨道、滚轮微调、方向键与快捷预设）精确控制注入剂量，
- *    实时显示镇痛预期与延髓呼吸抑制/致命过量警告！
- */
 @EventBusSubscriber(modid = RealMedicalMod.MODID, value = Dist.CLIENT)
 public class TreatmentClientHooks {
 
@@ -58,6 +44,7 @@ public class TreatmentClientHooks {
     private static final int C_WARNING_YELLOW = 0xFFFFB300;
     private static final int C_ALERT_RED      = 0xFFFF2A4B;
     private static final int C_MAGENTA_HAZARD = 0xFFFF1E8A;
+    private static final int C_ADRENALINE_GOLD = 0xFFFFD600;
     private static final int C_TEXT_WHITE     = 0xFFF0F8FF;
     private static final int C_TEXT_DIM       = 0xFF8AA4B8;
 
@@ -76,10 +63,14 @@ public class TreatmentClientHooks {
     private static long lastRenderTimeMs = 0L;
     private static int postApplyCooldownTicks = 0;
 
+    // 延迟到 ClientTick 打开界面，严禁在 RenderGuiLayerEvent 渲染中途调用 mc.setScreen
+    private static boolean pendingOpenDoseScreen = false;
+    private static InteractionHand pendingDoseHand = InteractionHand.MAIN_HAND;
+    private static MedicalData.Limb pendingDoseLimb = null;
+
     private record LimbSlotLayout(
             MedicalData.Limb limb,
             String cnName,
-            String codeName,
             float offsetX,
             float offsetY,
             float width,
@@ -87,12 +78,12 @@ public class TreatmentClientHooks {
     ) {}
 
     private static final LimbSlotLayout[] LIMB_LAYOUTS = new LimbSlotLayout[] {
-            new LimbSlotLayout(MedicalData.Limb.HEAD,      "头部", "HEAD",   0.0f, -72.0f, 44.0f, 36.0f),
-            new LimbSlotLayout(MedicalData.Limb.CHEST,     "胸腔", "THORAX", 0.0f, -22.0f, 52.0f, 52.0f),
-            new LimbSlotLayout(MedicalData.Limb.LEFT_ARM,  "左臂", "L-ARM", -52.0f, -20.0f, 38.0f, 54.0f),
-            new LimbSlotLayout(MedicalData.Limb.RIGHT_ARM, "右臂", "R-ARM",  52.0f, -20.0f, 38.0f, 54.0f),
-            new LimbSlotLayout(MedicalData.Limb.LEFT_LEG,  "左腿", "L-LEG", -24.0f,  52.0f, 40.0f, 62.0f),
-            new LimbSlotLayout(MedicalData.Limb.RIGHT_LEG, "右腿", "R-LEG",  24.0f,  52.0f, 40.0f, 62.0f)
+            new LimbSlotLayout(MedicalData.Limb.HEAD,      "头部",   0.0f, -72.0f, 44.0f, 36.0f),
+            new LimbSlotLayout(MedicalData.Limb.CHEST,     "胸腔",   0.0f, -22.0f, 52.0f, 52.0f),
+            new LimbSlotLayout(MedicalData.Limb.LEFT_ARM,  "左臂", -52.0f, -20.0f, 38.0f, 54.0f),
+            new LimbSlotLayout(MedicalData.Limb.RIGHT_ARM, "右臂",  52.0f, -20.0f, 38.0f, 54.0f),
+            new LimbSlotLayout(MedicalData.Limb.LEFT_LEG,  "左腿", -24.0f,  52.0f, 40.0f, 62.0f),
+            new LimbSlotLayout(MedicalData.Limb.RIGHT_LEG, "右腿",  24.0f,  52.0f, 40.0f, 62.0f)
     };
 
     public static void openBandageScreen(InteractionHand hand) {
@@ -102,13 +93,9 @@ public class TreatmentClientHooks {
         }
     }
 
-    /**
-     * 打开 3A 阿片类药物定量推注滑块界面 (供右键使用或左键部位面板选定后调用)
-     */
     public static void openOpioidDoseScreen(InteractionHand hand, MedicalData.Limb preselectedLimb) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
-        // 意识归零或心脏骤停时禁止自我推注
         MedicalData data = mc.player.getData(MedicalDataCapability.MEDICAL_DATA);
         if (data != null && (data.getConsciousness() <= 0 || data.isCardiacArrest())) {
             return;
@@ -145,10 +132,12 @@ public class TreatmentClientHooks {
             case PRESSURE_BANDAGE -> C_SAFE_GREEN;
             case MORPHINE_INJECTOR -> C_WARNING_YELLOW;
             case FENTANYL_SYRINGE -> C_MAGENTA_HAZARD;
+            case ADRENALINE_INJECTOR -> C_ADRENALINE_GOLD;
             case TOURNIQUET -> C_WARNING_YELLOW;
             case SYRINGE -> 0xFF40C4FF;
             case SPLINT -> 0xFF69F0AE;
             case MEDICINE_BOTTLE -> 0xFFFFD54F;
+            default -> C_NEON_CYAN;
         };
     }
 
@@ -184,7 +173,7 @@ public class TreatmentClientHooks {
         if (medHand != null) {
             event.setCanceled(true);
             event.setSwingHand(false);
-            if (!panelActive) {
+            if (!panelActive && postApplyCooldownTicks <= 0) {
                 activatePanel(mc, medHand);
             }
         }
@@ -194,6 +183,15 @@ public class TreatmentClientHooks {
     public static void onClientTick(ClientTickEvent.Post event) {
         Minecraft mc = Minecraft.getInstance();
         Player player = mc.player;
+
+        if (pendingOpenDoseScreen) {
+            pendingOpenDoseScreen = false;
+            if (player != null && mc.screen == null) {
+                openOpioidDoseScreen(pendingDoseHand, pendingDoseLimb);
+            }
+            return;
+        }
+
         if (player == null || mc.level == null || mc.screen != null) {
             if (panelActive) deactivatePanel();
             return;
@@ -214,9 +212,9 @@ public class TreatmentClientHooks {
         InteractionHand medHand = TreatmentRouter.findActiveMedicalHand(player);
 
         if (leftDown && medHand != null) {
-            if (!panelActive) {
+            if (!panelActive && postApplyCooldownTicks <= 0) {
                 activatePanel(mc, medHand);
-            } else {
+            } else if (panelActive) {
                 activeHand = medHand;
             }
             if (mc.gameMode != null) {
@@ -267,7 +265,7 @@ public class TreatmentClientHooks {
         NetworkHandler.sendTreatmentToServer(new TreatmentApplyPacket(hand.ordinal(), limb.ordinal(), doseUnits));
         MedicalSoundHelper.playLimbSelectSound();
         channelProgress = 0.0f;
-        postApplyCooldownTicks = 8;
+        postApplyCooldownTicks = 10;
     }
 
     @SubscribeEvent
@@ -289,6 +287,8 @@ public class TreatmentClientHooks {
         }
 
         MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
+        if (data == null) return;
+
         MedicalAssetLibrary.AssetType assetType = MedicalAssetLibrary.resolveAssetType(stack);
         int themeColor = getAssetAccentColor(assetType);
 
@@ -303,8 +303,8 @@ public class TreatmentClientHooks {
         float cx = sw * 0.5f;
         float cy = sh * 0.5f;
 
-        int panelW = 300;
-        int panelH = 244;
+        int panelW = 290;
+        int panelH = 230;
         int px = (int) (cx - panelW * 0.5f);
         int py = (int) (cy - panelH * 0.5f);
 
@@ -312,34 +312,26 @@ public class TreatmentClientHooks {
         drawTacticalCornerBrackets(g, px, py, panelW, panelH, themeColor);
 
         boolean isOpioid = TreatmentRouter.isOpioidItem(stack);
-        String title = isOpioid ? "选择注射部位" : "部位施救";
-        g.drawString(font, title, px + 10, py + 8, themeColor, false);
-        g.fill(px + 8, py + 19, px + panelW - 8, py + 20, withAlpha(themeColor, 0.45f));
-
         String itemTitle = stack.getHoverName().getString();
-        g.drawString(font, itemTitle, px + 10, py + 25, C_TEXT_WHITE, true);
-        MedicalAssetLibrary.render3DMedicalItem(g, px + 44.0f, py + 68.0f, 34.0f, stack, now);
+        g.drawString(font, itemTitle, px + 10, py + 9, themeColor, false);
+        g.fill(px + 8, py + 20, px + panelW - 8, py + 21, withAlpha(themeColor, 0.45f));
+
+        MedicalAssetLibrary.render3DMedicalItem(g, px + 42.0f, py + 76.0f, 34.0f, stack, now);
 
         if (stack.isDamageableItem() && stack.getMaxDamage() > 0) {
             float remRatio = Mth.clamp((float) (stack.getMaxDamage() - stack.getDamageValue()) / stack.getMaxDamage(), 0.0f, 1.0f);
-            int barW = 68;
+            int barW = 64;
             int barX = px + 10;
-            int barY = py + 103;
+            int barY = py + 118;
             int durColor = remRatio > 0.5f ? C_SAFE_GREEN : (remRatio > 0.25f ? C_WARNING_YELLOW : C_ALERT_RED);
             g.fill(barX, barY, barX + barW, barY + 4, 0xAA081522);
             g.fill(barX, barY, barX + Math.round(barW * remRatio), barY + 4, durColor);
         }
 
-        List<String> summaries = TreatmentRouter.getItemEffectSummary(stack);
-        int infoY = py + 112;
-        for (int i = 0; i < Math.min(3, summaries.size()); i++) {
-            g.drawString(font, summaries.get(i), px + 10, infoY + i * 11, C_TEXT_DIM, false);
-        }
-
         hoveredLimb = null;
         for (LimbSlotLayout slot : LIMB_LAYOUTS) {
             float sx = cx + slot.offsetX() - slot.width() * 0.5f;
-            float sy = cy + slot.offsetY() - slot.height() * 0.5f + 8.0f;
+            float sy = cy + slot.offsetY() - slot.height() * 0.5f + 6.0f;
             boolean isHovered = virtualCursorX >= sx && virtualCursorX <= sx + slot.width()
                     && virtualCursorY >= sy && virtualCursorY <= sy + slot.height();
             if (isHovered) {
@@ -355,10 +347,10 @@ public class TreatmentClientHooks {
             lastHoveredLimb = hoveredLimb;
         }
 
-        drawAnatomicalSkeletonLines(g, cx, cy + 8.0f, withAlpha(themeColor, 0.3f));
+        drawAnatomicalSkeletonLines(g, cx, cy + 6.0f, withAlpha(themeColor, 0.3f));
 
         for (LimbSlotLayout slot : LIMB_LAYOUTS) {
-            drawLimbSlot(g, font, data, stack, slot, cx, cy + 8.0f, slot.limb() == hoveredLimb, themeColor, now);
+            drawLimbSlot(g, font, data, stack, slot, cx, cy + 6.0f, slot.limb() == hoveredLimb, themeColor, now);
         }
 
         if (hoveredLimb != null && postApplyCooldownTicks <= 0) {
@@ -368,13 +360,15 @@ public class TreatmentClientHooks {
                 channelProgress += dtSeconds / durationSec;
                 if (channelProgress >= 1.0f) {
                     if (isOpioid) {
-                        MedicalData.Limb chosen = hoveredLimb;
-                        InteractionHand handCopy = activeHand;
+                        pendingDoseHand = activeHand;
+                        pendingDoseLimb = hoveredLimb;
+                        pendingOpenDoseScreen = true;
                         deactivatePanel();
-                        openOpioidDoseScreen(handCopy, chosen);
                         return;
                     } else {
                         triggerApplyPacket(activeHand, hoveredLimb, 100);
+                        deactivatePanel();
+                        return;
                     }
                 }
             } else {
@@ -383,25 +377,6 @@ public class TreatmentClientHooks {
         } else {
             channelProgress = 0.0f;
         }
-
-        int footerY = py + panelH - 18;
-        g.fill(px + 8, footerY - 4, px + panelW - 8, footerY - 3, withAlpha(themeColor, 0.35f));
-        String statusHint;
-        int hintColor;
-        if (hoveredLimb == null) {
-            statusHint = isOpioid ? "移至部位选剂量 | 松开退出" : "移至受伤部位施救 | 松开退出";
-            hintColor = C_TEXT_DIM;
-        } else if (TreatmentRouter.canTreatLimb(stack, data, hoveredLimb)) {
-            int pct = Mth.clamp((int) (channelProgress * 100.0f), 0, 100);
-            statusHint = isOpioid
-                    ? "注射 [" + getLimbDisplayName(hoveredLimb) + "] " + pct + "%"
-                    : "正在处理 [" + getLimbDisplayName(hoveredLimb) + "] " + pct + "% (松开立即完成)";
-            hintColor = C_SAFE_GREEN;
-        } else {
-            statusHint = "[" + getLimbDisplayName(hoveredLimb) + "] 无需处理";
-            hintColor = C_WARNING_YELLOW;
-        }
-        g.drawCenteredString(font, statusHint, (int) cx, footerY, hintColor);
 
         drawTacticalCursor(g, virtualCursorX, virtualCursorY, channelProgress, themeColor);
     }
@@ -419,6 +394,7 @@ public class TreatmentClientHooks {
             long nowMs
     ) {
         MedicalData.LimbData limbData = data.getLimb(slot.limb());
+        if (limbData == null) return;
         boolean canTreat = TreatmentRouter.canTreatLimb(stack, data, slot.limb());
         int bleed = limbData.getBleeding();
         int pain = limbData.getPainLevel();
@@ -456,33 +432,32 @@ public class TreatmentClientHooks {
             g.fill(x0 + 1, y1 - 1 - barH, x1 - 1, y1 - 1, withAlpha(C_SAFE_GREEN, 0.35f));
         }
 
-        g.drawCenteredString(font, slot.cnName(), (x0 + x1) / 2, y0 + 4, C_TEXT_WHITE);
+        g.drawCenteredString(font, slot.cnName(), (x0 + x1) / 2, y0 + 5, C_TEXT_WHITE);
 
         String subStatus;
         int subColor;
-        if (TreatmentRouter.isOpioidItem(stack) && pain > 0) {
-            subStatus = "痛感 " + pain + "/10";
-            subColor = pain >= 7 ? C_ALERT_RED : C_WARNING_YELLOW;
-        } else if (bleed > 0) {
-            subStatus = "出血 " + bleed;
+        if (bleed > 0) {
+            subStatus = "流血";
             subColor = C_ALERT_RED;
         } else if (openWound && !bandaged) {
-            subStatus = "开放创口";
+            subStatus = "创口";
             subColor = C_WARNING_YELLOW;
+        } else if (fracture && !limbData.hasSplint()) {
+            subStatus = "骨折";
+            subColor = C_WARNING_YELLOW;
+        } else if (pain > 0) {
+            subStatus = "疼痛";
+            subColor = pain >= 7 ? C_ALERT_RED : C_WARNING_YELLOW;
         } else if (bandaged) {
             subStatus = "已包扎";
             subColor = C_SAFE_GREEN;
-        } else if (fracture) {
-            subStatus = limbData.hasSplint() ? "已固定" : "骨折";
-            subColor = limbData.hasSplint() ? C_SAFE_GREEN : C_WARNING_YELLOW;
-        } else if (pain > 0) {
-            subStatus = "疼痛 " + pain;
-            subColor = C_WARNING_YELLOW;
         } else {
-            subStatus = "正常";
+            subStatus = "";
             subColor = C_TEXT_DIM;
         }
-        g.drawCenteredString(font, subStatus, (x0 + x1) / 2, y0 + 16, subColor);
+        if (!subStatus.isEmpty()) {
+            g.drawCenteredString(font, subStatus, (x0 + x1) / 2, y0 + 17, subColor);
+        }
     }
 
     private static void drawAnatomicalSkeletonLines(GuiGraphics g, float cx, float cy, int lineColor) {
@@ -494,7 +469,7 @@ public class TreatmentClientHooks {
     }
 
     private static void drawTacticalCornerBrackets(GuiGraphics g, int x, int y, int w, int h, int color) {
-        int len = 12;
+        int len = 10;
         g.fill(x, y, x + len, y + 2, color);
         g.fill(x, y, x + 2, y + len, color);
         g.fill(x + w - len, y, x + w, y + 2, color);
@@ -516,7 +491,7 @@ public class TreatmentClientHooks {
         g.fill(ix, iy + 3, ix + 1, iy + 7, c);
         g.fill(ix, iy, ix + 1, iy + 1, C_TEXT_WHITE);
 
-        if (progress > 0.01f) {
+        if (progress > 0.02f) {
             PoseStack pose = g.pose();
             Matrix4f mat = pose.last().pose();
             RenderSystem.enableBlend();
@@ -525,10 +500,10 @@ public class TreatmentClientHooks {
 
             Tesselator tess = Tesselator.getInstance();
             BufferBuilder buf = tess.begin(VertexFormat.Mode.TRIANGLE_STRIP, DefaultVertexFormat.POSITION_COLOR);
-            int segments = 28;
+            int segments = 24;
             float rInner = 9.0f;
             float rOuter = 12.0f;
-            float maxAngle = Mth.TWO_PI * Mth.clamp(progress, 0.0f, 1.0f);
+            float maxAngle = Mth.TWO_PI * Mth.clamp(progress, 0.02f, 1.0f);
 
             for (int i = 0; i <= segments; i++) {
                 float t = (float) i / segments;
@@ -538,12 +513,15 @@ public class TreatmentClientHooks {
                 buf.addVertex(mat, x + cos * rInner, y + sin * rInner, 0.0f).setColor(0, 230, 118, 220);
                 buf.addVertex(mat, x + cos * rOuter, y + sin * rOuter, 0.0f).setColor(0, 229, 255, 255);
             }
-            BufferUploader.drawWithShader(buf.buildOrThrow());
+            MeshData mesh = buf.build();
+            if (mesh != null) {
+                BufferUploader.drawWithShader(mesh);
+            }
         }
     }
 
     // =========================================================================
-    // 3A 级阿片类镇痛剂定量推注滑块界面 (DoseSelectionScreen - 紧凑防超框精简版)
+    // 阿片类镇痛剂定量推注界面 (极简无废话玩家版)
     // =========================================================================
     public static class DoseSelectionScreen extends Screen {
 
@@ -555,12 +533,11 @@ public class TreatmentClientHooks {
         private float sliderDriftAccum = 0.0f;
         private long lastFrameTimeMs = 0L;
 
-        // 面板尺寸：宽 320，高 204，严格内边距约束，杜绝任何文字超框
-        private int winX, winY, winW = 320, winH = 204;
+        private int winX, winY, winW = 296, winH = 158;
         private int sliderX, sliderY, sliderW, sliderH = 16;
 
         public DoseSelectionScreen(InteractionHand hand, MedicalData.Limb initialLimb) {
-            super(Component.literal("剂量注射"));
+            super(Component.literal("注射"));
             this.hand = hand != null ? hand : InteractionHand.MAIN_HAND;
             this.selectedLimb = initialLimb;
         }
@@ -570,9 +547,9 @@ public class TreatmentClientHooks {
             super.init();
             this.winX = (this.width - this.winW) / 2;
             this.winY = (this.height - this.winH) / 2;
-            this.sliderX = this.winX + 98;
-            this.sliderY = this.winY + 84;
-            this.sliderW = this.winW - 110; // 210px 宽
+            this.sliderX = this.winX + 86;
+            this.sliderY = this.winY + 76;
+            this.sliderW = this.winW - 98; // 198px
 
             Minecraft mc = Minecraft.getInstance();
             if (mc.player != null) {
@@ -610,15 +587,6 @@ public class TreatmentClientHooks {
 
         @Override
         public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        }
-
-        /** 绘制严格限制最大像素宽度的文本，彻底杜绝文字超出边框 */
-        private void drawClampedText(GuiGraphics g, String text, int x, int y, int maxWidth, int color) {
-            if (text == null || text.isEmpty()) return;
-            String fit = this.font.width(text) > maxWidth
-                    ? this.font.plainSubstrByWidth(text, Math.max(8, maxWidth - 6)) + ".."
-                    : text;
-            g.drawString(this.font, fit, x, y, color, false);
         }
 
         @Override
@@ -665,7 +633,6 @@ public class TreatmentClientHooks {
             int addictionLevel = data.getAddictionLevel();
             int addictionTier = ModItems.getAddictionTier(addictionLevel);
 
-            // [成瘾表现 1]：一级及以上成瘾时，滑块始终处于大幅自主游走与向高剂量区牵引状态
             boolean sliderSelfMoving = false;
             if (addictionTier > 0 && remUnits > 1) {
                 sliderSelfMoving = true;
@@ -704,7 +671,6 @@ public class TreatmentClientHooks {
             boolean isOverdose = projectedConc >= overdoseThresh;
             boolean isMildDep = projectedConc >= respDepStart;
 
-            // [成瘾表现 2]：6 秒长周期占空比遮蔽安全剂量（I级默认 85% 时间遮蔽，II级 95%，III级 100% 完全遮蔽）
             boolean isSafeZoneBlind = false;
             if (addictionTier > 0) {
                 double blindChance = switch (addictionTier) {
@@ -716,29 +682,26 @@ public class TreatmentClientHooks {
                 isSafeZoneBlind = (phase < blindChance);
             }
 
-            float pulse = 0.55f + 0.45f * Mth.sin(nowMs * 0.012f);
             g.fill(0, 0, this.width, this.height, 0x8802060C);
 
             int accentColor = isSafeZoneBlind ? 0xFFE040FB
                     : (isFatalApnea ? C_ALERT_RED
                     : (isOverdose ? 0xFFFF5252 : (isFentanyl ? C_MAGENTA_HAZARD : C_WARNING_YELLOW)));
 
-            // 1. 主面板框 (320 x 204)
+            // 1. 面板框 (296 x 158)
             g.fill(winX, winY, winX + winW, winY + winH, 0xF2060D17);
             drawTacticalCornerBrackets(g, winX, winY, winW, winH, accentColor);
             g.fill(winX + 1, winY, winX + winW - 1, winY + 1, withAlpha(accentColor, 0.65f));
             g.fill(winX + 1, winY + winH - 1, winX + winW - 1, winY + winH, withAlpha(accentColor, 0.65f));
 
-            String header = (isSafeZoneBlind && addictionTier >= 2)
-                    ? "✦ 推到底，不再疼痛..."
-                    : (isFentanyl ? "芬太尼注射 (mcg)" : "吗啡注射 (mg)");
-            drawClampedText(g, header, winX + 10, winY + 7, winW - 20, accentColor);
+            String header = isFentanyl ? "枸橼酸芬太尼" : "盐酸吗啡";
+            g.drawString(this.font, header, winX + 10, winY + 7, accentColor, false);
             g.fill(winX + 8, winY + 18, winX + winW - 8, winY + 19, withAlpha(accentColor, 0.40f));
 
-            // 2. 左侧：3D 注射器预览框 (宽 80)
+            // 2. 左侧 3D 注射器预览框 (宽 68)
             int leftBoxX = winX + 10;
             int leftBoxY = winY + 24;
-            int leftBoxW = 80;
+            int leftBoxW = 68;
             int leftBoxH = winH - 34;
             g.fill(leftBoxX, leftBoxY, leftBoxX + leftBoxW, leftBoxY + leftBoxH, 0xAA030810);
             drawTacticalCornerBrackets(g, leftBoxX, leftBoxY, leftBoxW, leftBoxH, withAlpha(accentColor, 0.7f));
@@ -746,8 +709,8 @@ public class TreatmentClientHooks {
             MedicalAssetLibrary.render3DOpioidSyringeWithPlunger(
                     g,
                     leftBoxX + leftBoxW * 0.5f,
-                    leftBoxY + 58.0f,
-                    40.0f,
+                    leftBoxY + 52.0f,
+                    36.0f,
                     isFentanyl,
                     remRatio,
                     doseFraction,
@@ -755,31 +718,22 @@ public class TreatmentClientHooks {
             );
 
             String remText = isFentanyl
-                    ? String.format("余: %.0fmcg", remRatio * maxDrugAmount)
-                    : String.format("余: %.1fmg", remRatio * maxDrugAmount);
-            g.drawCenteredString(this.font, remText, leftBoxX + leftBoxW / 2, leftBoxY + 122, C_TEXT_WHITE);
+                    ? String.format("%.0f mcg", remRatio * maxDrugAmount)
+                    : String.format("%.1f mg", remRatio * maxDrugAmount);
+            g.drawCenteredString(this.font, remText, leftBoxX + leftBoxW / 2, leftBoxY + 106, C_TEXT_WHITE);
 
-            String addBadge = (addictionTier > 0)
-                    ? ("成瘾 " + (addictionTier == 1 ? "I" : (addictionTier == 2 ? "II" : "III")))
-                    : "滚轮微调";
-            g.drawCenteredString(this.font, addBadge, leftBoxX + leftBoxW / 2, leftBoxY + 140,
-                    addictionTier > 0 ? 0xFFE040FB : C_TEXT_DIM);
-
-            // 3. 右上：6 大部位紧凑标签 (每个宽 33，间距 2，总宽 208 <= sliderW 210)
+            // 3. 右上：6 大部位标签 (宽 31，间距 2，总宽 196 <= 198)
             int rightX = sliderX;
-            int limbY = winY + 24;
-            g.drawString(this.font, "部位:", rightX, limbY + 2, C_TEXT_DIM, false);
-
+            int ty = winY + 28;
             MedicalData.Limb[] limbs = MedicalData.Limb.values();
-            int tabW = 33;
-            int tabH = 15;
+            int tabW = 31;
+            int tabH = 16;
             for (int i = 0; i < limbs.length; i++) {
                 MedicalData.Limb limb = limbs[i];
                 MedicalData.LimbData ld = data.getLimb(limb);
                 boolean amputated = ld != null && ld.isAmputated();
                 boolean selected = (limb == this.selectedLimb);
                 int tx = rightX + i * (tabW + 2);
-                int ty = limbY + 13;
                 boolean hov = !amputated && mouseX >= tx && mouseX <= tx + tabW && mouseY >= ty && mouseY <= ty + tabH;
 
                 int bg = amputated ? 0x55202020 : (selected ? withAlpha(C_NEON_CYAN, 0.35f) : (hov ? 0x88102838 : 0x66081420));
@@ -787,33 +741,25 @@ public class TreatmentClientHooks {
                 g.fill(tx, ty, tx + tabW, ty + tabH, bg);
                 g.fill(tx, ty, tx + tabW, ty + 1, bd);
                 g.fill(tx, ty + tabH - 1, tx + tabW, ty + tabH, bd);
-                // 仅显示 2 字部位名，不拼接括弧数字，确保绝不超出 33px 标签框！
                 g.drawCenteredString(this.font, getLimbDisplayName(limb), tx + tabW / 2, ty + 4, amputated ? 0xFF666666 : C_TEXT_WHITE);
             }
 
-            // 4. 中央：剂量滑块 (宽 210)
-            int labelY = sliderY - 12;
+            // 4. 中央：剂量滑块 (宽 198)
+            int labelY = sliderY - 13;
             String doseReadout = isFentanyl
-                    ? String.format("剂量: %.0f %s (%d%%)", chosenAmount, unitStr, this.selectedDoseUnits)
-                    : String.format("剂量: %.1f %s (%d%%)", chosenAmount, unitStr, this.selectedDoseUnits);
+                    ? String.format("%.0f %s", chosenAmount, unitStr)
+                    : String.format("%.1f %s", chosenAmount, unitStr);
             g.drawString(this.font, doseReadout, sliderX, labelY, C_TEXT_WHITE, false);
 
-            String zoneBadge;
-            int zoneColor;
-            if (isSafeZoneBlind) {
-                zoneBadge = sliderSelfMoving ? "✦ 自动右移" : "✦ 刻度模糊";
-                zoneColor = 0xFFE040FB;
-            } else {
-                zoneBadge = isFatalApnea ? "☠ 呼吸停止"
-                        : (isOverdose ? "⚠ 过量"
-                        : (isMildDep ? "呼吸减慢" : "✓ 安全"));
-                zoneColor = isFatalApnea ? C_ALERT_RED : (isOverdose ? 0xFFFF5252 : (isMildDep ? C_WARNING_YELLOW : C_SAFE_GREEN));
+            int zoneColor = isSafeZoneBlind ? 0xFFE040FB
+                    : (isFatalApnea ? C_ALERT_RED : (isOverdose ? 0xFFFF5252 : (isMildDep ? C_WARNING_YELLOW : C_SAFE_GREEN)));
+            if (!isSafeZoneBlind) {
+                String zoneBadge = (isFatalApnea || isOverdose) ? "过量" : (isMildDep ? "偏高" : "安全");
+                g.drawString(this.font, zoneBadge, sliderX + sliderW - this.font.width(zoneBadge), labelY, zoneColor, false);
             }
-            g.drawString(this.font, zoneBadge, sliderX + sliderW - this.font.width(zoneBadge), labelY, zoneColor, false);
 
-            // 滑块轨道
             g.fill(sliderX - 1, sliderY - 1, sliderX + sliderW + 1, sliderY + sliderH + 1, 0xFF0A1926);
-            int segments = 42;
+            int segments = 40;
             for (int s = 0; s < segments; s++) {
                 float u0 = (s / (float) segments) * remUnits;
                 float u1 = ((s + 1) / (float) segments) * remUnits;
@@ -855,86 +801,26 @@ public class TreatmentClientHooks {
             g.fill(knobX - 2, sliderY - 1, knobX + 2, sliderY + sliderH + 1, zoneColor);
 
             // 4 个快捷比例按钮
-            int[] presets = new int[]{20, 40, 70, 100};
-            String[] presetLabels = isSafeZoneBlind
-                    ? new String[]{"20%", "50%", "80%", "全推"}
-                    : new String[]{"20%", "40%", "70%", "100%"};
-            int presetY = sliderY + sliderH + 5;
+            int[] presets = new int[]{25, 50, 75, 100};
+            String[] presetLabels = new String[]{"1/4", "1/2", "3/4", "全量"};
+            int presetY = sliderY + sliderH + 8;
             int presetBtnW = (sliderW - 9) / 4;
             for (int i = 0; i < presets.length; i++) {
-                int pVal = Math.min(remUnits, presets[i]);
+                int pVal = Math.max(1, Math.round(remUnits * (presets[i] / 100.0f)));
                 int bx = sliderX + i * (presetBtnW + 3);
-                boolean hov = mouseX >= bx && mouseX <= bx + presetBtnW && mouseY >= presetY && mouseY <= presetY + 13;
+                boolean hov = mouseX >= bx && mouseX <= bx + presetBtnW && mouseY >= presetY && mouseY <= presetY + 14;
                 boolean active = (this.selectedDoseUnits == pVal);
                 int pBg = active ? withAlpha(zoneColor, 0.35f) : (hov ? 0x88142C42 : 0x66081420);
                 int pBd = active ? zoneColor : 0xFF37474F;
-                g.fill(bx, presetY, bx + presetBtnW, presetY + 13, pBg);
+                g.fill(bx, presetY, bx + presetBtnW, presetY + 14, pBg);
                 g.fill(bx, presetY, bx + presetBtnW, presetY + 1, pBd);
-                g.fill(bx, presetY + 12, bx + presetBtnW, presetY + 13, pBd);
+                g.fill(bx, presetY + 13, bx + presetBtnW, presetY + 14, pBd);
                 g.drawCenteredString(this.font, presetLabels[i], bx + presetBtnW / 2, presetY + 3, C_TEXT_WHITE);
             }
 
-            // 5. 紧凑型数值预览框 (高 42，仅 3 行极简短句，严禁超出 sliderW 210px)
-            int teleY = presetY + 17;
-            int teleH = 42;
-            int teleBorder = isSafeZoneBlind ? withAlpha(0xFFE040FB, 0.7f)
-                    : ((isFatalApnea || isOverdose) ? withAlpha(C_ALERT_RED, 0.55f + 0.45f * pulse) : 0x88264653);
-            g.fill(sliderX, teleY, sliderX + sliderW, teleY + teleH, 0xCC040A12);
-            g.fill(sliderX, teleY, sliderX + sliderW, teleY + 1, teleBorder);
-            g.fill(sliderX, teleY + teleH - 1, sliderX + sliderW, teleY + teleH, teleBorder);
-
-            MedicalData.LimbData targetLd = data.getLimb(this.selectedLimb);
-            int curLimbPain = targetLd != null ? targetLd.getPainLevel() : 0;
-            float targetReliefMax = isFentanyl
-                    ? MedicalConfig.FENTANYL_TARGET_PAIN_RELIEF.get().floatValue()
-                    : MedicalConfig.MORPHINE_TARGET_PAIN_RELIEF.get().floatValue();
-            int afterLimbPain = Math.max(0, curLimbPain - Math.max(1, Math.round(targetReliefMax * doseFraction)));
-
-            int curPerceived = data.getPerceivedPain();
-            double fullConc = Math.max(1.0, MedicalConfig.OPIOID_ANALGESIA_FULL_CONCENTRATION.get());
-            double maxRelief = MedicalConfig.OPIOID_CENTRAL_ANALGESIA_MAX_REDUCTION.get();
-            double exp = Math.max(0.2, MedicalConfig.OPIOID_ANALGESIA_CURVE_EXPONENT.get());
-            double blockRatio = Math.min(1.0, projectedConc / fullConc);
-            double blockFactor = Math.max(0.0, 1.0 - Math.pow(blockRatio, exp) * MedicalConfig.OPIOID_PAIN_TRANSMISSION_BLOCK.get());
-            int afterPerceived = (int) Math.max(0, Math.round(curPerceived * blockFactor - maxRelief * Math.pow(blockRatio, exp) * 0.45));
-
-            int maxTextW = sliderW - 10;
-            String line1 = String.format("镇痛: [%s] %d→%d | 总体 %d→%d",
-                    getLimbDisplayName(this.selectedLimb), curLimbPain, afterLimbPain, curPerceived, afterPerceived);
-            drawClampedText(g, line1, sliderX + 5, teleY + 4, maxTextW, C_SAFE_GREEN);
-
-            int curResp = data.getRespirationRate();
-            int projResp;
-            if (isFatalApnea) {
-                projResp = 0;
-            } else if (projectedConc > respDepStart) {
-                float minFactor = MedicalConfig.OPIOID_MIN_DEPRESSED_RESP_FACTOR.get().floatValue();
-                float depT = Mth.clamp((projectedConc - respDepStart) / Math.max(1.0f, (float) (apneaThresh - respDepStart)), 0.0f, 1.0f);
-                float factor = Mth.lerp(depT * depT, 1.0f, minFactor);
-                projResp = Math.max(1, Math.round(Math.max(12, curResp) * factor));
-            } else {
-                projResp = Math.max(12, curResp);
-            }
-
-            if (isSafeZoneBlind) {
-                drawClampedText(g, "浓度: ??? | 呼吸: ???", sliderX + 5, teleY + 16, maxTextW, 0xFFF48FB1);
-                drawClampedText(g, "「再往右拉一点...」", sliderX + 5, teleY + 28, maxTextW, 0xFFE040FB);
-            } else {
-                String line2 = String.format("浓度: %d%%→%d%% | 呼吸: %d→%d rpm",
-                        Math.round(currentConc), Math.round(projectedConc), curResp, projResp);
-                drawClampedText(g, line2, sliderX + 5, teleY + 16, maxTextW, zoneColor);
-
-                String line3 = isFatalApnea ? "☠ 致命过量: 延髓呼吸骤停 (0 rpm)"
-                        : (isOverdose ? "⚠ 重度过量: 呼吸抑制与昏迷"
-                        : (isMildDep ? "提示: 轻度呼吸减慢"
-                        : (sliderSelfMoving ? "✦ 成瘾牵引: 滑块正自动右移" : "✓ 安全剂量")));
-                int l3Col = (isFatalApnea || isOverdose) ? C_ALERT_RED : (sliderSelfMoving ? 0xFFE040FB : C_TEXT_DIM);
-                drawClampedText(g, line3, sliderX + 5, teleY + 28, maxTextW, l3Col);
-            }
-
-            // 6. 底部按钮
-            int btnY = winY + winH - 22;
-            int confirmW = 118;
+            // 5. 底部按钮
+            int btnY = winY + winH - 24;
+            int confirmW = 114;
             int cancelW = 68;
             int confirmX = sliderX;
             int cancelX = sliderX + sliderW - cancelW;
@@ -945,9 +831,7 @@ public class TreatmentClientHooks {
             int confCol = isSafeZoneBlind ? 0xFFE040FB : ((isFatalApnea || isOverdose) ? C_ALERT_RED : C_SAFE_GREEN);
             g.fill(confirmX, btnY, confirmX + confirmW, btnY + 16, hovConfirm ? withAlpha(confCol, 0.42f) : withAlpha(confCol, 0.24f));
             drawTacticalCornerBrackets(g, confirmX, btnY, confirmW, 16, confCol);
-            String confirmText = isSafeZoneBlind ? "✦ 立即推注"
-                    : ((isFatalApnea || isOverdose) ? "⚠ 过量推注" : "✓ 确认推注");
-            g.drawCenteredString(this.font, confirmText, confirmX + confirmW / 2, btnY + 4, C_TEXT_WHITE);
+            g.drawCenteredString(this.font, "注射", confirmX + confirmW / 2, btnY + 4, C_TEXT_WHITE);
 
             g.fill(cancelX, btnY, cancelX + cancelW, btnY + 16, hovCancel ? 0x8837474F : 0x551C2833);
             drawTacticalCornerBrackets(g, cancelX, btnY, cancelW, 16, 0xFF90A4AE);
@@ -994,8 +878,8 @@ public class TreatmentClientHooks {
                 }
 
                 int rightX = sliderX;
-                int ty = winY + 24 + 13;
-                int tabW = 33, tabH = 15;
+                int ty = winY + 28;
+                int tabW = 31, tabH = 16;
                 MedicalData.Limb[] limbs = MedicalData.Limb.values();
                 for (int i = 0; i < limbs.length; i++) {
                     int tx = rightX + i * (tabW + 2);
@@ -1009,20 +893,21 @@ public class TreatmentClientHooks {
                     }
                 }
 
-                int[] presets = new int[]{20, 40, 70, 100};
-                int presetY = sliderY + sliderH + 5;
+                int[] presets = new int[]{25, 50, 75, 100};
+                int presetY = sliderY + sliderH + 8;
                 int presetBtnW = (sliderW - 9) / 4;
                 for (int i = 0; i < presets.length; i++) {
                     int bx = sliderX + i * (presetBtnW + 3);
-                    if (mouseX >= bx && mouseX <= bx + presetBtnW && mouseY >= presetY && mouseY <= presetY + 13) {
-                        this.selectedDoseUnits = Mth.clamp(presets[i], 1, remUnits);
+                    if (mouseX >= bx && mouseX <= bx + presetBtnW && mouseY >= presetY && mouseY <= presetY + 14) {
+                        int pVal = Math.max(1, Math.round(remUnits * (presets[i] / 100.0f)));
+                        this.selectedDoseUnits = Mth.clamp(pVal, 1, remUnits);
                         MedicalSoundHelper.playHoverSound();
                         return true;
                     }
                 }
 
-                int btnY = winY + winH - 22;
-                int confirmW = 118;
+                int btnY = winY + winH - 24;
+                int confirmW = 114;
                 int cancelW = 68;
                 int confirmX = sliderX;
                 int cancelX = sliderX + sliderW - cancelW;

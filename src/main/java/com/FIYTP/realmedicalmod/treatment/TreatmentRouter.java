@@ -78,17 +78,14 @@ public final class TreatmentRouter {
                     ld.setBandaged(true);
                     ld.setOpenWound(false);
                     ld.setNaturalClottingTimer(0);
-                    int leftAfter = Math.max(0, remainingCap - absorbed);
                     player.displayClientMessage(
-                            Component.literal("已包扎 (止血 " + absorbed + " mL | 剩余 " + leftAfter + "/" + maxCap + ")")
-                                    .withStyle(ChatFormatting.GREEN),
+                            Component.literal("已包扎").withStyle(ChatFormatting.GREEN),
                             true
                     );
                 } else {
                     ld.setBandaged(false);
                     player.displayClientMessage(
-                            Component.literal("部分止血 " + absorbed + " mL (仍出血 " + newBleed + " mL/m，需继续包扎)")
-                                    .withStyle(ChatFormatting.GOLD),
+                            Component.literal("伤口仍在流血").withStyle(ChatFormatting.GOLD),
                             true
                     );
                 }
@@ -97,10 +94,8 @@ public final class TreatmentRouter {
                 int cost = Math.min(OPEN_WOUND_DRESSING_COST, remainingCap);
                 ld.setBandaged(true);
                 ld.setOpenWound(false);
-                int leftAfter = Math.max(0, remainingCap - cost);
                 player.displayClientMessage(
-                        Component.literal("创面已包扎 (消耗 " + cost + " | 剩余 " + leftAfter + "/" + maxCap + ")")
-                                .withStyle(ChatFormatting.GREEN),
+                        Component.literal("已包扎").withStyle(ChatFormatting.GREEN),
                         true
                 );
                 return Math.max(1, cost);
@@ -259,6 +254,15 @@ public final class TreatmentRouter {
     }
 
     /**
+     * 判断物品是否为「肾上腺素自动注射器 (adrenaline)」
+     */
+    public static boolean isAdrenalineItem(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
+        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        return id != null && id.getPath().contains("adrenaline");
+    }
+
+    /**
      * 获取阿片注射器的最大剂量刻度单位（从 MedicalConfig 读取）
      */
     public static int getMaxOpioidUnits(ItemStack stack) {
@@ -313,6 +317,9 @@ public final class TreatmentRouter {
         if (ld == null || ld.isAmputated()) return false;
 
         // 阿片类针剂（吗啡/芬太尼）可经任意未截肢部位（肌肉/静脉）推注生效！
+        if (isAdrenalineItem(stack)) {
+            return !ld.isAmputated();
+        }
         if (isOpioidItem(stack)) {
             return getRemainingOpioidUnits(stack) > 0;
         }
@@ -380,6 +387,7 @@ public final class TreatmentRouter {
 
     public static float getChannelDurationSeconds(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return 0.65f;
+        if (isAdrenalineItem(stack)) return 0.30f;
         if (isOpioidItem(stack) || stack.is(MedicalItemTags.SYRINGE)) return 0.35f;
         if (stack.is(MedicalItemTags.ORAL)) return 0.50f;
         if (stack.is(MedicalItemTags.TOPICAL)) return 0.55f;
@@ -408,6 +416,10 @@ public final class TreatmentRouter {
         List<String> lines = new ArrayList<>();
         if (stack == null || stack.isEmpty()) return lines;
 
+        if (isAdrenalineItem(stack)) {
+            lines.add("0.3 mg");
+            return lines;
+        }
         if (isOpioidItem(stack)) {
             boolean fentanyl = isFentanylItem(stack);
             int maxU = getMaxOpioidUnits(stack);
@@ -415,35 +427,12 @@ public final class TreatmentRouter {
             float ratio = maxU > 0 ? (remU / (float) maxU) : 0.0f;
             if (fentanyl) {
                 float maxMcg = MedicalConfig.FENTANYL_MAX_MCG.get().floatValue();
-                lines.add(String.format("余量: %.0f / %.0f mcg", ratio * maxMcg, maxMcg));
-                lines.add("极强镇痛 | 过量停呼吸");
+                lines.add(String.format("%.0f / %.0f mcg", ratio * maxMcg, maxMcg));
             } else {
                 float maxMg = MedicalConfig.MORPHINE_MAX_MG.get().floatValue();
-                lines.add(String.format("余量: %.1f / %.1f mg", ratio * maxMg, maxMg));
-                lines.add("强效镇痛 | 过量呼吸抑制");
+                lines.add(String.format("%.1f / %.1f mg", ratio * maxMg, maxMg));
             }
             return lines;
-        }
-
-        MedicalPotency potency = stack.getOrDefault(MedicalComponents.MEDICAL_POTENCY.get(), MedicalPotency.EMPTY);
-        if (stack.is(MedicalItemTags.HEMOSTASIS) || stack.is(MedicalItemTags.BANDAGE) || stack.getItem() instanceof BandageItem) {
-            int maxCap = getMaxHemostasisCapacity(stack, potency);
-            int remCap = getRemainingHemostasisCapacity(stack, potency);
-            lines.add("止血 " + remCap + " / " + maxCap + " mL");
-        }
-        if (stack.is(MedicalItemTags.SPLINT_EFFECT)) {
-            lines.add("骨折固定");
-        }
-        if (stack.is(MedicalItemTags.DISINFECT) || stack.is(MedicalItemTags.ANTIBIOTIC)) {
-            lines.add("消毒抑菌");
-        }
-        if (stack.is(MedicalItemTags.ANALGESIC)) {
-            lines.add("缓解疼痛");
-        }
-        if (stack.is(MedicalItemTags.STERILE)) {
-            lines.add("无菌");
-        } else if (stack.is(MedicalItemTags.NON_STERILE)) {
-            lines.add("非无菌 (感染+2%)");
         }
         return lines;
     }
@@ -522,49 +511,90 @@ public final class TreatmentRouter {
         int overdoseThreshold = MedicalConfig.OPIOID_OVERDOSE_THRESHOLD.get();
         int respDepStart = MedicalConfig.OPIOID_RESP_DEPRESSION_START.get();
 
-        String drugLabel = fentanyl
-                ? String.format("枸橼酸芬太尼 %.0f mcg", doseFraction * MedicalConfig.FENTANYL_MAX_MCG.get().floatValue())
-                : String.format("盐酸吗啡 %.1f mg", doseFraction * MedicalConfig.MORPHINE_MAX_MG.get().floatValue());
-
         if (newConc >= apneaThreshold) {
-            // ★ 致命过量：延髓呼吸中枢急性麻痹 -> 呼吸频率立即归零 (Apnea) + 急性意识冲击 ★
             data.setRespirationRate(0);
             float acuteConsDrop = MedicalConfig.OPIOID_ACUTE_OVERDOSE_CONSCIOUSNESS_DROP.get().floatValue();
             data.setConsciousnessFloat(Math.max(0.0f, data.getConsciousnessFloat() - acuteConsDrop));
-            player.displayClientMessage(
-                    Component.literal("☠ 阿片致命过量！浓度 " + Math.round(newConc) + "% (呼吸骤停)")
-                            .withStyle(ChatFormatting.DARK_RED, ChatFormatting.BOLD),
-                    true
-            );
             player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                     SoundEvents.WARDEN_HEARTBEAT, SoundSource.PLAYERS, 1.2f, 0.65f);
         } else if (newConc >= overdoseThreshold) {
-            // ★ 重度过量：重度呼吸抑制 + 意识快速沉降 ★
             float minFactor = MedicalConfig.OPIOID_MIN_DEPRESSED_RESP_FACTOR.get().floatValue();
             data.setRespirationRate(Math.max(1, Math.round(data.getRespirationRate() * minFactor)));
             data.setConsciousnessFloat(Math.max(0.0f, data.getConsciousnessFloat() - 15.0f));
-            player.displayClientMessage(
-                    Component.literal("⚠ 阿片过量！浓度 " + Math.round(newConc) + "% (重度呼吸抑制)")
-                            .withStyle(ChatFormatting.RED, ChatFormatting.BOLD),
-                    true
-            );
             player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                     SoundEvents.WARDEN_HEARTBEAT, SoundSource.PLAYERS, 0.9f, 0.85f);
-        } else if (newConc >= respDepStart) {
-            player.displayClientMessage(
-                    Component.literal("已注射 " + drugLabel + " (浓度 " + Math.round(newConc) + "%)")
-                            .withStyle(ChatFormatting.GOLD),
-                    true
-            );
-        } else {
-            player.displayClientMessage(
-                    Component.literal("已注射 " + drugLabel + " (浓度 " + Math.round(newConc) + "%)")
-                            .withStyle(ChatFormatting.GREEN),
-                    true
-            );
         }
+        player.displayClientMessage(
+                Component.literal(fentanyl ? "已注射芬太尼" : "已注射吗啡")
+                        .withStyle(ChatFormatting.GREEN),
+                true
+        );
 
         return actualUnits;
+    }
+
+
+    /**
+     * 服务端执行「肾上腺素自动注射器 (0.3mg Epinephrine)」推注药理逻辑
+     */
+    private static int applyAdrenalineDose(ServerPlayer player, MedicalData data,
+                                           MedicalData.Limb targetLimb, MedicalData.LimbData targetLd, ItemStack stack) {
+        float gain = Math.min(55.0f, MedicalConfig.ADRENALINE_INJECTOR_GAIN.get().floatValue());
+        float oldAdr = ModItems.getAdrenalineLevel(data);
+        float newAdr = Mth.clamp(oldAdr + gain, 0.0f, 100.0f);
+
+        if (data instanceof MedicalDataImpl impl) {
+            impl.setAdrenalineLevelFloat(newAdr);
+            impl.setAdrenalineFromInjector(true);
+            impl.setAdrenalineCrashSec(0);
+        }
+
+        // 1. 提振意识与血压
+        data.setConsciousnessFloat(Math.min(100.0f, data.getConsciousnessFloat() + 25.0f));
+        data.setSystolicBP(Math.min(200, data.getSystolicBP() + 20));
+        data.setDiastolicBP(Math.min(130, data.getDiastolicBP() + 10));
+        data.setMeanArterialPressure(Math.min(150.0f, data.getMeanArterialPressure() + 15.0f));
+        data.setPeripheralResistance(Math.min(2.0f, data.getPeripheralResistance() + 0.20f));
+
+        // 2. 若处于失血濒危倒计时，延长 8 秒抢救时间
+        if (data.isInCriticalState() && data.getCriticalTimer() > 0) {
+            int maxCrit = MedicalConfig.CRITICAL_TIMER_MAX.get();
+            data.setCriticalTimer(Math.min(maxCrit, data.getCriticalTimer() + 8));
+        }
+
+        // 3. 解除心动过缓，温和提升心率（单支注射绝不冲入室颤阈值）
+        data.setBradycardiaActive(false);
+        data.setBradycardiaSevere(false);
+        data.setBradyTimer(0);
+        if (data.getRespirationRate() > 0) {
+            data.setRespirationRate(Math.min(MedicalConfig.MAX_RESPIRATION.get(), data.getRespirationRate() + 3));
+        }
+
+        int vfibThresh = MedicalConfig.VFIB_THRESHOLD.get();
+        int tier3Thresh = MedicalConfig.ADRENALINE_TIER3_THRESHOLD.get();
+        int curHr = Math.max(80, data.getHeartRate());
+        int newHr;
+        if (newAdr >= tier3Thresh) {
+            // 仅在连续注射多支导致 III 级过量时才大幅拉高心率
+            newHr = Math.min(MedicalConfig.MAX_HEART_RATE.get(), curHr + 28);
+            data.setHeartEffectSevere(true);
+        } else {
+            // 单支正常注射：最多提升 +14 BPM，且封顶在室颤线 - 15 以下
+            int safeCap = Math.max(150, vfibThresh - 15);
+            newHr = Math.min(safeCap, curHr + 14);
+        }
+        data.setHeartRate(newHr);
+
+        ModItems.syncAdrenalineEffectNow(player, data);
+
+        player.displayClientMessage(
+                Component.literal("已注射肾上腺素").withStyle(ChatFormatting.GOLD),
+                true
+        );
+        player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                SoundEvents.WARDEN_HEARTBEAT, SoundSource.PLAYERS, 0.85f, 1.30f);
+
+        return stack.isDamageableItem() ? Math.max(1, stack.getMaxDamage()) : 1;
     }
 
     /** 兼容 3 参数调用 */
@@ -591,8 +621,11 @@ public final class TreatmentRouter {
         int totalDurabilityCost = 0;
         boolean matchedTag = false;
 
-        // 优先处理阿片类定量注射器（吗啡 / 芬太尼）
-        if (isOpioidItem(stack)) {
+        // 优先处理肾上腺素自动注射器与阿片类定量注射器
+        if (isAdrenalineItem(stack)) {
+            matchedTag = true;
+            totalDurabilityCost = applyAdrenalineDose(player, data, limb, ld, stack);
+        } else if (isOpioidItem(stack)) {
             matchedTag = true;
             totalDurabilityCost = applyOpioidDose(player, data, limb, ld, stack, requestedDoseUnits);
         } else {
@@ -633,10 +666,10 @@ public final class TreatmentRouter {
         if (stack.isDamageableItem()) {
             int newDamage = stack.getDamageValue() + totalDurabilityCost;
             if (newDamage >= stack.getMaxDamage()) {
-                EquipmentSlot slot = (hand == InteractionHand.MAIN_HAND) ? EquipmentSlot.MAINHAND : EquipmentSlot.OFFHAND;
-                stack.hurtAndBreak(totalDurabilityCost, player, slot);
-                if (!stack.isEmpty() && stack.getDamageValue() >= stack.getMaxDamage()) {
+                if (!player.getAbilities().instabuild) {
                     stack.shrink(1);
+                } else {
+                    stack.setDamageValue(0);
                 }
             } else {
                 stack.setDamageValue(newDamage);
@@ -646,7 +679,7 @@ public final class TreatmentRouter {
         }
 
         player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
-                isOpioidItem(stack) ? SoundEvents.BREWING_STAND_BREW : SoundEvents.WOOL_PLACE,
+                (isOpioidItem(stack) || isAdrenalineItem(stack)) ? SoundEvents.BREWING_STAND_BREW : SoundEvents.WOOL_PLACE,
                 SoundSource.PLAYERS, 0.85f, 1.35f);
         player.syncData(MedicalDataCapability.MEDICAL_DATA);
         return true;

@@ -2035,7 +2035,13 @@ public class MedicalScreen extends Screen {
                 drawMetricCard(g, font, x, y, colW, tr("medical.detail.respiration") + " / SpO2",
                         data.getRespirationRate() + " rpm | " + data.getBloodOxygen() + "%",
                         data.getBloodOxygen() / 100f, C_VITAL_OXYGEN);
-                if (data.getOpioidConcentration() > 0 || data.getAddictionLevel() > 0) {
+                int adrPct = Math.round(com.FIYTP.realmedicalmod.treatment.ModItems.getAdrenalineLevel(data));
+                if (adrPct > 0 && data.getOpioidConcentration() == 0 && data.getAddictionLevel() == 0) {
+                    int adrTier = com.FIYTP.realmedicalmod.treatment.ModItems.getAdrenalineTier(adrPct);
+                    String aRoman = adrTier == 1 ? "I" : (adrTier == 2 ? "II" : "III");
+                    drawMetricCard(g, font, x + colW + 6, y, colW, "肾上腺素",
+                            adrPct + "% | 激增 " + aRoman, adrPct / 100f, 0xFFFFD600);
+                } else if (data.getOpioidConcentration() > 0 || data.getAddictionLevel() > 0) {
                     int op = data.getOpioidConcentration();
                     int addLv = data.getAddictionLevel();
                     int addTier = com.FIYTP.realmedicalmod.treatment.ModItems.getAddictionTier(addLv);
@@ -2058,10 +2064,10 @@ public class MedicalScreen extends Screen {
                     boolean inWithdrawal = com.FIYTP.realmedicalmod.treatment.ModItems.isInWithdrawalMovementRestriction(data);
                     if (inWithdrawal || com.FIYTP.realmedicalmod.treatment.BandageItem.isAddictionHallucinating(addTierWhisper, wBucket)) {
                         String[] whispers = (addTierWhisper == 1)
-                                ? new String[]{"✦ 「再打一点就不痛了...」", "✦ 「一针就能平息一切...」"}
+                                ? new String[]{"「再打一点...」", "「一针就好...」"}
                                 : (addTierWhisper == 2
-                                ? new String[]{"⚠ 戒断受限：「快推一针恢复行动！」", "✦ 「身体在发抖...需要吗啡...」"}
-                                : new String[]{"☠ 重度戒断：「不注射就寸步难行！」", "☠ 「全部推光！马上注射！」"});
+                                ? new String[]{"「手脚发冷...再来一针...」", "「身体在发抖...」"}
+                                : new String[]{"「全部推光！」", "「快给我注射！」"});
                         String wTxt = whispers[(int) (Math.abs(wBucket) % whispers.length)];
                         int wCol = (addTierWhisper >= 3) ? C_ALERT_RED : 0xFFE040FB;
                         g.fill(x, y, x + w, y + 14, withAlpha(wCol, 0.20f));

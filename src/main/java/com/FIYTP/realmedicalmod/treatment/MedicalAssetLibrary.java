@@ -33,6 +33,7 @@ public final class MedicalAssetLibrary {
         PRESSURE_BANDAGE,
         MORPHINE_INJECTOR,
         FENTANYL_SYRINGE,
+        ADRENALINE_INJECTOR,
         TOURNIQUET,
         SYRINGE,
         SPLINT,
@@ -77,6 +78,7 @@ public final class MedicalAssetLibrary {
         }
         if (id != null) {
             String path = id.getPath();
+            if (path.contains("adrenaline")) return AssetType.ADRENALINE_INJECTOR;
             if (path.contains("fentanyl")) return AssetType.FENTANYL_SYRINGE;
             if (path.contains("morphine")) return AssetType.MORPHINE_INJECTOR;
             if (path.contains("pressure_bandage")) return AssetType.PRESSURE_BANDAGE;
@@ -229,6 +231,7 @@ public final class MedicalAssetLibrary {
             case PRESSURE_BANDAGE -> buildBandageRoll(out, true);
             case MORPHINE_INJECTOR -> out.addAll(buildDynamicMorphineAutoinjector(1.0f, 0.0f));
             case FENTANYL_SYRINGE -> out.addAll(buildDynamicFentanylSyringe(1.0f, 0.0f));
+            case ADRENALINE_INJECTOR -> buildAdrenalineInjector(out);
             case TOURNIQUET -> buildTourniquet(out);
             case SYRINGE -> buildSyringe(out);
             case SPLINT -> buildSplint(out);
@@ -418,6 +421,23 @@ public final class MedicalAssetLibrary {
             out.add(new Line3D(-0.14f, 0.0f, -0.58f, 0.14f, 0.0f, -0.58f, accent, 2.0f));
             out.add(new Line3D(0.0f, -0.14f, -0.58f, 0.0f, 0.14f, -0.58f, accent, 2.0f));
         }
+    }
+
+
+    private static void buildAdrenalineInjector(List<Line3D> out) {
+        int cBlueCap   = 0xFF2979FF;
+        int cGoldBody  = 0xFFFFD600;
+        int cRedBand   = 0xFFFF1744;
+        int cOrangeTip = 0xFFFF6D00;
+        int cNeedle    = 0xFFFFFFFF;
+
+        // 顶部蓝帽 + 柠檬金笔身 + 红十字闪电环 + 底部橙色伸缩护针锥
+        addCylinderY(out, 0.20f, -0.78f, -0.52f, 10, cBlueCap, cBlueCap, 1.5f);
+        addCylinderY(out, 0.24f, -0.52f, 0.42f, 12, cGoldBody, 0xFFFFEA00, 1.4f);
+        addRingY(out, 0.255f, -0.36f, 12, cRedBand, 1.8f);
+        addRingY(out, 0.255f, 0.08f, 12, cBlueCap, 1.4f);
+        addCylinderY(out, 0.19f, 0.42f, 0.64f, 10, cOrangeTip, cOrangeTip, 1.5f);
+        out.add(new Line3D(0.0f, 0.64f, 0.0f, 0.0f, 0.92f, 0.0f, cNeedle, 1.9f));
     }
 
     private static void buildTourniquet(List<Line3D> out) {

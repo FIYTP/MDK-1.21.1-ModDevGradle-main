@@ -118,5 +118,9 @@
   "item.realmedicalmod.morphine": "盐酸吗啡自动注射器",
   "item.realmedicalmod.fentanyl": "枸橼酸芬太尼注射器",
   "gui.realmedicalmod.opioid.title": "阿片类药物定量推注控制",
-  "gui.realmedicalmod.opioid.overdose_warning": "⚠ 严重过量：将导致延髓呼吸抑制与呼吸骤停"
+  "gui.realmedicalmod.opioid.overdose_warning": "⚠ 严重过量：将导致延髓呼吸抑制与呼吸骤停",
+  "effect.realmedicalmod.opioid_addiction": "阿片成瘾",
+  "item.realmedicalmod.adrenaline": "肾上腺素自动注射器",
+  "effect.realmedicalmod.adrenaline_rush": "肾上腺素激增",
+  "medical.detail.adrenaline_level": "肾上腺素"
 }

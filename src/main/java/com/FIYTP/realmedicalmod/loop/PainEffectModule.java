@@ -2,6 +2,7 @@ package com.FIYTP.realmedicalmod.loop;
 
 import com.FIYTP.realmedicalmod.capability.MedicalData;
 import com.FIYTP.realmedicalmod.config.MedicalConfig;
+import com.FIYTP.realmedicalmod.treatment.ModItems;
 import com.FIYTP.realmedicalmod.loop.AttributeArbiter.Dimension;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
@@ -48,6 +49,13 @@ public class PainEffectModule implements UpdateModule {
         float systemicMaxActionPenalty = MedicalConfig.PAIN_SYSTEMIC_MAX_ACTION_PENALTY.get().floatValue();
         int sprintLockThreshold = MedicalConfig.PAIN_SPRINT_LOCK_THRESHOLD.get();
 
+        // ★ 肾上腺素激增期间：交感神经应激暂时豁免高达 50%~85% 的痛觉移速/攻速惩罚 ★
+        float adrLevel = ModItems.getAdrenalineLevel(data);
+        float maxAdrRelief = MedicalConfig.ADRENALINE_MAX_PAIN_SLOW_RELIEF.get().floatValue();
+        float adrPainReliefFactor = (adrLevel > 0.0f)
+                ? (1.0f - Mth.clamp((adrLevel / 65.0f) * maxAdrRelief, 0.0f, maxAdrRelief))
+                : 1.0f;
+
         float combinedLegMultiplier = 1.0f;
         int painfulLegCount = 0;
 
@@ -65,7 +73,7 @@ public class PainEffectModule implements UpdateModule {
                 case LEFT_LEG, RIGHT_LEG -> {
                     float linearLoss = legSlope * p;
                     float expLoss = legMaxPenalty * nonLinearCurve;
-                    float totalLoss = Mth.clamp(Math.max(linearLoss, expLoss), 0.0f, legMaxPenalty);
+                    float totalLoss = Mth.clamp(Math.max(linearLoss, expLoss) * adrPainReliefFactor, 0.0f, legMaxPenalty);
                     float mul = Mth.clamp(1.0f - totalLoss, 0.05f, 1.0f);
 
                     AttributeArbiter.suggest(player, Dimension.MOVEMENT_SPEED,
@@ -77,8 +85,8 @@ public class PainEffectModule implements UpdateModule {
                 case LEFT_ARM, RIGHT_ARM -> {
                     String src = "pain_" + limb.name().toLowerCase();
 
-                    float atkLoss = Mth.clamp(Math.max(armAttackSlope * p, armMaxAttackPenalty * nonLinearCurve), 0.0f, armMaxAttackPenalty);
-                    float spdLoss = Mth.clamp(Math.max(armSpeedSlope * p, armMaxSpeedPenalty * nonLinearCurve), 0.0f, armMaxSpeedPenalty);
+                    float atkLoss = Mth.clamp(Math.max(armAttackSlope * p, armMaxAttackPenalty * nonLinearCurve) * adrPainReliefFactor, 0.0f, armMaxAttackPenalty);
+                    float spdLoss = Mth.clamp(Math.max(armSpeedSlope * p, armMaxSpeedPenalty * nonLinearCurve) * adrPainReliefFactor, 0.0f, armMaxSpeedPenalty);
 
                     AttributeArbiter.suggest(player, Dimension.ATTACK_DAMAGE, src, Mth.clamp(1.0f - atkLoss, 0.05f, 1.0f));
                     AttributeArbiter.suggest(player, Dimension.ATTACK_SPEED, src, Mth.clamp(1.0f - spdLoss, 0.05f, 1.0f));
@@ -101,14 +109,14 @@ public class PainEffectModule implements UpdateModule {
             float sysNorm = Mth.clamp(perceivedPain / maxPerceivedPain, 0.0f, 1.0f);
             float sysCurve = (float) Math.pow(sysNorm, actionExponent);
 
-            float sysSpeedMul = Mth.clamp(1.0f - systemicMaxSpeedPenalty * sysCurve, 0.05f, 1.0f);
-            float sysActionMul = Mth.clamp(1.0f - systemicMaxActionPenalty * sysCurve, 0.05f, 1.0f);
+            float sysSpeedMul = Mth.clamp(1.0f - systemicMaxSpeedPenalty * sysCurve * adrPainReliefFactor, 0.05f, 1.0f);
+            float sysActionMul = Mth.clamp(1.0f - systemicMaxActionPenalty * sysCurve * adrPainReliefFactor, 0.05f, 1.0f);
 
             AttributeArbiter.suggest(player, Dimension.MOVEMENT_SPEED, "pain_systemic", sysSpeedMul);
             AttributeArbiter.suggest(player, Dimension.ATTACK_DAMAGE, "pain_systemic", sysActionMul);
             AttributeArbiter.suggest(player, Dimension.ATTACK_SPEED, "pain_systemic", sysActionMul);
 
-            if (perceivedPain >= sprintLockThreshold && player.isSprinting()) {
+            if (perceivedPain >= sprintLockThreshold && adrLevel < MedicalConfig.ADRENALINE_TIER1_THRESHOLD.get() && player.isSprinting()) {
                 player.setSprinting(false);
             }
         }
