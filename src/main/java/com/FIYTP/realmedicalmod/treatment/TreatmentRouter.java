@@ -14,7 +14,8 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.TagKey;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -25,25 +26,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 通用高扩展医疗用品与阿片类定量镇痛路由器 (TreatmentRouter)
- *
- * 阿片类药物系统（吗啡 Morphine & 芬太尼 Fentanyl）核心机制（全部参数由 {@link MedicalConfig} 驱动）：
- * 1. 定量滑块推注与按量扣除耐久：
- *    每支吗啡 (10.0 mg) 或芬太尼 (100 mcg) 拥有配置的刻度耐久（默认 100 单位）。
- *    玩家通过滑块选择推注剂量（1 ~ 剩余最大刻度），仅扣除本次推注的刻度耐久，剩余药液可留待下次继续推注。
- * 2. 强效双层镇痛（局部创伤痛感直降 + 中枢 μ-阿片受体全身痛觉传导阻断）：
- *    推注后不仅大幅消减目标部位与全身其余部位的疼痛等级，还会在体内建立阿片血药浓度，
- *    在 {@link MedicalDataImpl#getPerceivedPain()} 中强力抑制中枢体感疼痛。
- * 3. 过量呼吸抑制与致命生理后果：
- *    - 芬太尼的单位血药浓度转化率远高于吗啡（治疗窗极窄）。
- *    - 当体内累计阿片血药浓度超过 {@code OPIOID_RESP_DEPRESSION_START} 时出现呼吸抑制；
- *    - 达到 {@code OPIOID_OVERDOSE_THRESHOLD} 时触发重度呼吸抑制、迷走心动过缓与深度昏迷；
- *    - 达到 {@code OPIOID_APNEA_THRESHOLD} 时触发延髓呼吸中枢完全麻痹（呼吸暂停 Apnea，呼吸频率直接归零），
- *      引发血氧断崖暴跌、脑损伤恶化与缺氧性室颤/心脏骤停！
+ * 医疗用品、止血带、阿片镇痛、纳洛酮拮抗与肾上腺素路由器 (TreatmentRouter)
  */
 public final class TreatmentRouter {
 
     private static final int OPEN_WOUND_DRESSING_COST = 50;
+    private static final int UNBIND_NO_COST_SIGNAL = -999;
 
     @FunctionalInterface
     public interface LimbTreatmentHandler {
@@ -54,19 +42,42 @@ public final class TreatmentRouter {
     private static final Map<TagKey<Item>, LimbTreatmentHandler> EFFECT_HANDLERS = new LinkedHashMap<>();
 
     static {
-        // 1. 外出血止血 / 绷带包扎 (HEMOSTASIS)
+        // 1. 外出血止血 / 绷带包扎 (HEMOSTASIS) —— 绷带无法处理 > BANDAGE_MAX_BLEEDING_THRESHOLD (默认 500) 的出血
         registerEffectHandler(MedicalItemTags.HEMOSTASIS, (player, data, limb, ld, stack, potency) -> {
-            if (ld.isAmputated()) return 0;
+            if (ld.isAmputated() || ModItems.isLimbNecrotic(ld)) return 0;
+
             int oldBleed = ld.getBleeding();
-            boolean needDressing = !ld.isBandaged() && (oldBleed > 0 || ld.hasOpenWound() || ld.hasBurn());
-            if (oldBleed <= 0 && !needDressing) {
+            int clampedBleed = ModItems.getTourniquetClampedBleed(ld);
+            int maxBandageBleed = MedicalConfig.BANDAGE_MAX_BLEEDING_THRESHOLD.get();
+
+            // 超过配置阈值 (默认 500) 的出血，绷带无法处理
+            if (oldBleed > maxBandageBleed || clampedBleed > maxBandageBleed) {
                 return 0;
             }
 
-            int maxCap = getMaxHemostasisCapacity(stack, potency);
+            boolean needDressing = !ld.isBandaged() && (oldBleed > 0 || clampedBleed > 0 || ld.hasOpenWound() || ld.hasBurn());
+            if (oldBleed <= 0 && clampedBleed <= 0 && !needDressing) {
+                return 0;
+            }
+
             int remainingCap = getRemainingHemostasisCapacity(stack, potency);
             if (remainingCap <= 0) {
                 return 0;
+            }
+
+            if (ld.isTourniqueted() && clampedBleed > 0) {
+                int absorbed = Math.min(clampedBleed, remainingCap);
+                int newClamped = Math.max(0, clampedBleed - absorbed);
+                ModItems.setTourniquetClampedBleed(ld, newClamped);
+
+                if (newClamped == 0) {
+                    ld.setBandaged(true);
+                    ld.setOpenWound(false);
+                    ld.setNaturalClottingTimer(0);
+                } else {
+                    ld.setBandaged(false);
+                }
+                return Math.max(1, absorbed);
             }
 
             if (oldBleed > 0) {
@@ -78,38 +89,21 @@ public final class TreatmentRouter {
                     ld.setBandaged(true);
                     ld.setOpenWound(false);
                     ld.setNaturalClottingTimer(0);
-                    player.displayClientMessage(
-                            Component.literal("已包扎").withStyle(ChatFormatting.GREEN),
-                            true
-                    );
                 } else {
                     ld.setBandaged(false);
-                    player.displayClientMessage(
-                            Component.literal("伤口仍在流血").withStyle(ChatFormatting.GOLD),
-                            true
-                    );
                 }
                 return Math.max(1, absorbed);
             } else {
                 int cost = Math.min(OPEN_WOUND_DRESSING_COST, remainingCap);
                 ld.setBandaged(true);
                 ld.setOpenWound(false);
-                player.displayClientMessage(
-                        Component.literal("已包扎").withStyle(ChatFormatting.GREEN),
-                        true
-                );
                 return Math.max(1, cost);
             }
         });
 
-        // 2. 止血带强效阻断 (TOURNIQUET)
-        registerEffectHandler(MedicalItemTags.TOURNIQUET, (player, data, limb, ld, stack, potency) -> {
-            if (limb == MedicalData.Limb.HEAD || limb == MedicalData.Limb.CHEST || ld.isAmputated()) return 0;
-            if (ld.isTourniqueted() && ld.getBleeding() <= 0) return 0;
-            ld.setTourniqueted(true);
-            ld.setBleeding(0);
-            return 1;
-        });
+        // 2. 止血带强效阻断 (TOURNIQUET) —— 可阻断大出血，但不能修复伤口，再次使用可解开止血带
+        registerEffectHandler(MedicalItemTags.TOURNIQUET, (player, data, limb, ld, stack, potency) ->
+                applyOrToggleTourniquet(player, data, limb, ld, stack));
 
         // 3. 内出血止血剂 (INTERNAL_HEMOSTASIS)
         registerEffectHandler(MedicalItemTags.INTERNAL_HEMOSTASIS, (player, data, limb, ld, stack, potency) -> {
@@ -147,7 +141,7 @@ public final class TreatmentRouter {
             return Math.max(1, actual);
         });
 
-        // 7. 阿片类强效镇痛 (OPIOID) —— 默认走完整定量药理处理器
+        // 7. 阿片类强效镇痛 (OPIOID)
         registerEffectHandler(MedicalItemTags.OPIOID, (player, data, limb, ld, stack, potency) ->
                 applyOpioidDose(player, data, limb, ld, stack, 50));
 
@@ -227,9 +221,6 @@ public final class TreatmentRouter {
         }
     }
 
-    /**
-     * 判断物品是否为阿片类镇痛剂（盐酸吗啡 morphine 或 枸橼酸芬太尼 fentanyl）
-     */
     public static boolean isOpioidItem(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return false;
         if (stack.is(MedicalItemTags.OPIOID)) return true;
@@ -244,27 +235,37 @@ public final class TreatmentRouter {
         return potency.get(MedicalItemTags.OPIOID.location(), 0.0f) > 0.0f;
     }
 
-    /**
-     * 判断物品是否为高敏合成阿片「枸橼酸芬太尼 (fentanyl)」
-     */
     public static boolean isFentanylItem(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return false;
         ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
         return id != null && id.getPath().contains("fentanyl");
     }
 
-    /**
-     * 判断物品是否为「肾上腺素自动注射器 (adrenaline)」
-     */
     public static boolean isAdrenalineItem(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return false;
         ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
         return id != null && id.getPath().contains("adrenaline");
     }
 
-    /**
-     * 获取阿片注射器的最大剂量刻度单位（从 MedicalConfig 读取）
-     */
+    public static boolean isNaloxoneItem(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
+        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        return id != null && id.getPath().contains("naloxone");
+    }
+
+    public static boolean isTourniquetItem(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
+        if (stack.is(MedicalItemTags.TOURNIQUET)) return true;
+        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        return id != null && id.getPath().contains("tourniquet");
+    }
+
+    public static boolean isSutureKitItem(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
+        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        return id != null && id.getPath().contains("suture_kit");
+    }
+
     public static int getMaxOpioidUnits(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return 100;
         if (stack.isDamageableItem() && stack.getMaxDamage() > 0) {
@@ -275,9 +276,6 @@ public final class TreatmentRouter {
                 : MedicalConfig.MORPHINE_MAX_DOSE_UNITS.get();
     }
 
-    /**
-     * 获取阿片注射器当前的剩余剂量刻度单位
-     */
     public static int getRemainingOpioidUnits(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return 0;
         if (stack.isDamageableItem() && stack.getMaxDamage() > 0) {
@@ -289,7 +287,7 @@ public final class TreatmentRouter {
     public static boolean isMedicalItem(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return false;
         if (stack.getItem() instanceof BandageItem) return true;
-        if (isOpioidItem(stack)) return true;
+        if (isOpioidItem(stack) || isAdrenalineItem(stack) || isNaloxoneItem(stack) || isTourniquetItem(stack) || isSutureKitItem(stack)) return true;
         if (stack.has(MedicalComponents.MEDICAL_POTENCY.get())) return true;
         if (stack.is(MedicalItemTags.BANDAGE)
                 || stack.is(MedicalItemTags.SYRINGE)
@@ -316,9 +314,21 @@ public final class TreatmentRouter {
         MedicalData.LimbData ld = data.getLimb(limb);
         if (ld == null || ld.isAmputated()) return false;
 
-        // 阿片类针剂（吗啡/芬太尼）可经任意未截肢部位（肌肉/静脉）推注生效！
-        if (isAdrenalineItem(stack)) {
+        if (isSutureKitItem(stack)) {
+            if (ld.isAmputated() || ModItems.isLimbNecrotic(ld)) return false;
+            if (data.getConsciousness() < ModItems.getSutureMinConsciousness() || data.isCardiacArrest() || data.isInVFib()) {
+                return false;
+            }
+            int effBleed = Math.max(ld.getBleeding(), ModItems.getTourniquetClampedBleed(ld));
+            return effBleed > MedicalConfig.BANDAGE_MAX_BLEEDING_THRESHOLD.get() || ModItems.isLimbArterialLigated(ld);
+        }
+        if (isAdrenalineItem(stack) || isNaloxoneItem(stack)) {
             return !ld.isAmputated();
+        }
+        if (isTourniquetItem(stack)) {
+            if (limb == MedicalData.Limb.HEAD || limb == MedicalData.Limb.CHEST) return false;
+            if (ModItems.isLimbNecrotic(ld) || ld.isTourniqueted()) return false;
+            return ld.getBleeding() > 0 || ld.hasOpenWound();
         }
         if (isOpioidItem(stack)) {
             return getRemainingOpioidUnits(stack) > 0;
@@ -343,11 +353,18 @@ public final class TreatmentRouter {
     private static boolean canEffectApplyToLimb(TagKey<Item> tag, MedicalData data,
                                                 MedicalData.Limb limb, MedicalData.LimbData ld) {
         if (tag == MedicalItemTags.HEMOSTASIS) {
-            return ld.getBleeding() > 0 || (!ld.isBandaged() && (ld.hasOpenWound() || ld.hasBurn()));
+            if (ModItems.isLimbNecrotic(ld)) return false;
+            int maxBandageBleed = MedicalConfig.BANDAGE_MAX_BLEEDING_THRESHOLD.get();
+            int clamped = ModItems.getTourniquetClampedBleed(ld);
+            if (ld.getBleeding() > maxBandageBleed || clamped > maxBandageBleed) {
+                return false;
+            }
+            return ld.getBleeding() > 0 || clamped > 0 || (!ld.isBandaged() && (ld.hasOpenWound() || ld.hasBurn()));
         }
         if (tag == MedicalItemTags.TOURNIQUET) {
             return limb != MedicalData.Limb.HEAD && limb != MedicalData.Limb.CHEST
-                    && (!ld.isTourniqueted() || ld.getBleeding() > 0);
+                    && !ModItems.isLimbNecrotic(ld) && !ld.isTourniqueted()
+                    && (ld.getBleeding() > 0 || ld.hasOpenWound());
         }
         if (tag == MedicalItemTags.INTERNAL_HEMOSTASIS) {
             return ld.getInternalBleedingRate() > 0;
@@ -387,7 +404,9 @@ public final class TreatmentRouter {
 
     public static float getChannelDurationSeconds(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return 0.65f;
-        if (isAdrenalineItem(stack)) return 0.30f;
+        if (isNaloxoneItem(stack) || isAdrenalineItem(stack)) return 0.28f;
+        if (isSutureKitItem(stack)) return 0.35f;
+        if (isTourniquetItem(stack)) return 0.45f;
         if (isOpioidItem(stack) || stack.is(MedicalItemTags.SYRINGE)) return 0.35f;
         if (stack.is(MedicalItemTags.ORAL)) return 0.50f;
         if (stack.is(MedicalItemTags.TOPICAL)) return 0.55f;
@@ -420,6 +439,13 @@ public final class TreatmentRouter {
             lines.add("0.3 mg");
             return lines;
         }
+        if (isNaloxoneItem(stack)) {
+            lines.add("0.4 mg");
+            return lines;
+        }
+        if (isTourniquetItem(stack)) {
+            return lines;
+        }
         if (isOpioidItem(stack)) {
             boolean fentanyl = isFentanylItem(stack);
             int maxU = getMaxOpioidUnits(stack);
@@ -447,54 +473,259 @@ public final class TreatmentRouter {
     }
 
     /**
-     * 服务端执行阿片类药物定量推注（吗啡 Morphine / 芬太尼 Fentanyl）
-     *
-     * @return 实际消耗的注射器刻度单位 (1 ~ 100)
+     * 服务端执行「旋压式止血带 (tourniquet)」绑扎与解开逻辑：
+     * - 未绑止血带时：夹闭动脉阻断大出血，保存原伤口出血率至 tourniquetClampedBleed，但不修复伤口 (bandaged=false, openWound=true)
+     * - 已绑止血带时：解开止血带；若未用绷带包扎修复伤口，原出血立即复发！
      */
-    private static int applyOpioidDose(ServerPlayer player, MedicalData data, MedicalData.Limb targetLimb,
-                                       MedicalData.LimbData targetLd, ItemStack stack, int requestedDoseUnits) {
-        int maxUnits = Math.max(1, getMaxOpioidUnits(stack));
-        int remUnits = getRemainingOpioidUnits(stack);
-        if (remUnits <= 0) return 0;
+    /**
+     * 仅由 H 医疗面板调用：解开部位上的止血带，并将这根止血带完整归还到玩家背包/手中（实现可重复利用）
+     */
+    /**
+     * 服务端处理「野战血管缝合手术包 (field_vascular_suture_kit)」的内置止血带与双路径手术结算：
+     * - actionCode == 200：开启手术界面 -> 自动绑上手术包自带止血带夹闭出血（不消耗耐久）
+     * - actionCode == 201：完成路径 A（直接结扎闭塞术）-> 出血清零；若原出血 > 1000 (动脉出血) 则触发主干动脉结扎缺血
+     * - actionCode == 202：完成路径 B（血管吻合桥接术）-> 出血清零且重建动脉供血，无任何缺血后遗症
+     * - actionCode == 203：手术步骤操作失误 -> 局部痛感 +1、失血 15mL
+     * - actionCode == 204：手术中途意识跌破 50% 或强行中断 -> 创口撕裂出血加剧
+     */
+    private static int applySutureKitAction(ServerPlayer player, MedicalData data,
+                                            MedicalData.Limb limb, MedicalData.LimbData ld,
+                                            ItemStack stack, int actionCode) {
+        if (ld.isAmputated() || ModItems.isLimbNecrotic(ld)) return 0;
 
-        int actualUnits = Mth.clamp(requestedDoseUnits, 1, remUnits);
-        float doseFraction = actualUnits / (float) maxUnits;
-        boolean fentanyl = isFentanylItem(stack);
-
-        // 从 MedicalConfig 读取药理参数（零硬编码）
-        float targetReliefMax = fentanyl
-                ? MedicalConfig.FENTANYL_TARGET_PAIN_RELIEF.get().floatValue()
-                : MedicalConfig.MORPHINE_TARGET_PAIN_RELIEF.get().floatValue();
-        float systemicReliefMax = fentanyl
-                ? MedicalConfig.FENTANYL_SYSTEMIC_PAIN_RELIEF.get().floatValue()
-                : MedicalConfig.MORPHINE_SYSTEMIC_PAIN_RELIEF.get().floatValue();
-        float concGainMax = fentanyl
-                ? MedicalConfig.FENTANYL_CONCENTRATION_PER_FULL_DOSE.get().floatValue()
-                : MedicalConfig.MORPHINE_CONCENTRATION_PER_FULL_DOSE.get().floatValue();
-        float addictionGainMax = fentanyl
-                ? MedicalConfig.FENTANYL_ADDICTION_GAIN.get().floatValue()
-                : MedicalConfig.MORPHINE_ADDICTION_GAIN.get().floatValue();
-
-        // 1. 降低目标注射部位疼痛与全身各部位疼痛（阿片通过血液循环作用于中枢神经）
-        int targetDelta = Math.max(1, Math.round(targetReliefMax * doseFraction));
-        targetLd.setPainLevel(Math.max(0, targetLd.getPainLevel() - targetDelta));
-
-        int sysDelta = Math.round(systemicReliefMax * doseFraction);
-        if (sysDelta > 0) {
-            for (MedicalData.Limb other : MedicalData.Limb.values()) {
-                if (other == targetLimb) continue;
-                MedicalData.LimbData oldLd = data.getLimb(other);
-                if (oldLd != null && oldLd.getPainLevel() > 0) {
-                    oldLd.setPainLevel(Math.max(0, oldLd.getPainLevel() - sysDelta));
-                }
+        if (actionCode == 200) {
+            if (data.getConsciousness() < ModItems.getSutureMinConsciousness()) return 0;
+            // 手术包自带止血带：若该部位尚未绑止血带且正在大出血，自动用内置止血带夹闭动脉
+            if (!ld.isTourniqueted() && ld.getBleeding() > 0 && limb != MedicalData.Limb.HEAD && limb != MedicalData.Limb.CHEST) {
+                ModItems.setTourniquetClampedBleed(ld, ld.getBleeding());
+                ModItems.setTourniquetTimer(ld, 0);
+                ld.setTourniqueted(true);
+                ld.setBleeding(0);
             }
+            return UNBIND_NO_COST_SIGNAL;
         }
 
-        // 2. 累加体内阿片血药浓度与成瘾值
+        if (actionCode == 203) {
+            int maxPain = MedicalConfig.MAX_PAIN_LEVEL.get();
+            int painGain = MedicalConfig.SUTURE_MISTAKE_PAIN_GAIN.get();
+            int bloodLoss = MedicalConfig.SUTURE_MISTAKE_BLOOD_LOSS.get();
+            ld.setPainLevel(Math.min(maxPain, ld.getPainLevel() + painGain));
+            data.setBloodVolume(Math.max(0, data.getBloodVolume() - bloodLoss));
+            return UNBIND_NO_COST_SIGNAL;
+        }
+
+        if (actionCode == 204) {
+            int maxPain = MedicalConfig.MAX_PAIN_LEVEL.get();
+            int painGain = MedicalConfig.SUTURE_MISTAKE_PAIN_GAIN.get();
+            int tearBleed = MedicalConfig.SUTURE_ABORT_TEAR_BLEED_INCREASE.get();
+            ld.setPainLevel(Math.min(maxPain, ld.getPainLevel() + painGain));
+            if (ld.isTourniqueted()) {
+                ModItems.setTourniquetClampedBleed(ld, ModItems.getTourniquetClampedBleed(ld) + tearBleed);
+            } else if (ld.getBleeding() > 0) {
+                ld.setBleeding(ld.getBleeding() + tearBleed);
+            }
+            return UNBIND_NO_COST_SIGNAL;
+        }
+
+        if (data.getConsciousness() < ModItems.getSutureMinConsciousness() || data.isCardiacArrest() || data.isInVFib()) {
+            return 0;
+        }
+
+        int origBleed = Math.max(ld.getBleeding(), ModItems.getTourniquetClampedBleed(ld));
+        if (origBleed <= MedicalConfig.BANDAGE_MAX_BLEEDING_THRESHOLD.get() && !ModItems.isLimbArterialLigated(ld)) {
+            return 0;
+        }
+
+        if (actionCode == 201) {
+            // 路径 A：直接结扎缝死血管
+            ld.setBleeding(0);
+            ModItems.setTourniquetClampedBleed(ld, 0);
+            ld.setOpenWound(false);
+            ld.setBandaged(true);
+            ld.setNaturalClottingTimer(0);
+            ld.setTourniqueted(false);
+
+            if (origBleed > ModItems.getSutureArterialThreshold()) {
+                // 对超过主干动脉阈值的大出血强行结扎：导致主干供血中断，持续向缺血坏死演进
+                ModItems.setLimbArterialLigated(ld, true);
+            } else {
+                ModItems.setLimbArterialLigated(ld, false);
+                ModItems.setTourniquetTimer(ld, 0);
+            }
+            return MedicalConfig.SUTURE_LIGATION_DURABILITY_COST.get();
+        }
+
+        if (actionCode == 202) {
+            // 路径 B：血管吻合桥接手术（完美重建远端供血）
+            ld.setBleeding(0);
+            ModItems.setTourniquetClampedBleed(ld, 0);
+            ld.setOpenWound(false);
+            ld.setBandaged(true);
+            ld.setNaturalClottingTimer(0);
+            ld.setTourniqueted(false);
+            ModItems.setLimbArterialLigated(ld, false);
+            ModItems.setTourniquetTimer(ld, 0);
+            return MedicalConfig.SUTURE_ANASTOMOSIS_DURABILITY_COST.get();
+        }
+
+        return 0;
+    }
+
+    public static int unbindTourniquetOnLimb(ServerPlayer player, MedicalData.LimbData ld) {
+        if (ld == null || !ld.isTourniqueted()) return 0;
+        ld.setTourniqueted(false);
+        ModItems.setTourniquetTimer(ld, 0);
+        int clampedBleed = ModItems.getTourniquetClampedBleed(ld);
+        if (!ld.isBandaged() && clampedBleed > 0) {
+            ld.setBleeding(clampedBleed);
+            ModItems.setTourniquetClampedBleed(ld, 0);
+} else {
+            ModItems.setTourniquetClampedBleed(ld, 0);
+}
+
+        // 将解下的止血带归还给玩家，可无限重复利用
+        if (!player.getAbilities().instabuild) {
+            ItemStack returnedTq = new ItemStack(ModItems.TOURNIQUET.get());
+            if (!player.getInventory().add(returnedTq)) {
+                player.drop(returnedTq, false);
+            }
+        }
+        return UNBIND_NO_COST_SIGNAL;
+    }
+
+    private static int applyOrToggleTourniquet(ServerPlayer player, MedicalData data,
+                                               MedicalData.Limb limb, MedicalData.LimbData ld, ItemStack stack) {
+        if (limb == MedicalData.Limb.HEAD || limb == MedicalData.Limb.CHEST || ld.isAmputated()) return 0;
+        if (ModItems.isLimbNecrotic(ld) || ld.isTourniqueted()) {
+            return 0;
+        }
+
+        int currentBleed = ld.getBleeding();
+        if (currentBleed <= 0 && !ld.hasOpenWound()) {
+            return 0;
+        }
+
+        ModItems.setTourniquetClampedBleed(ld, currentBleed);
+        ModItems.setTourniquetTimer(ld, 0);
+        ld.setTourniqueted(true);
+        ld.setBleeding(0);
+        if (currentBleed > 0) {
+            ld.setBandaged(false);
+            ld.setOpenWound(true);
+        }
+return stack.isDamageableItem() ? Math.max(1, stack.getMaxDamage()) : 1;
+    }
+
+    /**
+     * 服务端执行「盐酸纳洛酮注射器 (naloxone)」阿片过量逆转与副作用逻辑
+     */
+    private static int applyNaloxoneDose(ServerPlayer player, MedicalData data,
+                                         MedicalData.Limb targetLimb, MedicalData.LimbData targetLd, ItemStack stack) {
         float oldConc = (data instanceof MedicalDataImpl impl)
                 ? impl.getOpioidConcentrationFloat()
                 : (float) data.getOpioidConcentration();
-        float addedConc = concGainMax * doseFraction;
+
+        // 1. 强力拮抗并冲刷体内阿片血药浓度（全部参数读取自 MedicalConfig）
+        float clearAmount = MedicalConfig.NALOXONE_OPIOID_CLEAR_AMOUNT.get().floatValue();
+        int blockadeSec = MedicalConfig.NALOXONE_BLOCKADE_DURATION_SEC.get();
+        float newConc = Math.max(0.0f, oldConc - clearAmount);
+        if (data instanceof MedicalDataImpl impl) {
+            impl.setOpioidConcentrationFloat(newConc);
+            impl.setNaloxoneEffectSec(blockadeSec);
+        } else {
+            data.setOpioidConcentration(Math.round(newConc));
+        }
+
+        // 2. 逆转阿片呼吸暂停/呼吸抑制与昏迷、心动过缓
+        int sedStart = MedicalConfig.OPIOID_SEDATION_START.get();
+        int minRestoredResp = MedicalConfig.NALOXONE_MIN_RESTORED_RESP_RATE.get();
+        float consRestore = MedicalConfig.NALOXONE_CONSCIOUSNESS_RESTORE.get().floatValue();
+        if (oldConc >= sedStart * 0.5f) {
+            if (data.getRespirationRate() < minRestoredResp) {
+                data.setRespirationRate(minRestoredResp);
+            }
+            data.setConsciousnessFloat(Math.min(100.0f, data.getConsciousnessFloat() + consRestore));
+            data.setBradycardiaActive(false);
+            data.setBradycardiaSevere(false);
+            data.setBradyTimer(0);
+        }
+
+        // 3. 副作用 A：瞬间剥夺中枢镇痛 -> 受伤部位痛觉反跳
+        int painRebound = MedicalConfig.NALOXONE_WOUND_PAIN_REBOUND.get();
+        int maxPain = MedicalConfig.MAX_PAIN_LEVEL.get();
+        boolean hadWoundPain = false;
+        for (MedicalData.Limb limb : MedicalData.Limb.values()) {
+            MedicalData.LimbData ld = data.getLimb(limb);
+            if (ld == null || ld.isAmputated()) continue;
+            if (ld.getPainLevel() > 0 || ld.getBleeding() > 0 || ld.hasOpenWound() || ld.hasFracture() || ld.hasBurn()) {
+                ld.setPainLevel(Math.min(maxPain, ld.getPainLevel() + painRebound));
+                hadWoundPain = true;
+            }
+        }
+
+        // 4. 副作用 B：交感儿茶酚胺反跳（心率骤升、血压飙升）
+        int curHr = Math.max(MedicalConfig.RESTING_HEART_RATE.get(), data.getHeartRate());
+        int vfibMargin = MedicalConfig.ADRENALINE_TIER1_THRESHOLD.get();
+        int vfibSafeCap = Math.max(150, MedicalConfig.VFIB_THRESHOLD.get() - vfibMargin);
+        int hrBoost = MedicalConfig.NALOXONE_REBOUND_HR_BOOST.get();
+        int bpBoost = MedicalConfig.NALOXONE_REBOUND_BP_BOOST.get();
+        data.setHeartRate(Math.min(vfibSafeCap, curHr + hrBoost));
+        data.setSystolicBP(Math.min(210, data.getSystolicBP() + bpBoost));
+        data.setDiastolicBP(Math.min(135, data.getDiastolicBP() + bpBoost / 2));
+
+        // 5. 副作用 C：对高浓度阿片或成瘾者促发急性戒断
+        int wdTicks = MedicalConfig.NALOXONE_PRECIPITATED_WITHDRAWAL_TICKS.get();
+        if (wdTicks > 0 && (oldConc >= sedStart || data.getAddictionLevel() >= MedicalConfig.ADDICTION_TIER1_THRESHOLD.get() || hadWoundPain)) {
+            player.addEffect(new MobEffectInstance(MobEffects.CONFUSION, wdTicks, 0, false, false, false));
+        }
+player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                SoundEvents.WARDEN_HEARTBEAT, SoundSource.PLAYERS, 0.90f, 1.35f);
+
+        return stack.isDamageableItem() ? Math.max(1, stack.getMaxDamage()) : 1;
+    }
+
+    private static int applyOpioidDose(ServerPlayer player, MedicalData data,
+                                       MedicalData.Limb targetLimb, MedicalData.LimbData targetLd,
+                                       ItemStack stack, int requestedUnits) {
+        int remUnits = getRemainingOpioidUnits(stack);
+        if (remUnits <= 0) return 0;
+
+        int maxUnits = Math.max(1, getMaxOpioidUnits(stack));
+        int actualUnits = Mth.clamp(requestedUnits, 1, remUnits);
+        float doseFraction = actualUnits / (float) maxUnits;
+
+        boolean fentanyl = isFentanylItem(stack);
+
+        // 若正处于纳洛酮受体阻断期，阿片镇痛与浓度建立被竞争性拮抗削弱 70%
+        float naloxoneBlock = (ModItems.getNaloxoneEffectSec(data) > 0) ? MedicalConfig.NALOXONE_RECEPTOR_BLOCK_FACTOR.get().floatValue() : 1.0f;
+
+        float targetReliefBase = fentanyl
+                ? MedicalConfig.FENTANYL_TARGET_PAIN_RELIEF.get().floatValue()
+                : MedicalConfig.MORPHINE_TARGET_PAIN_RELIEF.get().floatValue();
+        float systemicReliefBase = fentanyl
+                ? MedicalConfig.FENTANYL_SYSTEMIC_PAIN_RELIEF.get().floatValue()
+                : MedicalConfig.MORPHINE_SYSTEMIC_PAIN_RELIEF.get().floatValue();
+
+        int targetPainReduction = Math.max(0, Math.round(targetReliefBase * doseFraction * naloxoneBlock));
+        int systemicPainReduction = Math.max(0, Math.round(systemicReliefBase * doseFraction * naloxoneBlock));
+
+        targetLd.setPainLevel(Math.max(0, targetLd.getPainLevel() - targetPainReduction));
+        for (MedicalData.Limb otherLimb : MedicalData.Limb.values()) {
+            if (otherLimb == targetLimb) continue;
+            MedicalData.LimbData otherLd = data.getLimb(otherLimb);
+            if (otherLd != null && !otherLd.isAmputated() && otherLd.getPainLevel() > 0) {
+                otherLd.setPainLevel(Math.max(0, otherLd.getPainLevel() - systemicPainReduction));
+            }
+        }
+
+        float concPerFull = fentanyl
+                ? MedicalConfig.FENTANYL_CONCENTRATION_PER_FULL_DOSE.get().floatValue()
+                : MedicalConfig.MORPHINE_CONCENTRATION_PER_FULL_DOSE.get().floatValue();
+        float addedConc = concPerFull * doseFraction * naloxoneBlock;
+
+        float oldConc = (data instanceof MedicalDataImpl impl)
+                ? impl.getOpioidConcentrationFloat()
+                : (float) data.getOpioidConcentration();
         float newConc = Mth.clamp(oldConc + addedConc, 0.0f, 100.0f);
 
         if (data instanceof MedicalDataImpl impl) {
@@ -503,13 +734,14 @@ public final class TreatmentRouter {
             data.setOpioidConcentration(Math.round(newConc));
         }
 
-        int newAddiction = Mth.clamp(data.getAddictionLevel() + Math.round(addictionGainMax * doseFraction), 0, 100);
-        data.setAddictionLevel(newAddiction);
+        float addGainBase = fentanyl
+                ? MedicalConfig.FENTANYL_ADDICTION_GAIN.get().floatValue()
+                : MedicalConfig.MORPHINE_ADDICTION_GAIN.get().floatValue();
+        int addDelta = Math.max(1, Math.round(addGainBase * doseFraction));
+        data.setAddictionLevel(Mth.clamp(data.getAddictionLevel() + addDelta, 0, 100));
 
-        // 3. 判定是否触发急性过量 (Overdose) 或致死性延髓呼吸麻痹 (Central Apnea)
         int apneaThreshold = MedicalConfig.OPIOID_APNEA_THRESHOLD.get();
         int overdoseThreshold = MedicalConfig.OPIOID_OVERDOSE_THRESHOLD.get();
-        int respDepStart = MedicalConfig.OPIOID_RESP_DEPRESSION_START.get();
 
         if (newConc >= apneaThreshold) {
             data.setRespirationRate(0);
@@ -524,22 +756,12 @@ public final class TreatmentRouter {
             player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                     SoundEvents.WARDEN_HEARTBEAT, SoundSource.PLAYERS, 0.9f, 0.85f);
         }
-        player.displayClientMessage(
-                Component.literal(fentanyl ? "已注射芬太尼" : "已注射吗啡")
-                        .withStyle(ChatFormatting.GREEN),
-                true
-        );
-
-        return actualUnits;
+return actualUnits;
     }
 
-
-    /**
-     * 服务端执行「肾上腺素自动注射器 (0.3mg Epinephrine)」推注药理逻辑
-     */
     private static int applyAdrenalineDose(ServerPlayer player, MedicalData data,
                                            MedicalData.Limb targetLimb, MedicalData.LimbData targetLd, ItemStack stack) {
-        float gain = Math.min(55.0f, MedicalConfig.ADRENALINE_INJECTOR_GAIN.get().floatValue());
+        float gain = MedicalConfig.ADRENALINE_INJECTOR_GAIN.get().floatValue();
         float oldAdr = ModItems.getAdrenalineLevel(data);
         float newAdr = Mth.clamp(oldAdr + gain, 0.0f, 100.0f);
 
@@ -549,20 +771,17 @@ public final class TreatmentRouter {
             impl.setAdrenalineCrashSec(0);
         }
 
-        // 1. 提振意识与血压
         data.setConsciousnessFloat(Math.min(100.0f, data.getConsciousnessFloat() + 25.0f));
         data.setSystolicBP(Math.min(200, data.getSystolicBP() + 20));
         data.setDiastolicBP(Math.min(130, data.getDiastolicBP() + 10));
         data.setMeanArterialPressure(Math.min(150.0f, data.getMeanArterialPressure() + 15.0f));
         data.setPeripheralResistance(Math.min(2.0f, data.getPeripheralResistance() + 0.20f));
 
-        // 2. 若处于失血濒危倒计时，延长 8 秒抢救时间
         if (data.isInCriticalState() && data.getCriticalTimer() > 0) {
             int maxCrit = MedicalConfig.CRITICAL_TIMER_MAX.get();
             data.setCriticalTimer(Math.min(maxCrit, data.getCriticalTimer() + 8));
         }
 
-        // 3. 解除心动过缓，温和提升心率（单支注射绝不冲入室颤阈值）
         data.setBradycardiaActive(false);
         data.setBradycardiaSevere(false);
         data.setBradyTimer(0);
@@ -572,59 +791,79 @@ public final class TreatmentRouter {
 
         int vfibThresh = MedicalConfig.VFIB_THRESHOLD.get();
         int tier3Thresh = MedicalConfig.ADRENALINE_TIER3_THRESHOLD.get();
-        int curHr = Math.max(80, data.getHeartRate());
+        int curHr = Math.max(MedicalConfig.RESTING_HEART_RATE.get(), data.getHeartRate());
+        int singleBoost = Math.round(MedicalConfig.ADRENALINE_MAX_HR_BOOST.get().floatValue() * (MedicalConfig.ADRENALINE_TIER2_THRESHOLD.get().floatValue() / 100.0f));
+        int vfibMargin = MedicalConfig.ADRENALINE_TIER1_THRESHOLD.get();
         int newHr;
         if (newAdr >= tier3Thresh) {
-            // 仅在连续注射多支导致 III 级过量时才大幅拉高心率
-            newHr = Math.min(MedicalConfig.MAX_HEART_RATE.get(), curHr + 28);
+            int maxBoost = Math.round(MedicalConfig.ADRENALINE_MAX_HR_BOOST.get().floatValue());
+            newHr = Math.min(MedicalConfig.MAX_HEART_RATE.get(), curHr + maxBoost);
             data.setHeartEffectSevere(true);
         } else {
-            // 单支正常注射：最多提升 +14 BPM，且封顶在室颤线 - 15 以下
-            int safeCap = Math.max(150, vfibThresh - 15);
-            newHr = Math.min(safeCap, curHr + 14);
+            int safeCap = Math.max(140, vfibThresh - vfibMargin);
+            newHr = Math.min(safeCap, curHr + singleBoost);
         }
         data.setHeartRate(newHr);
 
         ModItems.syncAdrenalineEffectNow(player, data);
-
-        player.displayClientMessage(
-                Component.literal("已注射肾上腺素").withStyle(ChatFormatting.GOLD),
-                true
-        );
-        player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                 SoundEvents.WARDEN_HEARTBEAT, SoundSource.PLAYERS, 0.85f, 1.30f);
 
         return stack.isDamageableItem() ? Math.max(1, stack.getMaxDamage()) : 1;
     }
 
-    /** 兼容 3 参数调用 */
     public static boolean applyServerTreatment(ServerPlayer player, InteractionHand hand, MedicalData.Limb limb) {
         return applyServerTreatment(player, hand, limb, 100);
     }
 
-    /**
-     * 服务端执行医疗用品治疗结算（支持滑块设定 doseUnits 按量扣除耐久）
-     */
     public static boolean applyServerTreatment(ServerPlayer player, InteractionHand hand,
                                                MedicalData.Limb limb, int requestedDoseUnits) {
         if (player == null || hand == null || limb == null) return false;
-        ItemStack stack = player.getItemInHand(hand);
-        if (!isMedicalItem(stack)) return false;
-
         MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
         if (data == null) return false;
 
         MedicalData.LimbData ld = data.getLimb(limb);
         if (ld == null || ld.isAmputated()) return false;
 
+        // 支持徒手 / 医疗面板一键解开该部位已绑的止血带 (requestedDoseUnits == -1)
+        if (requestedDoseUnits == -1 && ld.isTourniqueted()) {
+            unbindTourniquetOnLimb(player, ld);
+            player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                    SoundEvents.ARMOR_EQUIP_LEATHER.value(), SoundSource.PLAYERS, 0.85f, 1.15f);
+            player.syncData(MedicalDataCapability.MEDICAL_DATA);
+            return true;
+        }
+
+        ItemStack stack = player.getItemInHand(hand);
+        if (!isMedicalItem(stack)) return false;
+
         MedicalPotency potency = stack.getOrDefault(MedicalComponents.MEDICAL_POTENCY.get(), MedicalPotency.EMPTY);
         int totalDurabilityCost = 0;
         boolean matchedTag = false;
+        boolean unbindNoCost = false;
 
-        // 优先处理肾上腺素自动注射器与阿片类定量注射器
-        if (isAdrenalineItem(stack)) {
+        if (isSutureKitItem(stack)) {
+            matchedTag = true;
+            int cost = applySutureKitAction(player, data, limb, ld, stack, requestedDoseUnits);
+            if (cost == UNBIND_NO_COST_SIGNAL) {
+                unbindNoCost = true;
+            } else {
+                totalDurabilityCost = cost;
+            }
+        } else if (isAdrenalineItem(stack)) {
             matchedTag = true;
             totalDurabilityCost = applyAdrenalineDose(player, data, limb, ld, stack);
+        } else if (isNaloxoneItem(stack)) {
+            matchedTag = true;
+            totalDurabilityCost = applyNaloxoneDose(player, data, limb, ld, stack);
+        } else if (isTourniquetItem(stack)) {
+            matchedTag = true;
+            int cost = applyOrToggleTourniquet(player, data, limb, ld, stack);
+            if (cost == UNBIND_NO_COST_SIGNAL) {
+                unbindNoCost = true;
+            } else {
+                totalDurabilityCost = cost;
+            }
         } else if (isOpioidItem(stack)) {
             matchedTag = true;
             totalDurabilityCost = applyOpioidDose(player, data, limb, ld, stack, requestedDoseUnits);
@@ -633,7 +872,9 @@ public final class TreatmentRouter {
                 if (stack.is(entry.getKey())) {
                     matchedTag = true;
                     int cost = entry.getValue().apply(player, data, limb, ld, stack, potency);
-                    if (cost > 0) {
+                    if (cost == UNBIND_NO_COST_SIGNAL) {
+                        unbindNoCost = true;
+                    } else if (cost > 0) {
                         totalDurabilityCost += cost;
                     }
                 }
@@ -650,12 +891,14 @@ public final class TreatmentRouter {
             }
         }
 
+        if (unbindNoCost) {
+            player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                    SoundEvents.ARMOR_EQUIP_LEATHER.value(), SoundSource.PLAYERS, 0.85f, 1.15f);
+            player.syncData(MedicalDataCapability.MEDICAL_DATA);
+            return true;
+        }
+
         if (totalDurabilityCost <= 0) {
-            player.displayClientMessage(
-                    Component.translatable("message.realmedicalmod.bandage.no_wound")
-                            .withStyle(ChatFormatting.YELLOW),
-                    true
-            );
             return false;
         }
 
@@ -679,7 +922,9 @@ public final class TreatmentRouter {
         }
 
         player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
-                (isOpioidItem(stack) || isAdrenalineItem(stack)) ? SoundEvents.BREWING_STAND_BREW : SoundEvents.WOOL_PLACE,
+                (isOpioidItem(stack) || isAdrenalineItem(stack) || isNaloxoneItem(stack))
+                        ? SoundEvents.BREWING_STAND_BREW
+                        : SoundEvents.WOOL_PLACE,
                 SoundSource.PLAYERS, 0.85f, 1.35f);
         player.syncData(MedicalDataCapability.MEDICAL_DATA);
         return true;

@@ -88,12 +88,54 @@ public class AttributeArbiter {
             suggest(player, Dimension.ATTACK_SPEED, "adrenaline_crash", crashMult);
         }
 
+        // ★ 肢体坏死严重失能惩罚（坏死不可被肾上腺素豁免） ★
+        boolean hasNecroticLeg = false;
+        if (data != null) {
+            int necLegs = 0;
+            int necArms = 0;
+            if (ModItems.isLimbNecrotic(data.getLimb(MedicalData.Limb.LEFT_LEG))) necLegs++;
+            if (ModItems.isLimbNecrotic(data.getLimb(MedicalData.Limb.RIGHT_LEG))) necLegs++;
+            if (ModItems.isLimbNecrotic(data.getLimb(MedicalData.Limb.LEFT_ARM))) necArms++;
+            if (ModItems.isLimbNecrotic(data.getLimb(MedicalData.Limb.RIGHT_ARM))) necArms++;
+
+            int ligLegs = 0;
+            int ligArms = 0;
+            if (ModItems.isLimbArterialLigated(data.getLimb(MedicalData.Limb.LEFT_LEG))) ligLegs++;
+            if (ModItems.isLimbArterialLigated(data.getLimb(MedicalData.Limb.RIGHT_LEG))) ligLegs++;
+            if (ModItems.isLimbArterialLigated(data.getLimb(MedicalData.Limb.LEFT_ARM))) ligArms++;
+            if (ModItems.isLimbArterialLigated(data.getLimb(MedicalData.Limb.RIGHT_ARM))) ligArms++;
+            if (ligLegs > 0) {
+                float ligLegMult = MedicalConfig.SUTURE_ARTERIAL_LIGATION_LEG_SPEED_MULT.get().floatValue();
+                suggest(player, Dimension.MOVEMENT_SPEED, "arterial_ligation", ligLegMult);
+            }
+            if (ligArms > 0) {
+                float ligArmMult = MedicalConfig.SUTURE_ARTERIAL_LIGATION_ARM_ACTION_MULT.get().floatValue();
+                suggest(player, Dimension.ATTACK_DAMAGE, "arterial_ligation", ligArmMult);
+                suggest(player, Dimension.ATTACK_SPEED, "arterial_ligation", ligArmMult);
+            }
+
+            if (necLegs > 0) {
+                hasNecroticLeg = true;
+                float legMult = (necLegs >= 2)
+                        ? MedicalConfig.NECROSIS_TWO_LEGS_SPEED_MULT.get().floatValue()
+                        : MedicalConfig.NECROSIS_ONE_LEG_SPEED_MULT.get().floatValue();
+                suggest(player, Dimension.MOVEMENT_SPEED, "limb_necrosis", legMult);
+            }
+            if (necArms > 0) {
+                float armMult = (necArms >= 2)
+                        ? MedicalConfig.NECROSIS_TWO_ARMS_ACTION_MULT.get().floatValue()
+                        : MedicalConfig.NECROSIS_ONE_ARM_ACTION_MULT.get().floatValue();
+                suggest(player, Dimension.ATTACK_DAMAGE, "limb_necrosis", armMult);
+                suggest(player, Dimension.ATTACK_SPEED, "limb_necrosis", armMult);
+            }
+        }
+
         int adrTier = (data != null) ? ModItems.getAdrenalineTier(ModItems.getAdrenalineLevel(data)) : 0;
         float adrBoost = (adrTier >= 2)
                 ? MedicalConfig.ADRENALINE_SPEED_BOOST_T2.get().floatValue()
                 : (adrTier == 1 ? MedicalConfig.ADRENALINE_SPEED_BOOST_T1.get().floatValue() : 1.0f);
 
-        if ((unconscious || withdrawalRestricted) && player.isSprinting()) {
+        if ((unconscious || withdrawalRestricted || hasNecroticLeg) && player.isSprinting()) {
             player.setSprinting(false);
         }
 
@@ -119,7 +161,7 @@ public class AttributeArbiter {
                 }
                 min = Math.max(MedicalConfig.ARBITER_MIN_MULTIPLIER.get().floatValue(), min);
             }
-            if (adrTier >= 1 && (dim == Dimension.MOVEMENT_SPEED || dim == Dimension.ATTACK_SPEED)) {
+            if (adrTier >= 1 && !hasNecroticLeg && (dim == Dimension.MOVEMENT_SPEED || dim == Dimension.ATTACK_SPEED)) {
                 float floorWithAdr = (adrTier >= 2) ? 0.78f : 0.62f;
                 min = Math.min(adrBoost, Math.max(min, Math.min(1.0f, min + 0.35f)) * adrBoost);
                 min = Math.max(min, floorWithAdr);

@@ -152,7 +152,7 @@ public class RespirationModule implements UpdateModule {
         if (data instanceof com.FIYTP.realmedicalmod.capability.MedicalDataImpl adrImpl
                 && adrImpl.isAdrenalineFromInjector()
                 && adrImpl.getAdrenalineLevelFloat() > 0.0f) {
-            respiration += (adrImpl.getAdrenalineLevelFloat() / 100.0f) * 4.0f;
+            respiration += (adrImpl.getAdrenalineLevelFloat() / 100.0f) * MedicalConfig.ADRENALINE_MAX_RESP_BOOST.get().floatValue();
         }
 
         int maxResp = MedicalConfig.MAX_RESPIRATION.get();

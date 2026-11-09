@@ -21,17 +21,7 @@ import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import org.joml.Matrix4f;
 
 /**
- * 3A 级急性痛觉休克冲击渲染层 (PainShockOverlay)
- *
- * 替代原有的全屏死白/死黑闪烁与粗糙横条，采用《逃离塔科夫》/《赛博朋克 2077》受创神经震荡特效：
- * 1. 瞬发径向肾上腺素过曝冲击环 (Radial Overexposure Shockwave)：
- *    受创瞬间外围产生冷白/猩红高光过曝环并向边缘极速坍缩，绝不遮挡准星中央视野。
- * 2. RGB 棱镜色差震荡环 (Chromatic Aberration Shock Ring)：
- *    利用 Additive 混合在视野边缘产生红/青双色错位冲击光晕，营造强烈的神经眩晕质感。
- * 3. 径向痛觉神经电脉冲芒刺 (Radial Neural Spike Rays)：
- *    沿屏幕四周向内迸发 36 道不规则锐利神经芒刺，随指数曲线快速消退。
- * 4. 痛觉黑视边缘聚拢 (Tunnel Blackout Contraction)：
- *    当剧痛超过重度阈值时，四周呈现丝滑的椭圆黑视收缩，随后渐进恢复。
+ * 3A 级突发重伤视觉冲击渲染层 (PainShockOverlay —— 动脉血花飞溅 + 震荡撕裂 + 骨裂闪电 + 剧痛黑视)
  */
 @EventBusSubscriber(modid = "realmedicalmod", value = Dist.CLIENT)
 public class PainShockOverlay {
@@ -47,71 +37,90 @@ public class PainShockOverlay {
         float shockAlpha = PainShockClientState.getShockAlpha();
         float progress = PainShockClientState.getShockProgress();
         float blackout = PainShockClientState.getBlackoutAlpha();
+        float splatterAlpha = PainShockClientState.getBloodSplatterAlpha();
+        float flashAlpha = PainShockClientState.getConcussionFlashAlpha();
 
-        if (shockAlpha <= 0.002f && blackout <= 0.002f) return;
+        if (shockAlpha <= 0.002f && blackout <= 0.002f && splatterAlpha <= 0.002f) return;
 
         GuiGraphics graphics = event.getGuiGraphics();
         int w = graphics.guiWidth();
         int h = graphics.guiHeight();
         Matrix4f pose = graphics.pose().last().pose();
 
+        float hitX = PainShockClientState.getHitDirX();
+        float hitY = PainShockClientState.getHitDirY();
+        float leftBoost = Math.max(0.0f, -hitX) * 0.85f;
+        float rightBoost = Math.max(0.0f, hitX) * 0.85f;
+        float topBoost = Math.max(0.0f, -hitY) * 0.85f;
+        float bottomBoost = Math.max(0.0f, hitY) * 0.85f;
+
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
         RenderSystem.disableDepthTest();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
 
-        // ---------- 1. 痛觉黑视椭圆隧道收缩 (Severe Pain Tunnel Blackout) ----------
+        // ---------- 1. 重创黑视骤缩与深红压迫环 (Deep Concussion Blackout Slam) ----------
         if (blackout > 0.002f) {
-            float tunnelInner = Mth.clamp(0.62f - 0.28f * blackout, 0.25f, 0.65f);
+            float tunnelInner = Mth.clamp(0.58f - 0.36f * blackout, 0.18f, 0.62f);
             PainVisualOverlay.drawEllipticalRing(
                     pose, w, h,
                     tunnelInner, 0.0f,
-                    1.38f, Mth.clamp(blackout * 0.92f, 0.0f, 0.92f),
-                    8, 4, 8,
-                    0.0f, 0.0f, 0.0f, 0.0f
+                    tunnelInner + 0.22f, Mth.clamp(blackout * 0.72f, 0.0f, 0.78f),
+                    135, 8, 18,
+                    leftBoost, rightBoost, topBoost, bottomBoost
+            );
+            PainVisualOverlay.drawEllipticalRing(
+                    pose, w, h,
+                    tunnelInner + 0.14f, Mth.clamp(blackout * 0.55f, 0.0f, 0.65f),
+                    1.42f, Mth.clamp(blackout * 0.95f, 0.0f, 0.95f),
+                    8, 2, 6,
+                    leftBoost, rightBoost, topBoost, bottomBoost
             );
         }
 
+        // ---------- 2. 动脉血雾迸裂与定向血斑飞溅 (Directional Arterial Blood Splatter) ----------
+        if (splatterAlpha > 0.005f) {
+            drawArterialBloodSplatter(pose, w, h, splatterAlpha, PainShockClientState.getShockSeed(), hitX, hitY);
+        }
+
         if (shockAlpha > 0.002f) {
-            // ---------- 2. RGB 棱镜色差分离冲击波 (Chromatic Aberration Ring) ----------
+            // ---------- 3. 强力 RGB 色差震荡环与水平撕裂带 (Chromatic Shock Ring & Shear Bands) ----------
             RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
 
-            // 冲击波半径随 progress 从中心向外围扩散
-            float waveRadius = 0.42f + 0.35f * (1.0f - (float) Math.pow(1.0f - progress, 3));
-            float caAlpha = Mth.clamp(shockAlpha * 0.55f, 0.0f, 0.65f);
+            float waveRadius = 0.28f + 0.46f * (1.0f - (float) Math.pow(1.0f - progress, 3));
+            float caAlpha = Mth.clamp(shockAlpha * 0.78f, 0.0f, 0.85f);
 
-            // 红色外偏环
+            // 猩红冲击外环
             PainVisualOverlay.drawEllipticalRing(
                     pose, w, h,
                     waveRadius, 0.0f,
-                    waveRadius + 0.24f, caAlpha,
-                    255, 25, 45,
-                    0.0f, 0.0f, 0.0f, 0.0f
+                    waveRadius + 0.28f, caAlpha,
+                    255, 20, 42,
+                    leftBoost, rightBoost, topBoost, bottomBoost
             );
-            // 青色内偏环
+            // 冰青色差内环
             PainVisualOverlay.drawEllipticalRing(
                     pose, w, h,
-                    Math.max(0.22f, waveRadius - 0.04f), 0.0f,
-                    waveRadius + 0.16f, caAlpha * 0.85f,
-                    30, 225, 255,
-                    0.0f, 0.0f, 0.0f, 0.0f
+                    Math.max(0.16f, waveRadius - 0.06f), 0.0f,
+                    waveRadius + 0.18f, caAlpha * 0.88f,
+                    25, 230, 255,
+                    rightBoost, leftBoost, bottomBoost, topBoost
             );
 
-            // ---------- 3. 瞬发冷白神经闪光环 (仅在受击前 35% 时间内闪烁，中心留空不瞎眼) ----------
-            if (progress < 0.35f) {
-                float flashFactor = 1.0f - (progress / 0.35f);
-                float whiteAlpha = Mth.clamp(shockAlpha * flashFactor * 0.75f, 0.0f, 0.75f);
+            // ---------- 4. 受创瞬间白红强光过曝与骨裂闪电裂纹 (Impact Flash & Fracture Lightning) ----------
+            if (flashAlpha > 0.01f) {
                 PainVisualOverlay.drawEllipticalRing(
                         pose, w, h,
-                        0.35f, whiteAlpha * 0.12f,
-                        1.35f, whiteAlpha,
-                        255, 240, 245,
-                        0.0f, 0.0f, 0.0f, 0.0f
+                        0.22f, flashAlpha * 0.28f,
+                        1.38f, Mth.clamp(flashAlpha * 0.90f, 0.0f, 0.92f),
+                        255, 225, 230,
+                        leftBoost, rightBoost, topBoost, bottomBoost
                 );
+                drawImpactFractureCracks(pose, w, h, flashAlpha, PainShockClientState.getShockSeed(), hitX, hitY);
             }
 
-            // ---------- 4. 径向痛觉神经电脉冲芒刺 (Radial Neural Spike Rays) ----------
-            drawNeuralShockSpikes(pose, w, h, shockAlpha, progress, PainShockClientState.getShockSeed());
+            // ---------- 5. 48 道高对比痛觉神经电脉冲芒刺 (Radial Neural Spike Rays) ----------
+            drawNeuralShockSpikes(pose, w, h, shockAlpha, progress, PainShockClientState.getShockSeed(), hitX, hitY);
 
             RenderSystem.defaultBlendFunc();
         }
@@ -121,20 +130,149 @@ public class PainShockOverlay {
     }
 
     /**
-     * 绘制沿屏幕四周向中心迸发的 3A 痛觉神经芒刺针线
+     * 绘制受创方向的动脉血斑、飞溅血滴与滑落血痕
      */
-    private static void drawNeuralShockSpikes(Matrix4f pose, int w, int h, float shockAlpha, float progress, long seed) {
+    private static void drawArterialBloodSplatter(Matrix4f pose, int w, int h, float alpha, long seed, float hitX, float hitY) {
         float cx = w * 0.5f;
         float cy = h * 0.5f;
         float rx = w * 0.5f;
         float ry = h * 0.5f;
 
-        int numSpikes = 40;
+        Tesselator tess = Tesselator.getInstance();
+        BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        boolean hasVerts = false;
+
+        int blobCount = 34;
+        for (int i = 0; i < blobCount; i++) {
+            long h1 = seed ^ (i * 0x9E3779B97F4A7C15L);
+            long h2 = (h1 ^ (h1 >>> 29)) * 0xBF58476D1CE4E5B9L;
+            float u1 = ((h2 >>> 8) & 0xFFFF) / 65535.0f;
+            float u2 = ((h2 >>> 24) & 0xFFFF) / 65535.0f;
+            float u3 = ((h2 >>> 40) & 0xFFFF) / 65535.0f;
+
+            double angle = (i / (double) blobCount) * Math.PI * 2.0 + (u1 - 0.5f) * 0.28;
+            float cos = (float) Math.cos(angle);
+            float sin = (float) Math.sin(angle);
+
+            // 受击方向权重：受创侧血迹更密集、更靠近视野内侧
+            float dirDot = Math.max(0.0f, cos * hitX + sin * hitY);
+            float radialDist = Mth.lerp(u2, 0.56f - dirDot * 0.16f, 0.98f);
+
+            float bx = cx + cos * rx * radialDist;
+            float by = cy + sin * ry * radialDist;
+            float radius = (4.5f + u3 * 13.5f) * (0.85f + 0.45f * dirDot);
+
+            int aCore = Mth.clamp((int) (alpha * (0.68f + 0.32f * dirDot) * 235.0f), 0, 240);
+            int aRim = aCore / 3;
+            if (aCore < 6) continue;
+
+            // 八边形动脉血斑外晕与暗红凝血核
+            for (int k = 0; k < 4; k++) {
+                float a = k * ((float) Math.PI * 0.25f) + u1;
+                float dx = Mth.cos(a) * radius;
+                float dy = Mth.sin(a) * radius * (0.8f + 0.4f * u2);
+                PainVisualOverlay.addTaperedQuadSegment(buf, pose,
+                        bx - dx, by - dy, bx + dx, by + dy,
+                        radius * 0.72f, radius * 0.68f,
+                        165, 8, 16, aRim, aRim);
+                PainVisualOverlay.addTaperedQuadSegment(buf, pose,
+                        bx - dx * 0.65f, by - dy * 0.65f, bx + dx * 0.65f, by + dy * 0.65f,
+                        radius * 0.45f, radius * 0.42f,
+                        110, 4, 10, aCore, aCore);
+            }
+
+            // 飞溅拖尾血条与向下滑落血痕
+            float streakLen = radius * (1.8f + u1 * 2.4f);
+            float sx = bx - cos * streakLen * 0.55f;
+            float sy = by - sin * streakLen * 0.35f + streakLen * 0.65f * (1.0f - alpha * 0.4f);
+            PainVisualOverlay.addTaperedQuadSegment(buf, pose,
+                    bx, by, sx, sy,
+                    radius * 0.32f, 0.4f,
+                    185, 12, 20, aCore, 0);
+            hasVerts = true;
+        }
+
+        if (hasVerts) {
+            MeshData mesh = buf.build();
+            if (mesh != null) {
+                BufferUploader.drawWithShader(mesh);
+            }
+        }
+    }
+
+    /**
+     * 绘制重创或骨折瞬间的锯齿状神经震荡裂纹
+     */
+    private static void drawImpactFractureCracks(Matrix4f pose, int w, int h, float flashAlpha, long seed, float hitX, float hitY) {
+        float cx = w * 0.5f;
+        float cy = h * 0.5f;
+        float rx = w * 0.5f;
+        float ry = h * 0.5f;
+
+        Tesselator tess = Tesselator.getInstance();
+        BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        boolean hasVerts = false;
+
+        int cracks = 14;
+        for (int i = 0; i < cracks; i++) {
+            long hash = seed ^ (i * 0x517CC1B727220A95L);
+            float r1 = ((hash >>> 12) & 0xFFFF) / 65535.0f;
+            float r2 = ((hash >>> 28) & 0xFFFF) / 65535.0f;
+
+            double baseAngle = (i / (double) cracks) * Math.PI * 2.0 + (r1 - 0.5f) * 0.35;
+            float cos = (float) Math.cos(baseAngle);
+            float sin = (float) Math.sin(baseAngle);
+            float dirWeight = 1.0f + Math.max(0.0f, cos * hitX + sin * hitY) * 0.75f;
+
+            float x = cx + cos * rx * 1.05f;
+            float y = cy + sin * ry * 1.05f;
+            float inX = -cos;
+            float inY = -sin;
+            float perpX = -inY;
+            float perpY = inX;
+
+            float totalLen = Math.min(w, h) * (0.24f + 0.18f * r2) * dirWeight;
+            int steps = 6;
+            for (int s = 1; s <= steps; s++) {
+                float t = s / (float) steps;
+                float jag = (((hash >>> (s * 5)) & 0x1F) / 15.5f - 1.0f) * 14.0f * (1.0f - t * 0.5f);
+                float nx = (cx + cos * rx * 1.05f) + inX * (t * totalLen) + perpX * jag;
+                float ny = (cy + sin * ry * 1.05f) + inY * (t * totalLen) + perpY * jag;
+
+                float w1 = (2.6f - 1.8f * ((s - 1) / (float) steps)) * dirWeight;
+                float w2 = (2.6f - 1.8f * t) * dirWeight;
+                int a1 = Mth.clamp((int) (flashAlpha * (1.0f - (s - 1) / (float) steps) * 245.0f), 0, 255);
+                int a2 = Mth.clamp((int) (flashAlpha * (1.0f - t) * 245.0f), 0, 255);
+
+                PainVisualOverlay.addTaperedQuadSegment(buf, pose, x, y, nx, ny,
+                        w1 * 2.0f, w2 * 2.0f, 255, 25, 50, a1 / 2, a2 / 2);
+                PainVisualOverlay.addTaperedQuadSegment(buf, pose, x, y, nx, ny,
+                        w1 * 0.8f, w2 * 0.8f, 255, 245, 250, a1, a2);
+                x = nx;
+                y = ny;
+                hasVerts = true;
+            }
+        }
+
+        if (hasVerts) {
+            MeshData mesh = buf.build();
+            if (mesh != null) {
+                BufferUploader.drawWithShader(mesh);
+            }
+        }
+    }
+
+    private static void drawNeuralShockSpikes(Matrix4f pose, int w, int h, float shockAlpha, float progress, long seed, float hitX, float hitY) {
+        float cx = w * 0.5f;
+        float cy = h * 0.5f;
+        float rx = w * 0.5f;
+        float ry = h * 0.5f;
+
+        int numSpikes = 48;
         Tesselator tesselator = Tesselator.getInstance();
         BufferBuilder buffer = tesselator.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
 
         for (int i = 0; i < numSpikes; i++) {
-            // 基于冲击种子生成稳定但每次受击不同的芒刺排布
             long hash = seed ^ (i * 0x9E3779B97F4A7C15L);
             float rand01 = ((hash >>> 16) & 0xFFFF) / 65535.0f;
             float rand02 = ((hash >>> 32) & 0xFFFF) / 65535.0f;
@@ -143,24 +281,23 @@ public class PainShockOverlay {
             float cos = (float) Math.cos(angle);
             float sin = (float) Math.sin(angle);
 
-            // 芒刺从屏幕外框 (1.15) 快速刺向内侧 (0.48 ~ 0.78)，随后向边缘回缩
-            float spikeReach = (0.22f + 0.28f * rand02) * shockAlpha;
+            float dirBoost = 1.0f + Math.max(0.0f, cos * hitX + sin * hitY) * 0.65f;
+            float spikeReach = (0.28f + 0.36f * rand02) * shockAlpha * dirBoost;
             float outerR = 1.15f;
-            float innerR = Math.max(0.42f, outerR - spikeReach * (1.1f - 0.4f * progress));
+            float innerR = Math.max(0.26f, outerR - spikeReach * (1.15f - 0.45f * progress));
 
             float x1 = cx + cos * rx * outerR;
             float y1 = cy + sin * ry * outerR;
             float x2 = cx + cos * rx * innerR;
             float y2 = cy + sin * ry * innerR;
 
-            float width = 0.8f + rand01 * 1.6f;
-            int aOuter = (int) (Mth.clamp(shockAlpha * (0.5f + 0.5f * rand02), 0.0f, 0.9f) * 255.0f);
+            float width = (1.2f + rand01 * 2.2f) * dirBoost;
+            int aOuter = (int) (Mth.clamp(shockAlpha * (0.65f + 0.35f * rand02) * dirBoost, 0.0f, 0.96f) * 255.0f);
 
-            // 交替冷白与鲜红神经电脉冲
             boolean isCrimson = (i % 3 != 0);
-            int r = isCrimson ? 255 : 235;
-            int g = isCrimson ? 35 : 245;
-            int b = isCrimson ? 50 : 255;
+            int r = isCrimson ? 255 : 245;
+            int g = isCrimson ? 22 : 245;
+            int b = isCrimson ? 42 : 255;
 
             PainVisualOverlay.addQuadSegment(buffer, pose, x1, y1, x2, y2, width, r, g, b, aOuter, 0);
         }

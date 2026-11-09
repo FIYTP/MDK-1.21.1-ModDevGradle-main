@@ -62,8 +62,9 @@ public class HeartRateModule implements UpdateModule {
             float block = Mth.clamp(opioid / fullConc, 0.0f, 1.0f) * blockMax;
             effectivePain *= Math.max(0.0f, 1.0f - block);
         }
-        // 单纯肢体疼痛对心率的拉升上限限制在 +52 BPM 以内，绝不会因摔伤腿部直接冲上 200 BPM 室颤线
-        float painMod = Math.min(52.0f, effectivePain * MedicalConfig.PAIN_HEART_RATE_MULTIPLIER.get().floatValue());
+        float painMult = MedicalConfig.PAIN_HEART_RATE_MULTIPLIER.get().floatValue();
+        float maxPainHrBonus = MedicalConfig.MAX_PAIN_LEVEL.get().floatValue() * 2.6f * painMult;
+        float painMod = Math.min(maxPainHrBonus, effectivePain * painMult);
 
         // ★ 意识修正（当存在剧痛交感风暴时，自主交感兴奋会抵消无痛昏迷的迷走降心率效应） ★
         int consciousness = data.getConsciousness();
@@ -157,20 +158,24 @@ public class HeartRateModule implements UpdateModule {
         boolean fromInj = (data instanceof com.FIYTP.realmedicalmod.capability.MedicalDataImpl impl) && impl.isAdrenalineFromInjector();
         float adrenalineMod = 0.0f;
         if (adrLevel > 0.0f) {
+            float maxHrBoostCfg = MedicalConfig.ADRENALINE_MAX_HR_BOOST.get().floatValue();
+            float tier1Pct = MedicalConfig.ADRENALINE_TIER1_THRESHOLD.get().floatValue() / 100.0f;
+            float tier2Pct = MedicalConfig.ADRENALINE_TIER2_THRESHOLD.get().floatValue() / 100.0f;
             if (!fromInj) {
-                // 受伤短暂内源性肾上腺素：仅在心率低于 120 时温和提升最多 +6 BPM，绝不叠加出室颤
-                if (baseHr < 120.0f) {
-                    adrenalineMod = Math.min(6.0f, 120.0f - baseHr);
+                float traumaHrCeiling = MedicalConfig.RESTING_HEART_RATE.get().floatValue() + maxHrBoostCfg * 1.25f;
+                float traumaMaxBoost = maxHrBoostCfg * tier1Pct;
+                if (baseHr < traumaHrCeiling) {
+                    adrenalineMod = Math.min(traumaMaxBoost, traumaHrCeiling - baseHr);
                 }
             } else {
                 int adrTier = ModItems.getAdrenalineTier(adrLevel);
-                int vfibSafeCap = Math.max(150, MedicalConfig.VFIB_THRESHOLD.get() - 15);
+                int vfibMargin = MedicalConfig.ADRENALINE_TIER1_THRESHOLD.get();
+                int vfibSafeCap = Math.max(140, MedicalConfig.VFIB_THRESHOLD.get() - vfibMargin);
                 if (adrTier >= 3) {
-                    // 连续注射多支过量 (III级)：允许触发交感风暴与室颤风险
-                    adrenalineMod = (adrLevel / 100.0f) * MedicalConfig.ADRENALINE_MAX_HR_BOOST.get().floatValue();
+                    adrenalineMod = (adrLevel / 100.0f) * maxHrBoostCfg;
                 } else {
-                    // 单支正常急救注射 (I/II级)：温和强心 +16 BPM，且严格限制在室颤阈值安全线以下
-                    float rawBoost = (adrLevel / 100.0f) * 26.0f;
+                    float singleBoost = maxHrBoostCfg * tier2Pct;
+                    float rawBoost = (adrLevel / Math.max(1.0f, MedicalConfig.ADRENALINE_INJECTOR_GAIN.get().floatValue())) * singleBoost;
                     if (baseHr < vfibSafeCap) {
                         adrenalineMod = Math.min(rawBoost, vfibSafeCap - baseHr);
                     }

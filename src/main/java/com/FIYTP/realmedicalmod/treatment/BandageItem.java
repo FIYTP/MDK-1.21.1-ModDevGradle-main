@@ -118,6 +118,15 @@ public class BandageItem extends Item {
         if (TreatmentRouter.isAdrenalineItem(stack)) {
             return 0xFFFFD600;
         }
+        if (TreatmentRouter.isNaloxoneItem(stack)) {
+            return 0xFF00E5FF;
+        }
+        if (TreatmentRouter.isSutureKitItem(stack)) {
+            return 0xFF00E676;
+        }
+        if (TreatmentRouter.isTourniquetItem(stack)) {
+            return 0xFFFF1744;
+        }
         if (TreatmentRouter.isFentanylItem(stack)) {
             return 0xFF00E5FF;
         }
@@ -136,7 +145,7 @@ public class BandageItem extends Item {
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
         if (level.isClientSide()) {
-            if (TreatmentRouter.isAdrenalineItem(stack)) {
+            if (TreatmentRouter.isAdrenalineItem(stack) || TreatmentRouter.isNaloxoneItem(stack)) {
                 MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
                 MedicalData.Limb target = MedicalData.Limb.LEFT_LEG;
                 if (data != null) {
@@ -158,6 +167,9 @@ public class BandageItem extends Item {
                         target.ordinal(),
                         100
                 ));
+                return InteractionResultHolder.success(stack);
+            } else if (TreatmentRouter.isSutureKitItem(stack)) {
+                TreatmentClientHooks.openVascularSutureScreen(hand, null);
                 return InteractionResultHolder.success(stack);
             } else if (TreatmentRouter.isOpioidItem(stack)) {
                 TreatmentClientHooks.openOpioidDoseScreen(hand, null);

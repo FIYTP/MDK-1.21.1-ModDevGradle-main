@@ -86,18 +86,29 @@ public class PainVisualOverlay {
         }
 
         if (shockAlpha > 0.001f) {
-            float maxOffset = MedicalConfig.PAIN_SHOCK_MAX_OFFSET.get().floatValue();
+            float maxOffset = MedicalConfig.PAIN_SHOCK_MAX_OFFSET.get().floatValue() * MedicalConfig.HEAVY_TRAUMA_CAMERA_RECOIL_MULT.get().floatValue();
             float shockWave = PainShockClientState.getCameraRecoilWave();
             int dir = PainShockClientState.getShockDirectionSign();
+            float hitX = PainShockClientState.getHitDirX();
+            float hitY = PainShockClientState.getHitDirY();
 
-            tremorRoll += dir * shockAlpha * maxOffset * 0.85f * shockWave;
-            tremorPitch += shockAlpha * maxOffset * 0.55f * Math.abs(shockWave);
-            tremorYaw += -dir * shockAlpha * maxOffset * 0.35f * shockWave;
+            tremorRoll += (dir * 0.7f + hitX * 0.6f) * shockAlpha * maxOffset * 1.15f * shockWave;
+            tremorPitch += (0.65f + Math.abs(hitY) * 0.5f) * shockAlpha * maxOffset * 0.85f * shockWave;
+            tremorYaw += -dir * shockAlpha * maxOffset * 0.60f * shockWave;
         }
 
         event.setRoll(event.getRoll() + tremorRoll);
         event.setPitch(event.getPitch() + tremorPitch);
         event.setYaw(event.getYaw() + tremorYaw);
+    }
+
+    @SubscribeEvent
+    public static void onComputeFov(ViewportEvent.ComputeFov event) {
+        if (!MedicalConfig.PAIN_SHOCK_ENABLED.get()) return;
+        float fovDelta = PainShockClientState.getFovPunchDelta();
+        if (Math.abs(fovDelta) > 0.05f) {
+            event.setFOV(Mth.clamp(event.getFOV() + fovDelta, 30.0, 140.0));
+        }
     }
 
     @SubscribeEvent

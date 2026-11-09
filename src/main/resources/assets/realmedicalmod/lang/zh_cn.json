@@ -122,5 +122,10 @@
   "effect.realmedicalmod.opioid_addiction": "阿片成瘾",
   "item.realmedicalmod.adrenaline": "肾上腺素自动注射器",
   "effect.realmedicalmod.adrenaline_rush": "肾上腺素激增",
-  "medical.detail.adrenaline_level": "肾上腺素"
+  "medical.detail.adrenaline_level": "肾上腺素",
+  "item.realmedicalmod.naloxone": "盐酸纳洛酮注射器",
+  "item.realmedicalmod.tourniquet": "旋压式止血带",
+  "effect.realmedicalmod.limb_necrosis": "肢体坏死",
+  "medical.status.necrotic": "肢体坏死",
+  "item.realmedicalmod.field_vascular_suture_kit": "野战血管缝合手术包"
 }

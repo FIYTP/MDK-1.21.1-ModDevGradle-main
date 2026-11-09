@@ -55,6 +55,9 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
     private int adrenalineCrashSec = 0;
     private boolean adrenalineFromInjector = false;
 
+    // ====== 纳洛酮拮抗与痛觉反跳状态 ======
+    private int naloxoneEffectSec = 0;
+
     // ====== 肢体数据 ======
     private final Map<Limb, LimbData> limbs = new EnumMap<>(Limb.class);
 
@@ -308,6 +311,9 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
     public synchronized boolean isAdrenalineFromInjector() { return adrenalineFromInjector; }
     public synchronized void setAdrenalineFromInjector(boolean fromInjector) { this.adrenalineFromInjector = fromInjector; }
 
+    public synchronized int getNaloxoneEffectSec() { return naloxoneEffectSec; }
+    public synchronized void setNaloxoneEffectSec(int sec) { this.naloxoneEffectSec = Math.max(0, sec); }
+
     @Override
     public synchronized int getTotalPainLevel() {
         int total = 0;
@@ -342,17 +348,23 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         }
         double rawResult = maxScore * dominantWeight + sumOtherScores * secondaryWeight;
 
-        // ★ 中枢 μ-阿片受体强效镇痛抑制（由 MedicalConfig 配置驱动） ★
+        // ★ 中枢 μ-阿片受体强效镇痛抑制（若处于纳洛酮受体阻断期，镇痛被竞争性剥夺并引发痛觉过敏反跳） ★
         if (this.opioidConcentration > 0.01f) {
             double fullConc = Math.max(1.0, MedicalConfig.OPIOID_ANALGESIA_FULL_CONCENTRATION.get());
             double maxRelief = MedicalConfig.OPIOID_CENTRAL_ANALGESIA_MAX_REDUCTION.get();
             double analgesiaExp = Math.max(0.2, MedicalConfig.OPIOID_ANALGESIA_CURVE_EXPONENT.get());
             double blockMax = MedicalConfig.OPIOID_PAIN_TRANSMISSION_BLOCK.get();
+            double antagonistFactor = (this.naloxoneEffectSec > 0)
+                    ? MedicalConfig.NALOXONE_RECEPTOR_BLOCK_FACTOR.get()
+                    : 1.0;
 
             double ratio = Math.min(1.0, this.opioidConcentration / fullConc);
-            double curve = Math.pow(ratio, analgesiaExp);
+            double curve = Math.pow(ratio, analgesiaExp) * antagonistFactor;
             double blockFactor = Math.max(0.0, 1.0 - curve * blockMax);
             rawResult = Math.max(0.0, rawResult * blockFactor - maxRelief * curve * 0.45);
+        }
+        if (this.naloxoneEffectSec > 0 && rawResult > 0.0) {
+            rawResult *= MedicalConfig.NALOXONE_HYPERALGESIA_MULTIPLIER.get();
         }
 
         int result = (int) Math.round(rawResult);
@@ -424,6 +436,7 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
             this.adrenalineCooldownSec = oAdr.getAdrenalineCooldownSec();
             this.adrenalineCrashSec = oAdr.getAdrenalineCrashSec();
             this.adrenalineFromInjector = oAdr.isAdrenalineFromInjector();
+            this.naloxoneEffectSec = oAdr.getNaloxoneEffectSec();
         }
         this.burnTBSA = other.getBurnTBSA();
         this.burnEdema = other.getBurnEdema();
@@ -458,6 +471,12 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
             dst.setBurnHeatTimer(src.getBurnHeatTimer());
             dst.setBurnHealTimer(src.getBurnHealTimer());
             dst.setAmputated(src.isAmputated());
+            if (src instanceof LimbDataImpl sImpl && dst instanceof LimbDataImpl dImpl) {
+                dImpl.setTourniquetTimer(sImpl.getTourniquetTimer());
+                dImpl.setTourniquetClampedBleed(sImpl.getTourniquetClampedBleed());
+                dImpl.setNecrotic(sImpl.isNecrotic());
+                dImpl.setArterialLigated(sImpl.isArterialLigated());
+            }
         }
     }
 
@@ -496,6 +515,7 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         tag.putInt("adrenalineCooldownSec", adrenalineCooldownSec);
         tag.putInt("adrenalineCrashSec", adrenalineCrashSec);
         tag.putBoolean("adrenalineFromInjector", adrenalineFromInjector);
+        tag.putInt("naloxoneEffectSec", naloxoneEffectSec);
         tag.putFloat("chestBloodAccumulation", chestBloodAccumulation);
         tag.putInt("hemothoraxLevel", hemothoraxLevel);
         tag.putInt("hemothoraxVomitTimer", hemothoraxVomitTimer);
@@ -552,6 +572,12 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
             limbTag.putInt("burnHeatTimer", ld.getBurnHeatTimer());
             limbTag.putInt("burnHealTimer", ld.getBurnHealTimer());
             limbTag.putBoolean("amputated", ld.isAmputated());
+            if (ld instanceof LimbDataImpl lImpl) {
+                limbTag.putInt("tourniquetTimer", lImpl.getTourniquetTimer());
+                limbTag.putInt("tourniquetClampedBleed", lImpl.getTourniquetClampedBleed());
+                limbTag.putBoolean("necrotic", lImpl.isNecrotic());
+                limbTag.putBoolean("arterialLigated", lImpl.isArterialLigated());
+            }
             tag.put(limb.name(), limbTag);
         }
         return tag;
@@ -596,6 +622,7 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         adrenalineCooldownSec = tag.contains("adrenalineCooldownSec") ? tag.getInt("adrenalineCooldownSec") : 0;
         adrenalineCrashSec = tag.contains("adrenalineCrashSec") ? tag.getInt("adrenalineCrashSec") : 0;
         adrenalineFromInjector = tag.contains("adrenalineFromInjector") && tag.getBoolean("adrenalineFromInjector");
+        naloxoneEffectSec = tag.contains("naloxoneEffectSec") ? tag.getInt("naloxoneEffectSec") : 0;
         inCriticalState = tag.getBoolean("inCriticalState");
         criticalTimer = tag.getInt("criticalTimer");
         chestBloodAccumulation = tag.getFloat("chestBloodAccumulation");
@@ -656,6 +683,12 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
             ld.setBurnHeatTimer(limbTag.contains("burnHeatTimer") ? limbTag.getInt("burnHeatTimer") : 0);
             ld.setBurnHealTimer(limbTag.contains("burnHealTimer") ? limbTag.getInt("burnHealTimer") : 0);
             ld.setAmputated(limbTag.contains("amputated") ? limbTag.getBoolean("amputated") : false);
+            if (ld instanceof LimbDataImpl lImpl) {
+                lImpl.setTourniquetTimer(limbTag.contains("tourniquetTimer") ? limbTag.getInt("tourniquetTimer") : 0);
+                lImpl.setTourniquetClampedBleed(limbTag.contains("tourniquetClampedBleed") ? limbTag.getInt("tourniquetClampedBleed") : 0);
+                lImpl.setNecrotic(limbTag.contains("necrotic") && limbTag.getBoolean("necrotic"));
+                lImpl.setArterialLigated(limbTag.contains("arterialLigated") && limbTag.getBoolean("arterialLigated"));
+            }
         }
     }
 
@@ -664,7 +697,7 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
     }
 
     // ====== LimbDataImpl 内部类 ======
-    private static class LimbDataImpl implements LimbData {
+    public static class LimbDataImpl implements LimbData {
         private int bleeding = 0;
         private int painLevel = 0;
         private boolean bandaged = false;
@@ -685,8 +718,12 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         private int disinfectantTimer = 0;
         private float infectionAccumulator = 0.0f;
 
-        // ====== 断肢（仅四肢；头/躯干永不截肢） ======
+        // ====== 断肢与止血带缺血坏死 ======
         private boolean amputated = false;
+        private int tourniquetTimer = 0;
+        private int tourniquetClampedBleed = 0;
+        private boolean necrotic = false;
+        private boolean arterialLigated = false;
 
         // ====== 烧伤 ======
         private float burnLoad = 0.0f; // 热力缓冲负荷（未定型）
@@ -760,6 +797,18 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         @Override public synchronized boolean isAmputated() { return amputated; }
         @Override public synchronized void setAmputated(boolean amputated) { this.amputated = amputated; }
 
+        public synchronized int getTourniquetTimer() { return tourniquetTimer; }
+        public synchronized void setTourniquetTimer(int seconds) { this.tourniquetTimer = Math.max(0, seconds); }
+
+        public synchronized int getTourniquetClampedBleed() { return tourniquetClampedBleed; }
+        public synchronized void setTourniquetClampedBleed(int bleed) { this.tourniquetClampedBleed = Math.max(0, bleed); }
+
+        public synchronized boolean isNecrotic() { return necrotic; }
+        public synchronized void setNecrotic(boolean necrotic) { this.necrotic = necrotic; }
+
+        public synchronized boolean isArterialLigated() { return arterialLigated; }
+        public synchronized void setArterialLigated(boolean ligated) { this.arterialLigated = ligated; }
+
         @Override public synchronized float getBurnLoad() { return burnLoad; }
         @Override public synchronized void setBurnLoad(float load) { this.burnLoad = Math.max(0.0f, load); }
         @Override public synchronized float getBurnConv() { return burnConv; }
@@ -778,6 +827,7 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
 
         @Override
         public synchronized int getColor() {
+            if (this.necrotic) return 0xFF4A148C;
             int bleeding = this.bleeding;
             int internalBleed = this.internalBleeding;
             int pain = this.painLevel;

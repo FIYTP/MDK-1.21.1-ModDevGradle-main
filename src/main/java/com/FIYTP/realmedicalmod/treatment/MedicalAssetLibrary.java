@@ -34,7 +34,9 @@ public final class MedicalAssetLibrary {
         MORPHINE_INJECTOR,
         FENTANYL_SYRINGE,
         ADRENALINE_INJECTOR,
+        NALOXONE_INJECTOR,
         TOURNIQUET,
+        VASCULAR_SUTURE_KIT,
         SYRINGE,
         SPLINT,
         MEDICINE_BOTTLE
@@ -70,7 +72,7 @@ public final class MedicalAssetLibrary {
     }
 
     public static AssetType resolveAssetType(ItemStack stack) {
-        if (stack == null || stack.isEmpty()) return AssetType.BANDAGE_ROLL;
+        if (stack == null || stack.isEmpty()) return AssetType.TOURNIQUET;
 
         ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
         if (CUSTOM_ITEM_ASSETS.containsKey(id)) {
@@ -78,6 +80,9 @@ public final class MedicalAssetLibrary {
         }
         if (id != null) {
             String path = id.getPath();
+            if (path.contains("naloxone")) return AssetType.NALOXONE_INJECTOR;
+            if (path.contains("suture_kit")) return AssetType.VASCULAR_SUTURE_KIT;
+            if (path.contains("tourniquet")) return AssetType.TOURNIQUET;
             if (path.contains("adrenaline")) return AssetType.ADRENALINE_INJECTOR;
             if (path.contains("fentanyl")) return AssetType.FENTANYL_SYRINGE;
             if (path.contains("morphine")) return AssetType.MORPHINE_INJECTOR;
@@ -232,7 +237,9 @@ public final class MedicalAssetLibrary {
             case MORPHINE_INJECTOR -> out.addAll(buildDynamicMorphineAutoinjector(1.0f, 0.0f));
             case FENTANYL_SYRINGE -> out.addAll(buildDynamicFentanylSyringe(1.0f, 0.0f));
             case ADRENALINE_INJECTOR -> buildAdrenalineInjector(out);
+            case NALOXONE_INJECTOR -> buildNaloxoneInjector(out);
             case TOURNIQUET -> buildTourniquet(out);
+            case VASCULAR_SUTURE_KIT -> buildVascularSutureKit(out);
             case SYRINGE -> buildSyringe(out);
             case SPLINT -> buildSplint(out);
             case MEDICINE_BOTTLE -> buildMedicineBottle(out);
@@ -440,9 +447,91 @@ public final class MedicalAssetLibrary {
         out.add(new Line3D(0.0f, 0.64f, 0.0f, 0.0f, 0.92f, 0.0f, cNeedle, 1.9f));
     }
 
+    private static void buildNaloxoneInjector(List<Line3D> out) {
+        int cTealCap   = 0xFF00BFA5;
+        int cWhiteBody = 0xFFE0F7FA;
+        int cCyanLiq   = 0xFF00E5FF;
+        int cNeedle    = 0xFFFFFFFF;
+
+        // 顶部推杆环 + 指托翼 + 翡翠青白针筒 + 药液环 + 穿刺针
+        addRingY(out, 0.20f, -0.82f, 10, cTealCap, 1.6f);
+        out.add(new Line3D(0.0f, -0.82f, 0.0f, 0.0f, -0.36f, 0.0f, cNeedle, 1.7f));
+        out.add(new Line3D(-0.42f, -0.36f, 0.0f, 0.42f, -0.36f, 0.0f, cTealCap, 2.0f));
+        addCylinderY(out, 0.21f, -0.36f, 0.44f, 12, cWhiteBody, cTealCap, 1.4f);
+        addRingY(out, 0.225f, -0.14f, 12, cTealCap, 1.8f);
+        addRingY(out, 0.16f, 0.10f, 10, cCyanLiq, 1.6f);
+        addRingY(out, 0.16f, 0.26f, 10, cCyanLiq, 1.6f);
+        addCylinderY(out, 0.12f, 0.44f, 0.60f, 8, cTealCap, cWhiteBody, 1.4f);
+        out.add(new Line3D(0.0f, 0.60f, 0.0f, 0.0f, 0.90f, 0.0f, cNeedle, 1.9f));
+    }
+
+    private static void buildVascularSutureKit(List<Line3D> out) {
+        int cCase   = 0xFF81C784;
+        int cSteel  = 0xFFE0F7FA;
+        int cGold   = 0xFFFFD600;
+        int cRed    = 0xFFFF1744;
+        int cBlue   = 0xFF00E5FF;
+
+        // 下层器械盒底座
+        out.add(new Line3D(-0.62f, 0.35f, -0.42f,  0.62f, 0.35f, -0.42f, cCase, 1.6f));
+        out.add(new Line3D(-0.62f, 0.35f,  0.42f,  0.62f, 0.35f,  0.42f, cCase, 1.6f));
+        out.add(new Line3D(-0.62f, 0.35f, -0.42f, -0.62f, 0.35f,  0.42f, cCase, 1.6f));
+        out.add(new Line3D( 0.62f, 0.35f, -0.42f,  0.62f, 0.35f,  0.42f, cCase, 1.6f));
+        out.add(new Line3D(-0.62f, 0.12f, -0.42f,  0.62f, 0.12f, -0.42f, cCase, 1.4f));
+        out.add(new Line3D(-0.62f, 0.12f,  0.42f,  0.62f, 0.12f,  0.42f, cCase, 1.4f));
+        out.add(new Line3D(-0.62f, 0.12f, -0.42f, -0.62f, 0.12f,  0.42f, cCase, 1.4f));
+        out.add(new Line3D( 0.62f, 0.12f, -0.42f,  0.62f, 0.12f,  0.42f, cCase, 1.4f));
+
+        // 翻开式上盖与内置环形止血带
+        out.add(new Line3D(-0.62f, 0.12f, -0.42f, -0.62f, -0.62f, -0.64f, cCase, 1.6f));
+        out.add(new Line3D( 0.62f, 0.12f, -0.42f,  0.62f, -0.62f, -0.64f, cCase, 1.6f));
+        out.add(new Line3D(-0.62f, -0.62f, -0.64f, 0.62f, -0.62f, -0.64f, cCase, 1.6f));
+        out.add(new Line3D(-0.38f, -0.42f, -0.52f, -0.06f, -0.42f, -0.52f, cRed, 1.8f));
+        out.add(new Line3D(-0.38f, -0.10f, -0.52f, -0.06f, -0.10f, -0.52f, cRed, 1.8f));
+        out.add(new Line3D(-0.38f, -0.42f, -0.52f, -0.38f, -0.10f, -0.52f, cRed, 1.8f));
+        out.add(new Line3D(-0.06f, -0.42f, -0.52f, -0.06f, -0.10f, -0.52f, cRed, 1.8f));
+
+        // 内部止血钳、蓝色缝线轴与白色桥接血管
+        out.add(new Line3D(-0.42f, 0.08f, -0.26f, -0.12f, 0.08f, 0.30f, cSteel, 1.8f));
+        out.add(new Line3D(-0.12f, 0.08f, -0.26f, -0.42f, 0.08f, 0.30f, cSteel, 1.8f));
+        addRingY(out, 0.15f, 0.06f, 10, cBlue, 1.6f);
+        out.add(new Line3D(0.12f, 0.05f, -0.28f, 0.48f, 0.05f, 0.12f, cGold, 2.0f));
+    }
+
     private static void buildTourniquet(List<Line3D> out) {
-        addCylinderY(out, 0.62f, -0.22f, 0.22f, 16, 0xFFEF5350, 0xFFB71C1C, 1.6f);
-        out.add(new Line3D(-0.70f, 0.0f, -0.68f, 0.70f, 0.0f, -0.68f, 0xFFECEFF1, 2.2f));
+        int cStrap   = 0xFFB0BEC5;
+        int cEdge    = 0xFF78909C;
+        int cCrimson = 0xFFFF1744;
+        int cRod     = 0xFF00E5FF;
+        int cTime    = 0xFFFFFFFF;
+        int cBuckle  = 0xFFE0F7FA;
+
+        // 1. 16 段高精双层中空尼龙束带环 + 内衬红带
+        addCylinderY(out, 0.62f, -0.22f, 0.22f, 16, cStrap, cEdge, 1.6f);
+        addRingY(out, 0.63f, -0.24f, 16, cEdge, 1.2f);
+        addRingY(out, 0.63f,  0.24f, 16, cEdge, 1.2f);
+        addCylinderY(out, 0.50f, -0.17f, 0.17f, 16, cCrimson, cCrimson, 1.35f);
+
+        // 2. 正面弧形稳定背板与双侧 C 型锁扣槽
+        out.add(new Line3D(-0.36f, -0.25f, -0.66f, 0.36f, -0.25f, -0.66f, cEdge, 1.6f));
+        out.add(new Line3D(-0.36f,  0.25f, -0.66f, 0.36f,  0.25f, -0.66f, cEdge, 1.6f));
+        out.add(new Line3D(-0.34f, -0.22f, -0.66f, -0.34f, 0.22f, -0.78f, cRod, 1.7f));
+        out.add(new Line3D( 0.34f, -0.22f, -0.66f,  0.34f, 0.22f, -0.78f, cRod, 1.7f));
+        out.add(new Line3D(-0.36f, -0.20f, -0.80f,  0.36f, -0.20f, -0.80f, cTime, 2.0f));
+
+        // 3. 22.5° 倾斜加压绞棒 + 红帽防滑握端
+        out.add(new Line3D(-0.62f, -0.18f, -0.76f, 0.62f, 0.18f, -0.76f, cRod, 2.4f));
+        out.add(new Line3D(-0.62f, -0.12f, -0.76f, 0.62f, 0.24f, -0.76f, cRod, 1.5f));
+        out.add(new Line3D(-0.68f, -0.20f, -0.76f, -0.58f, -0.16f, -0.76f, cCrimson, 2.8f));
+        out.add(new Line3D( 0.58f,  0.16f, -0.76f,  0.68f,  0.20f, -0.76f, cCrimson, 2.8f));
+
+        // 4. 侧翼镂空日字金属扣 + 穿出式红尾拉带
+        out.add(new Line3D(0.58f, -0.24f, -0.28f, 0.68f, -0.24f, 0.08f, cBuckle, 1.8f));
+        out.add(new Line3D(0.58f,  0.24f, -0.28f, 0.68f,  0.24f, 0.08f, cBuckle, 1.8f));
+        out.add(new Line3D(0.63f, -0.24f, -0.10f, 0.63f,  0.24f, -0.10f, cBuckle, 1.5f));
+        out.add(new Line3D(0.65f, -0.18f, -0.05f, 0.92f, -0.18f, 0.22f, cCrimson, 1.9f));
+        out.add(new Line3D(0.65f,  0.18f, -0.05f, 0.92f,  0.18f, 0.22f, cCrimson, 1.9f));
+        out.add(new Line3D(0.92f, -0.18f,  0.22f, 0.92f,  0.18f, 0.22f, cCrimson, 2.2f));
     }
 
     private static void buildSyringe(List<Line3D> out) {

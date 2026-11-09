@@ -555,6 +555,60 @@ public class MedicalConfig {
     public static ModConfigSpec.IntValue ADRENALINE_CRASH_DURATION_SEC;
     public static ModConfigSpec.DoubleValue ADRENALINE_CRASH_SPEED_MULT;
 
+
+    // ==================== 盐酸纳洛酮 (Naloxone) 与止血带/肢体坏死 (Tourniquet & Necrosis) 配置 ====================
+    public static ModConfigSpec.DoubleValue NALOXONE_OPIOID_CLEAR_AMOUNT;
+    public static ModConfigSpec.IntValue NALOXONE_BLOCKADE_DURATION_SEC;
+    public static ModConfigSpec.DoubleValue NALOXONE_RECEPTOR_BLOCK_FACTOR;
+    public static ModConfigSpec.DoubleValue NALOXONE_HYPERALGESIA_MULTIPLIER;
+    public static ModConfigSpec.IntValue NALOXONE_WOUND_PAIN_REBOUND;
+    public static ModConfigSpec.DoubleValue NALOXONE_CONSCIOUSNESS_RESTORE;
+    public static ModConfigSpec.IntValue NALOXONE_MIN_RESTORED_RESP_RATE;
+    public static ModConfigSpec.IntValue NALOXONE_REBOUND_HR_BOOST;
+    public static ModConfigSpec.IntValue NALOXONE_REBOUND_BP_BOOST;
+    public static ModConfigSpec.IntValue NALOXONE_PRECIPITATED_WITHDRAWAL_TICKS;
+
+    public static ModConfigSpec.IntValue BANDAGE_MAX_BLEEDING_THRESHOLD;
+    public static ModConfigSpec.IntValue TOURNIQUET_ISCHEMIA_STAGE1_SEC;
+    public static ModConfigSpec.IntValue TOURNIQUET_ISCHEMIA_STAGE2_SEC;
+    public static ModConfigSpec.IntValue TOURNIQUET_NECROSIS_TIME_SEC;
+    public static ModConfigSpec.IntValue NECROSIS_SELF_INFECTION_RATE_PER_SEC;
+    public static ModConfigSpec.IntValue NECROSIS_OTHER_LIMBS_INFECTION_RATE_PER_SEC;
+    public static ModConfigSpec.DoubleValue NECROSIS_ONE_LEG_SPEED_MULT;
+    public static ModConfigSpec.DoubleValue NECROSIS_TWO_LEGS_SPEED_MULT;
+    public static ModConfigSpec.DoubleValue NECROSIS_ONE_ARM_ACTION_MULT;
+    public static ModConfigSpec.DoubleValue NECROSIS_TWO_ARMS_ACTION_MULT;
+
+    public static ModConfigSpec.IntValue HEAVY_TRAUMA_PAIN_DELTA_THRESHOLD;
+    public static ModConfigSpec.IntValue HEAVY_TRAUMA_BLEED_DELTA_THRESHOLD;
+    public static ModConfigSpec.IntValue HEAVY_TRAUMA_SPLATTER_DURATION_MS;
+    public static ModConfigSpec.DoubleValue HEAVY_TRAUMA_FOV_PUNCH_MAX;
+    public static ModConfigSpec.DoubleValue HEAVY_TRAUMA_CAMERA_RECOIL_MULT;
+
+    public static ModConfigSpec.IntValue SUTURE_MIN_CONSCIOUSNESS;
+    public static ModConfigSpec.IntValue SUTURE_ARTERIAL_BLEED_THRESHOLD;
+    public static ModConfigSpec.IntValue SUTURE_LIGATION_DURABILITY_COST;
+    public static ModConfigSpec.IntValue SUTURE_ANASTOMOSIS_DURABILITY_COST;
+    public static ModConfigSpec.IntValue SUTURE_MISTAKE_PAIN_GAIN;
+    public static ModConfigSpec.IntValue SUTURE_MISTAKE_BLOOD_LOSS;
+    public static ModConfigSpec.IntValue SUTURE_ABORT_TEAR_BLEED_INCREASE;
+    public static ModConfigSpec.DoubleValue SUTURE_ARTERIAL_LIGATION_LEG_SPEED_MULT;
+    public static ModConfigSpec.DoubleValue SUTURE_ARTERIAL_LIGATION_ARM_ACTION_MULT;
+
+    public static ModConfigSpec.DoubleValue SUTURE_RETRACTOR_OPEN_THRESHOLD;
+    public static ModConfigSpec.DoubleValue SUTURE_STUMP_DRIFT_AMPLITUDE;
+    public static ModConfigSpec.DoubleValue SUTURE_STUMP_CLAMP_RADIUS;
+    public static ModConfigSpec.DoubleValue SUTURE_WINDING_REQUIRED_DEGREES;
+    public static ModConfigSpec.DoubleValue SUTURE_KNOT_TENSION_MIN;
+    public static ModConfigSpec.DoubleValue SUTURE_KNOT_TENSION_MAX;
+    public static ModConfigSpec.DoubleValue SUTURE_KNOT_TENSION_SNAP;
+    public static ModConfigSpec.DoubleValue SUTURE_KNOT_HOLD_SECONDS;
+    public static ModConfigSpec.DoubleValue SUTURE_BULLDOG_CALM_BEAT_MAX;
+    public static ModConfigSpec.DoubleValue SUTURE_GRAFT_ALIGN_TOLERANCE_DEG;
+    public static ModConfigSpec.DoubleValue SUTURE_GRAFT_SNAP_DISTANCE;
+    public static ModConfigSpec.IntValue SUTURE_ANASTOMOSIS_STITCH_COUNT;
+    public static ModConfigSpec.DoubleValue SUTURE_CURSOR_PAIN_SHAKE_MAX;
+    public static ModConfigSpec.DoubleValue SUTURE_CURSOR_WITHDRAWAL_SHAKE;
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
 
@@ -2166,9 +2220,244 @@ public class MedicalConfig {
                 .comment("肾上腺素退潮透支期内的移动速度与攻速倍率 (默认 0.88 = -12% 移速)")
                 .defineInRange("adrenalineCrashSpeedMult", 0.88, 0.3, 1.0);
 
+        // ==================== 盐酸纳洛酮与止血带/肢体坏死配置 ====================
+        builder.comment("盐酸纳洛酮拮抗剂、止血带大出血限制、肢体缺血坏死与突发重伤视觉配置")
+                .push("naloxone_and_tourniquet");
+
+        NALOXONE_OPIOID_CLEAR_AMOUNT = builder
+                .comment("单支纳洛酮注射立即清除的阿片血药浓度百分比 (默认 75.0%)")
+                .defineInRange("naloxoneOpioidClearAmount", 75.0, 10.0, 100.0);
+        NALOXONE_BLOCKADE_DURATION_SEC = builder
+                .comment("纳洛酮注射后的 μ-阿片受体竞争性阻断与痛觉过敏持续时间 (秒，默认 25)")
+                .defineInRange("naloxoneBlockadeDurationSec", 25, 1, 300);
+        NALOXONE_RECEPTOR_BLOCK_FACTOR = builder
+                .comment("纳洛酮受体阻断期内阿片镇痛保留比例 (默认 0.25 = 剥夺 75% 阿片镇痛效力)")
+                .defineInRange("naloxoneReceptorBlockFactor", 0.25, 0.0, 1.0);
+        NALOXONE_HYPERALGESIA_MULTIPLIER = builder
+                .comment("纳洛酮受体阻断期内体感疼痛反跳放大倍率 (默认 1.22 = +22% 痛感)")
+                .defineInRange("naloxoneHyperalgesiaMultiplier", 1.22, 1.0, 3.0);
+        NALOXONE_WOUND_PAIN_REBOUND = builder
+                .comment("纳洛酮剥夺镇痛瞬间每个受伤部位反跳增加的疼痛等级 (默认 2)")
+                .defineInRange("naloxoneWoundPainRebound", 2, 0, 10);
+        NALOXONE_CONSCIOUSNESS_RESTORE = builder
+                .comment("纳洛酮逆转阿片过量昏迷时立即恢复的意识值 (默认 38.0)")
+                .defineInRange("naloxoneConsciousnessRestore", 38.0, 0.0, 100.0);
+        NALOXONE_MIN_RESTORED_RESP_RATE = builder
+                .comment("纳洛酮逆转阿片呼吸暂停/抑制时恢复的最低呼吸频率 (rpm，默认 18)")
+                .defineInRange("naloxoneMinRestoredRespRate", 18, 8, 40);
+        NALOXONE_REBOUND_HR_BOOST = builder
+                .comment("纳洛酮交感儿茶酚胺反跳对心率的拉升值 (BPM，默认 24)")
+                .defineInRange("naloxoneReboundHrBoost", 24, 0, 100);
+        NALOXONE_REBOUND_BP_BOOST = builder
+                .comment("纳洛酮交感反跳对收缩压的拉升值 (mmHg，默认 22)")
+                .defineInRange("naloxoneReboundBpBoost", 22, 0, 100);
+        NALOXONE_PRECIPITATED_WITHDRAWAL_TICKS = builder
+                .comment("纳洛酮促发急性戒断的反胃眩晕持续时间 (Ticks，默认 140 = 7秒)")
+                .defineInRange("naloxonePrecipitatedWithdrawalTicks", 140, 0, 1200);
+
+        BANDAGE_MAX_BLEEDING_THRESHOLD = builder
+                .comment("绷带/加压绷带可直接处理的出血率上限 (mL/min，默认 300；达到此大出血阈值时必须先绑止血带)")
+                .defineInRange("bandageMaxBleedingThreshold", 300, 50, 2000);
+        TOURNIQUET_ISCHEMIA_STAGE1_SEC = builder
+                .comment("止血带连续绑扎触发 I 阶段缺血剧痛的秒数 (默认 180 秒 = 3分钟)")
+                .defineInRange("tourniquetIschemiaStage1Sec", 180, 15, 3600);
+        TOURNIQUET_ISCHEMIA_STAGE2_SEC = builder
+                .comment("止血带连续绑扎触发 II 阶段重度缺血剧痛的秒数 (默认 240 秒 = 4分钟)")
+                .defineInRange("tourniquetIschemiaStage2Sec", 240, 30, 3600);
+        TOURNIQUET_NECROSIS_TIME_SEC = builder
+                .comment("止血带连续绑扎导致肢体不可逆缺血坏死的时长 (秒，默认 300 秒 = 5分钟)")
+                .defineInRange("tourniquetNecrosisTimeSec", 300, 30, 3600);
+        NECROSIS_SELF_INFECTION_RATE_PER_SEC = builder
+                .comment("坏死肢体自身每秒上升的感染值 (%/秒，默认 5)")
+                .defineInRange("necrosisSelfInfectionRatePerSec", 5, 1, 50);
+        NECROSIS_OTHER_LIMBS_INFECTION_RATE_PER_SEC = builder
+                .comment("每个坏死肢体导致全身其他部位每秒急剧上升的感染值 (%/秒，默认 3)")
+                .defineInRange("necrosisOtherLimbsInfectionRatePerSec", 3, 1, 50);
+        NECROSIS_ONE_LEG_SPEED_MULT = builder
+                .comment("单腿缺血坏死时的移动速度倍率 (默认 0.38)")
+                .defineInRange("necrosisOneLegSpeedMult", 0.38, 0.05, 1.0);
+        NECROSIS_TWO_LEGS_SPEED_MULT = builder
+                .comment("双腿缺血坏死时的移动速度倍率 (默认 0.18)")
+                .defineInRange("necrosisTwoLegsSpeedMult", 0.18, 0.01, 1.0);
+        NECROSIS_ONE_ARM_ACTION_MULT = builder
+                .comment("单臂缺血坏死时的攻击伤害与攻速倍率 (默认 0.40)")
+                .defineInRange("necrosisOneArmActionMult", 0.40, 0.05, 1.0);
+        NECROSIS_TWO_ARMS_ACTION_MULT = builder
+                .comment("双臂缺血坏死时的攻击伤害与攻速倍率 (默认 0.18)")
+                .defineInRange("necrosisTwoArmsActionMult", 0.18, 0.01, 1.0);
+
+        HEAVY_TRAUMA_PAIN_DELTA_THRESHOLD = builder
+                .comment("触发突发重伤血花飞溅与震荡裂纹的部位总痛感单次跳变阈值 (默认 4)")
+                .defineInRange("heavyTraumaPainDeltaThreshold", 4, 1, 30);
+        HEAVY_TRAUMA_BLEED_DELTA_THRESHOLD = builder
+                .comment("触发突发重伤血花飞溅的出血率单次暴增阈值 (mL/min，默认 150)")
+                .defineInRange("heavyTraumaBleedDeltaThreshold", 150, 20, 1000);
+        HEAVY_TRAUMA_SPLATTER_DURATION_MS = builder
+                .comment("突发重伤动脉血斑飞溅残留持续时间 (毫秒，默认 2800)")
+                .defineInRange("heavyTraumaSplatterDurationMs", 2800, 300, 15000);
+        HEAVY_TRAUMA_FOV_PUNCH_MAX = builder
+                .comment("突发重伤瞬间广角 FOV 冲击波最大幅度 (度，默认 13.5)")
+                .defineInRange("heavyTraumaFovPunchMax", 13.5, 0.0, 45.0);
+        HEAVY_TRAUMA_CAMERA_RECOIL_MULT = builder
+                .comment("突发重伤 3D 镜头受击甩动增强倍率 (默认 2.2)")
+                .defineInRange("heavyTraumaCameraRecoilMult", 2.2, 0.5, 10.0);
 
 
-        builder.pop();
+            builder.comment("野战血管缝合手术包 (field_vascular_suture_kit) 与双路径微创手术小游戏参数")
+                    .push("vascular_suture_kit");
+
+            SUTURE_MIN_CONSCIOUSNESS = builder
+                    .comment("使用野战血管缝合手术包所需的最低清醒意识阈值 (% ，默认 50)")
+                    .defineInRange("sutureMinConsciousness", 50, 10, 100);
+            SUTURE_ARTERIAL_BLEED_THRESHOLD = builder
+                    .comment("判定为主干动脉断裂（推荐路径B血管桥接，若强行选路径A结扎将引发缺血）的出血率阈值 (mL/min，默认 1000)")
+                    .defineInRange("sutureArterialBleedThreshold", 1000, 200, 5000);
+            SUTURE_LIGATION_DURABILITY_COST = builder
+                    .comment("完成路径 A（血管结扎闭塞术）消耗的手术包耐久度 (默认 20，满耐久 100)")
+                    .defineInRange("sutureLigationDurabilityCost", 20, 1, 100);
+            SUTURE_ANASTOMOSIS_DURABILITY_COST = builder
+                    .comment("完成路径 B（血管吻合桥接术）消耗的手术包耐久度 (默认 25，满耐久 100)")
+                    .defineInRange("sutureAnastomosisDurabilityCost", 25, 1, 100);
+            SUTURE_MISTAKE_PAIN_GAIN = builder
+                    .comment("手术小游戏操作失误（夹偏、崩断缝线、收缩期强夹、缝歪）单次增加的局部疼痛等级 (默认 1)")
+                    .defineInRange("sutureMistakePainGain", 1, 0, 10);
+            SUTURE_MISTAKE_BLOOD_LOSS = builder
+                    .comment("手术小游戏操作失误单次喷溅流失的血量 (mL，默认 15)")
+                    .defineInRange("sutureMistakeBloodLoss", 15, 0, 500);
+            SUTURE_ABORT_TEAR_BLEED_INCREASE = builder
+                    .comment("撑开切口后未完成手术强行中断或昏迷造成的血管二次撕裂出血增量 (mL/min，默认 120)")
+                    .defineInRange("sutureAbortTearBleedIncrease", 120, 0, 1000);
+            SUTURE_ARTERIAL_LIGATION_LEG_SPEED_MULT = builder
+                    .comment("对 >1000 mL/min 腿部主干动脉强行采取路径 A 结扎后的缺血移速倍率 (默认 0.62)")
+                    .defineInRange("sutureArterialLigationLegSpeedMult", 0.62, 0.05, 1.0);
+            SUTURE_ARTERIAL_LIGATION_ARM_ACTION_MULT = builder
+                    .comment("对 >1000 mL/min 手臂主干动脉强行采取路径 A 结扎后的缺血攻速与伤害倍率 (默认 0.65)")
+                    .defineInRange("sutureArterialLigationArmActionMult", 0.65, 0.05, 1.0);
+
+            SUTURE_RETRACTOR_OPEN_THRESHOLD = builder
+                    .comment("第 1 步左右创口牵开器撑开并锁定切口所需的最小张开比例 (默认 0.88)")
+                    .defineInRange("sutureRetractorOpenThreshold", 0.88, 0.50, 0.98);
+            SUTURE_STUMP_DRIFT_AMPLITUDE = builder
+                    .comment("路径 A-2 游离血管断端受组织痉挛摆动的幅度 (像素，默认 8.5)")
+                    .defineInRange("sutureStumpDriftAmplitude", 8.5, 0.0, 30.0);
+            SUTURE_STUMP_CLAMP_RADIUS = builder
+                    .comment("止血钳/微血管夹精准夹持血管断端的判定半径 (像素，默认 13.0)")
+                    .defineInRange("sutureStumpClampRadius", 13.0, 4.0, 30.0);
+            SUTURE_WINDING_REQUIRED_DEGREES = builder
+                    .comment("路径 A-3 外科结绕线所需的累计旋转角度 (度，默认 720.0 = 绕满 2 圈)")
+                    .defineInRange("sutureWindingRequiredDegrees", 720.0, 180.0, 1800.0);
+            SUTURE_KNOT_TENSION_MIN = builder
+                    .comment("路径 A-3 死结收紧锁死绿色区间的张力下限 (默认 0.68)")
+                    .defineInRange("sutureKnotTensionMin", 0.68, 0.30, 0.90);
+            SUTURE_KNOT_TENSION_MAX = builder
+                    .comment("路径 A-3 死结收紧锁死绿色区间的张力上限 (默认 0.92)")
+                    .defineInRange("sutureKnotTensionMax", 0.92, 0.50, 0.98);
+            SUTURE_KNOT_TENSION_SNAP = builder
+                    .comment("路径 A-3 用力过猛导致缝线崩断的极限张力阈值 (默认 0.98)")
+                    .defineInRange("sutureKnotTensionSnap", 0.98, 0.80, 1.00);
+            SUTURE_KNOT_HOLD_SECONDS = builder
+                    .comment("路径 A-3 在绿色锁死张力区间内需保持的时长 (秒，默认 0.75)")
+                    .defineInRange("sutureKnotHoldSeconds", 0.75, 0.20, 5.00);
+            SUTURE_BULLDOG_CALM_BEAT_MAX = builder
+                    .comment("路径 B-2 动脉舒张期允许扣上哈巴狗阻断夹的最大搏动波阈值 (默认 0.35)")
+                    .defineInRange("sutureBulldogCalmBeatMax", 0.35, 0.05, 0.90);
+            SUTURE_GRAFT_ALIGN_TOLERANCE_DEG = builder
+                    .comment("路径 B-3 人工血管桥接管嵌入时允许的最大角度偏差 (度，默认 9.5)")
+                    .defineInRange("sutureGraftAlignToleranceDeg", 9.5, 2.0, 30.0);
+            SUTURE_GRAFT_SNAP_DISTANCE = builder
+                    .comment("路径 B-3 人工血管桥接管嵌入断端中心的判定半径 (像素，默认 13.0)")
+                    .defineInRange("sutureGraftSnapDistance", 13.0, 4.0, 35.0);
+            SUTURE_ANASTOMOSIS_STITCH_COUNT = builder
+                    .comment("路径 B-4 端端血管吻合所需的总缝合针数 (默认 6)")
+                    .defineInRange("sutureAnastomosisStitchCount", 6, 2, 12);
+            SUTURE_CURSOR_PAIN_SHAKE_MAX = builder
+                    .comment("剧痛状态下手术器械准星的最大生理震颤幅度 (像素，默认 4.2)")
+                    .defineInRange("sutureCursorPainShakeMax", 4.2, 0.0, 15.0);
+            SUTURE_CURSOR_WITHDRAWAL_SHAKE = builder
+                    .comment("阿片戒断状态下手术器械准星叠加的额外手抖幅度 (像素，默认 4.5)")
+                    .defineInRange("sutureCursorWithdrawalShake", 4.5, 0.0, 15.0);
+
+            builder.comment("野战血管缝合手术包 (field_vascular_suture_kit) 与双路径微创手术小游戏参数")
+                    .push("vascular_suture_kit");
+
+            SUTURE_MIN_CONSCIOUSNESS = builder
+                    .comment("使用野战血管缝合手术包所需的最低清醒意识阈值 (% ，默认 50)")
+                    .defineInRange("sutureMinConsciousness", 50, 10, 100);
+            SUTURE_ARTERIAL_BLEED_THRESHOLD = builder
+                    .comment("判定为主干动脉断裂（推荐路径B血管桥接，若强行选路径A结扎将引发缺血）的出血率阈值 (mL/min，默认 1000)")
+                    .defineInRange("sutureArterialBleedThreshold", 1000, 200, 5000);
+            SUTURE_LIGATION_DURABILITY_COST = builder
+                    .comment("完成路径 A（血管结扎闭塞术）消耗的手术包耐久度 (默认 20，满耐久 100)")
+                    .defineInRange("sutureLigationDurabilityCost", 20, 1, 100);
+            SUTURE_ANASTOMOSIS_DURABILITY_COST = builder
+                    .comment("完成路径 B（血管吻合桥接术）消耗的手术包耐久度 (默认 25，满耐久 100)")
+                    .defineInRange("sutureAnastomosisDurabilityCost", 25, 1, 100);
+            SUTURE_MISTAKE_PAIN_GAIN = builder
+                    .comment("手术小游戏操作失误（夹偏、崩断缝线、收缩期强夹、缝歪）单次增加的局部疼痛等级 (默认 1)")
+                    .defineInRange("sutureMistakePainGain", 1, 0, 10);
+            SUTURE_MISTAKE_BLOOD_LOSS = builder
+                    .comment("手术小游戏操作失误单次喷溅流失的血量 (mL，默认 15)")
+                    .defineInRange("sutureMistakeBloodLoss", 15, 0, 500);
+            SUTURE_ABORT_TEAR_BLEED_INCREASE = builder
+                    .comment("撑开切口后未完成手术强行中断或昏迷造成的血管二次撕裂出血增量 (mL/min，默认 120)")
+                    .defineInRange("sutureAbortTearBleedIncrease", 120, 0, 1000);
+            SUTURE_ARTERIAL_LIGATION_LEG_SPEED_MULT = builder
+                    .comment("对 >1000 mL/min 腿部主干动脉强行采取路径 A 结扎后的缺血移速倍率 (默认 0.62)")
+                    .defineInRange("sutureArterialLigationLegSpeedMult", 0.62, 0.05, 1.0);
+            SUTURE_ARTERIAL_LIGATION_ARM_ACTION_MULT = builder
+                    .comment("对 >1000 mL/min 手臂主干动脉强行采取路径 A 结扎后的缺血攻速与伤害倍率 (默认 0.65)")
+                    .defineInRange("sutureArterialLigationArmActionMult", 0.65, 0.05, 1.0);
+
+            SUTURE_RETRACTOR_OPEN_THRESHOLD = builder
+                    .comment("第 1 步左右创口牵开器撑开并锁定切口所需的最小张开比例 (默认 0.88)")
+                    .defineInRange("sutureRetractorOpenThreshold", 0.88, 0.50, 0.98);
+            SUTURE_STUMP_DRIFT_AMPLITUDE = builder
+                    .comment("路径 A-2 游离血管断端受组织痉挛摆动的幅度 (像素，默认 8.5)")
+                    .defineInRange("sutureStumpDriftAmplitude", 8.5, 0.0, 30.0);
+            SUTURE_STUMP_CLAMP_RADIUS = builder
+                    .comment("止血钳/微血管夹精准夹持血管断端的判定半径 (像素，默认 13.0)")
+                    .defineInRange("sutureStumpClampRadius", 13.0, 4.0, 30.0);
+            SUTURE_WINDING_REQUIRED_DEGREES = builder
+                    .comment("路径 A-3 外科结绕线所需的累计旋转角度 (度，默认 720.0 = 绕满 2 圈)")
+                    .defineInRange("sutureWindingRequiredDegrees", 720.0, 180.0, 1800.0);
+            SUTURE_KNOT_TENSION_MIN = builder
+                    .comment("路径 A-3 死结收紧锁死绿色区间的张力下限 (默认 0.68)")
+                    .defineInRange("sutureKnotTensionMin", 0.68, 0.30, 0.90);
+            SUTURE_KNOT_TENSION_MAX = builder
+                    .comment("路径 A-3 死结收紧锁死绿色区间的张力上限 (默认 0.92)")
+                    .defineInRange("sutureKnotTensionMax", 0.92, 0.50, 0.98);
+            SUTURE_KNOT_TENSION_SNAP = builder
+                    .comment("路径 A-3 用力过猛导致缝线崩断的极限张力阈值 (默认 0.98)")
+                    .defineInRange("sutureKnotTensionSnap", 0.98, 0.80, 1.00);
+            SUTURE_KNOT_HOLD_SECONDS = builder
+                    .comment("路径 A-3 在绿色锁死张力区间内需保持的时长 (秒，默认 0.75)")
+                    .defineInRange("sutureKnotHoldSeconds", 0.75, 0.20, 5.00);
+            SUTURE_BULLDOG_CALM_BEAT_MAX = builder
+                    .comment("路径 B-2 动脉舒张期允许扣上哈巴狗阻断夹的最大搏动波阈值 (默认 0.35)")
+                    .defineInRange("sutureBulldogCalmBeatMax", 0.35, 0.05, 0.90);
+            SUTURE_GRAFT_ALIGN_TOLERANCE_DEG = builder
+                    .comment("路径 B-3 人工血管桥接管嵌入时允许的最大角度偏差 (度，默认 9.5)")
+                    .defineInRange("sutureGraftAlignToleranceDeg", 9.5, 2.0, 30.0);
+            SUTURE_GRAFT_SNAP_DISTANCE = builder
+                    .comment("路径 B-3 人工血管桥接管嵌入断端中心的判定半径 (像素，默认 13.0)")
+                    .defineInRange("sutureGraftSnapDistance", 13.0, 4.0, 35.0);
+            SUTURE_ANASTOMOSIS_STITCH_COUNT = builder
+                    .comment("路径 B-4 端端血管吻合所需的总缝合针数 (默认 6)")
+                    .defineInRange("sutureAnastomosisStitchCount", 6, 2, 12);
+            SUTURE_CURSOR_PAIN_SHAKE_MAX = builder
+                    .comment("剧痛状态下手术器械准星的最大生理震颤幅度 (像素，默认 4.2)")
+                    .defineInRange("sutureCursorPainShakeMax", 4.2, 0.0, 15.0);
+            SUTURE_CURSOR_WITHDRAWAL_SHAKE = builder
+                    .comment("阿片戒断状态下手术器械准星叠加的额外手抖幅度 (像素，默认 4.5)")
+                    .defineInRange("sutureCursorWithdrawalShake", 4.5, 0.0, 15.0);
+
+
+
+
+
+
+
+            builder.pop();
 
         SPEC = builder.build();
     }

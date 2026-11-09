@@ -45,6 +45,15 @@ public class JumpCancelHandler {
             }
         }
 
+        // 优先级 1.8: 腿部缺血坏死 -> 禁止跳跃
+        MedicalData.LimbData nLeftLeg = data.getLimb(MedicalData.Limb.LEFT_LEG);
+        MedicalData.LimbData nRightLeg = data.getLimb(MedicalData.Limb.RIGHT_LEG);
+        if ((nLeftLeg != null && ModItems.isLimbNecrotic(nLeftLeg))
+                || (nRightLeg != null && ModItems.isLimbNecrotic(nRightLeg))) {
+            cancelJump(player);
+            return;
+        }
+
         // 优先级 2: 腿部骨折且配置禁止跳跃 -> 取消跳跃
         if (!MedicalConfig.LEG_FRACTURE_JUMP_ALLOWED.get()) {
             MedicalData.LimbData leftLeg = data.getLimb(MedicalData.Limb.LEFT_LEG);

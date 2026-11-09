@@ -1716,6 +1716,7 @@ public class MedicalScreen extends Screen {
     private int getLimbColor(MedicalData.LimbData ld) {
         if (ld == null) return LIMB_HEALTHY;
         if (ld.isAmputated()) return LIMB_AMPUTATED;
+        if (com.FIYTP.realmedicalmod.treatment.ModItems.isLimbNecrotic(ld)) return 0xFF6A1B9A;
         int hp = BrainScan3DRenderer.computeLimbHealthPercent(ld);
         if (ld.getBleeding() > 200 || ld.getInternalBleedingRate() > 200 || hp <= 25) {
             return LIMB_CRITICAL;
@@ -1782,6 +1783,8 @@ public class MedicalScreen extends Screen {
         private int viewportX, viewportY, viewportW, viewportH;
         private int btnCompactX, btnCompactY, btnCompactW, btnCompactH;
         private int btnEcgX, btnEcgY, btnEcgW, btnEcgH;
+        private int btnUnbindX, btnUnbindY, btnUnbindW, btnUnbindH;
+        private MedicalData.Limb unbindTargetLimb = null;
 
         public void renderLimbOrOverviewPanel(GuiGraphics g, Font font,
                                               int panelX, int panelY, int panelWidth, int panelHeight,
@@ -1902,14 +1905,20 @@ public class MedicalScreen extends Screen {
             y += 12;
 
             int bleed = ld.getBleeding();
+            int clampedBleed = ld.isTourniqueted() ? com.FIYTP.realmedicalmod.treatment.ModItems.getTourniquetClampedBleed(ld) : 0;
             int inBleed = ld.getInternalBleedingRate();
             int pain = ld.getPainLevel();
             int inf = ld.getInfection();
 
             if (compactTwoColumn && w >= 180) {
                 int colW = (w - 6) / 2;
-                drawMetricCard(g, font, x, y, colW, tr("medical.detail.bleeding_rate"), bleed + " mL/m",
-                        Math.min(1f, bleed / 500f), bleed > 0 ? C_ALERT_RED : 0xFF37474F);
+                if (clampedBleed > 0 && bleed <= 0) {
+                    drawDashedBleedCard(g, font, x, y, colW, tr("medical.detail.bleeding_rate"),
+                            clampedBleed + " mL/m", Math.min(1f, clampedBleed / 500f), C_ALERT_RED);
+                } else {
+                    drawMetricCard(g, font, x, y, colW, tr("medical.detail.bleeding_rate"), bleed + " mL/m",
+                            Math.min(1f, bleed / 500f), bleed > 0 ? C_ALERT_RED : 0xFF37474F);
+                }
                 drawMetricCard(g, font, x + colW + 6, y, colW, tr("medical.detail.internal_bleeding_rate"), inBleed + " mL/m",
                         Math.min(1f, inBleed / 300f), inBleed > 0 ? 0xFFE040FB : 0xFF37474F);
                 y += 24;
@@ -1920,7 +1929,10 @@ public class MedicalScreen extends Screen {
                         inf / 100f, inf > 0 ? C_WARN_YELLOW : 0xFF37474F);
                 y += 24;
             } else {
-                if (bleed > 0) {
+                if (clampedBleed > 0 && bleed <= 0) {
+                    y = drawDashedBleedFullRow(g, font, x, y, w, tr("medical.detail.bleeding_rate"),
+                            clampedBleed + " mL/min", Math.min(1f, clampedBleed / 500f), C_ALERT_RED);
+                } else if (bleed > 0) {
                     y = drawFullRow(g, font, x, y, w, tr("medical.detail.bleeding_rate"), bleed + " mL/min",
                             Math.min(1f, bleed / 500f), C_ALERT_RED);
                 }
@@ -1944,6 +1956,21 @@ public class MedicalScreen extends Screen {
             }
 
             y = drawLimbStatusPills(g, font, x, y + 2, w, ld);
+            if (ld.isTourniqueted() && !ld.isAmputated()) {
+                this.unbindTargetLimb = limb;
+                this.btnUnbindX = x;
+                this.btnUnbindY = y + 3;
+                this.btnUnbindW = Math.min(86, w);
+                this.btnUnbindH = 15;
+                int tqSec = com.FIYTP.realmedicalmod.treatment.ModItems.getTourniquetTimer(ld);
+                int bCol = (tqSec >= MedicalConfig.TOURNIQUET_ISCHEMIA_STAGE2_SEC.get()) ? C_ALERT_RED : C_WARN_YELLOW;
+                HudRenderHelper.drawSciFiCard(g, btnUnbindX, btnUnbindY, btnUnbindW, btnUnbindH, 2, withAlpha(bCol, 0.28f), bCol);
+                g.drawCenteredString(font, "解开止血带", btnUnbindX + btnUnbindW / 2, btnUnbindY + 4, 0xFFFFFFFF);
+                y += 20;
+            } else {
+                this.unbindTargetLimb = null;
+                this.btnUnbindW = 0;
+            }
 
             if (limb == MedicalData.Limb.CHEST) {
                 y += 4;
@@ -1998,10 +2025,12 @@ public class MedicalScreen extends Screen {
             y += 13;
 
             int totalBleed = 0;
+            int totalClampedBleed = 0;
             for (MedicalData.Limb limb : MedicalData.Limb.values()) {
                 MedicalData.LimbData ld = data.getLimb(limb);
                 if (ld != null) {
                     if (!ld.isBandaged() && !ld.isTourniqueted()) totalBleed += ld.getBleeding();
+                    if (ld.isTourniqueted()) totalClampedBleed += com.FIYTP.realmedicalmod.treatment.ModItems.getTourniquetClampedBleed(ld);
                     totalBleed += ld.getInternalBleedingRate();
                 }
             }
@@ -2011,9 +2040,14 @@ public class MedicalScreen extends Screen {
                 drawMetricCard(g, font, x, y, colW, tr("medical.detail.blood_volume"),
                         data.getBloodVolume() + " / " + data.getMaxBloodVolume() + " mL",
                         data.getBloodVolume() / (float) Math.max(1, data.getMaxBloodVolume()), C_VITAL_HEART);
-                drawMetricCard(g, font, x + colW + 6, y, colW, tr("medical.detail.total_bleeding_rate"),
-                        totalBleed + " mL/min",
-                        Math.min(1f, totalBleed / 600f), totalBleed > 0 ? C_ALERT_RED : C_SAFE_GREEN);
+                if (totalClampedBleed > 0 && totalBleed <= 0) {
+                    drawDashedBleedCard(g, font, x + colW + 6, y, colW, tr("medical.detail.total_bleeding_rate"),
+                            totalClampedBleed + " mL/min", Math.min(1f, totalClampedBleed / 600f), C_ALERT_RED);
+                } else {
+                    drawMetricCard(g, font, x + colW + 6, y, colW, tr("medical.detail.total_bleeding_rate"),
+                            totalBleed + " mL/min",
+                            Math.min(1f, totalBleed / 600f), totalBleed > 0 ? C_ALERT_RED : C_SAFE_GREEN);
+                }
                 y += 24;
 
                 drawMetricCard(g, font, x, y, colW, tr("medical.detail.brain_health"),
@@ -2058,29 +2092,17 @@ public class MedicalScreen extends Screen {
                             (data.getSirsLevel() > 0 || data.getBurnTBSA() > 0) ? C_WARN_YELLOW : 0xFF37474F);
                 }
                 y += 24;
-                int addTierWhisper = com.FIYTP.realmedicalmod.treatment.ModItems.getAddictionTier(data.getAddictionLevel());
-                if (addTierWhisper > 0) {
-                    long wBucket = System.currentTimeMillis() / 4500L;
-                    boolean inWithdrawal = com.FIYTP.realmedicalmod.treatment.ModItems.isInWithdrawalMovementRestriction(data);
-                    if (inWithdrawal || com.FIYTP.realmedicalmod.treatment.BandageItem.isAddictionHallucinating(addTierWhisper, wBucket)) {
-                        String[] whispers = (addTierWhisper == 1)
-                                ? new String[]{"「再打一点...」", "「一针就好...」"}
-                                : (addTierWhisper == 2
-                                ? new String[]{"「手脚发冷...再来一针...」", "「身体在发抖...」"}
-                                : new String[]{"「全部推光！」", "「快给我注射！」"});
-                        String wTxt = whispers[(int) (Math.abs(wBucket) % whispers.length)];
-                        int wCol = (addTierWhisper >= 3) ? C_ALERT_RED : 0xFFE040FB;
-                        g.fill(x, y, x + w, y + 14, withAlpha(wCol, 0.20f));
-                        g.fill(x, y, x + 2, y + 14, wCol);
-                        g.drawString(font, wTxt, x + 6, y + 3, wCol, false);
-                        y += 17;
-                    }
-                }
+
             } else {
                 y = drawFullRow(g, font, x, y, w, tr("medical.detail.blood_volume"),
                         data.getBloodVolume() + " mL", data.getBloodVolume() / 5000f, C_VITAL_HEART);
-                y = drawFullRow(g, font, x, y, w, tr("medical.detail.total_bleeding_rate"),
-                        totalBleed + " mL/min", Math.min(1f, totalBleed / 600f), totalBleed > 0 ? C_ALERT_RED : 0xFF455A64);
+                if (totalClampedBleed > 0 && totalBleed <= 0) {
+                    y = drawDashedBleedFullRow(g, font, x, y, w, tr("medical.detail.total_bleeding_rate"),
+                            totalClampedBleed + " mL/min", Math.min(1f, totalClampedBleed / 600f), C_ALERT_RED);
+                } else {
+                    y = drawFullRow(g, font, x, y, w, tr("medical.detail.total_bleeding_rate"),
+                            totalBleed + " mL/min", Math.min(1f, totalBleed / 600f), totalBleed > 0 ? C_ALERT_RED : 0xFF455A64);
+                }
                 y = drawFullRow(g, font, x, y, w, tr("medical.detail.brain_health"),
                         data.getBrainHealth() + "%", data.getBrainHealth() / 100f, getHealthColor(data.getBrainHealth() / 100f));
                 y = drawFullRow(g, font, x, y, w, tr("medical.detail.consciousness"),
@@ -2115,6 +2137,55 @@ public class MedicalScreen extends Screen {
             return y + 18;
         }
 
+        /**
+         * 止血带绑扎期间：以虚线进度条 + 虚线数值下划线表示拿掉止血带后的实际出血量（无任何多余文字描述）
+         */
+        private void drawDashedBleedCard(GuiGraphics g, Font font, int x, int y, int w,
+                                         String label, String val, float pct, int color) {
+            pct = Mth.clamp(pct, 0.0f, 1.0f);
+            g.fill(x, y, x + w, y + 21, 0x88071320);
+            for (int dy = 0; dy < 21; dy += 4) {
+                g.fill(x, y + dy, x + 2, Math.min(y + 21, y + dy + 2), color);
+            }
+            g.drawString(font, label, x + 5, y + 2, 0xFFB0BEC5, false);
+            int vw = font.width(val);
+            int vx = x + w - vw - 3;
+            g.drawString(font, val, vx, y + 2, withAlpha(color, 0.85f), false);
+            for (int dx = 0; dx < vw; dx += 4) {
+                g.fill(vx + dx, y + 10, Math.min(vx + vw, vx + dx + 2), y + 11, color);
+            }
+            drawDashedProgressBar(g, x + 5, y + 13, w - 8, 5, pct, color, 0xFF050C14);
+        }
+
+        private int drawDashedBleedFullRow(GuiGraphics g, Font font, int x, int y, int w,
+                                           String label, String val, float pct, int color) {
+            pct = Mth.clamp(pct, 0.0f, 1.0f);
+            g.drawString(font, label, x, y, 0xFFB0BEC5, false);
+            int vw = font.width(val);
+            int vx = x + w - vw;
+            g.drawString(font, val, vx, y, withAlpha(color, 0.85f), false);
+            for (int dx = 0; dx < vw; dx += 4) {
+                g.fill(vx + dx, y + 8, Math.min(vx + vw, vx + dx + 2), y + 9, color);
+            }
+            drawDashedProgressBar(g, x, y + 10, w, 5, pct, color, 0xFF07121E);
+            return y + 18;
+        }
+
+        private void drawDashedProgressBar(GuiGraphics g, int x, int y, int w, int h, float pct, int color, int bgColor) {
+            g.fill(x, y, x + w, y + h, bgColor);
+            // 虚线外框
+            for (int dx = 0; dx < w; dx += 5) {
+                int segEnd = Math.min(x + w, x + dx + 3);
+                g.fill(x + dx, y, segEnd, y + 1, withAlpha(color, 0.55f));
+                g.fill(x + dx, y + h - 1, segEnd, y + h, withAlpha(color, 0.55f));
+            }
+            int fillW = Math.round(w * Mth.clamp(pct, 0.0f, 1.0f));
+            for (int dx = 0; dx < fillW; dx += 5) {
+                int segEnd = Math.min(x + fillW, x + dx + 3);
+                g.fill(x + dx, y + 1, segEnd, y + h - 1, withAlpha(color, 0.88f));
+            }
+        }
+
         private int drawLimbStatusPills(GuiGraphics g, Font font, int x, int y, int w, MedicalData.LimbData ld) {
             int px = x;
             int py = y;
@@ -2124,6 +2195,11 @@ public class MedicalScreen extends Screen {
             if (ld.isAmputated()) {
                 drawPill(g, font, px, py, tr("medical.status.amputated"), 0xFFFF1744);
                 return py + 14;
+            }
+            if (com.FIYTP.realmedicalmod.treatment.ModItems.isLimbNecrotic(ld)) {
+                abnormal = true;
+                int nx = drawWrappedPill(g, font, x, px, py, rightEdge, "肢体坏死", 0xFFCE93D8);
+                if (nx < 0) { py += 14; px = drawWrappedPill(g, font, x, x, py, rightEdge, "肢体坏死", 0xFFCE93D8); } else px = nx;
             }
             if (ld.isBandaged()) {
                 px = drawWrappedPill(g, font, x, px, py, rightEdge, tr("medical.status.bandaged"), 0xFF00E676);
@@ -2186,6 +2262,14 @@ public class MedicalScreen extends Screen {
         }
 
         public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (unbindTargetLimb != null && btnUnbindW > 0
+                    && mouseX >= btnUnbindX && mouseX <= btnUnbindX + btnUnbindW
+                    && mouseY >= btnUnbindY && mouseY <= btnUnbindY + btnUnbindH) {
+                com.FIYTP.realmedicalmod.network.NetworkHandler.sendTreatmentToServer(
+                        new com.FIYTP.realmedicalmod.network.TreatmentApplyPacket(0, unbindTargetLimb.ordinal(), -1));
+                MedicalSoundHelper.playLimbSelectSound();
+                return true;
+            }
             if (mouseX >= btnEcgX && mouseX <= btnEcgX + btnEcgW && mouseY >= btnEcgY && mouseY <= btnEcgY + btnEcgH) {
                 this.ecgCollapsed = !this.ecgCollapsed;
                 MedicalSoundHelper.playLimbSelectSound();
