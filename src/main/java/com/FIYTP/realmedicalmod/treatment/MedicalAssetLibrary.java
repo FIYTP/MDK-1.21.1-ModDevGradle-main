@@ -37,6 +37,8 @@ public final class MedicalAssetLibrary {
         NALOXONE_INJECTOR,
         TOURNIQUET,
         VASCULAR_SUTURE_KIT,
+        FASCIOTOMY_KIT,
+        TRANEXAMIC_ACID,
         SYRINGE,
         SPLINT,
         MEDICINE_BOTTLE
@@ -81,6 +83,10 @@ public final class MedicalAssetLibrary {
         if (id != null) {
             String path = id.getPath();
             if (path.contains("naloxone")) return AssetType.NALOXONE_INJECTOR;
+            if (path.contains("tranexamic")) return AssetType.TRANEXAMIC_ACID;
+            if (path.contains("splint")) return AssetType.SPLINT;
+            if (path.contains("ibuprofen")) return AssetType.MEDICINE_BOTTLE;
+            if (path.contains("fasciotomy")) return AssetType.FASCIOTOMY_KIT;
             if (path.contains("suture_kit")) return AssetType.VASCULAR_SUTURE_KIT;
             if (path.contains("tourniquet")) return AssetType.TOURNIQUET;
             if (path.contains("adrenaline")) return AssetType.ADRENALINE_INJECTOR;
@@ -112,12 +118,16 @@ public final class MedicalAssetLibrary {
     public static void render3DMedicalItem(GuiGraphics g, float centerX, float centerY, float scale,
                                            ItemStack stack, long nowMs) {
         AssetType type = resolveAssetType(stack);
-        if (type == AssetType.MORPHINE_INJECTOR || type == AssetType.FENTANYL_SYRINGE) {
+        if (type == AssetType.MORPHINE_INJECTOR || type == AssetType.FENTANYL_SYRINGE || type == AssetType.TRANEXAMIC_ACID) {
             float remRatio = 1.0f;
             if (stack.isDamageableItem() && stack.getMaxDamage() > 0) {
                 remRatio = Mth.clamp((float) (stack.getMaxDamage() - stack.getDamageValue()) / stack.getMaxDamage(), 0.0f, 1.0f);
             }
-            render3DOpioidSyringeWithPlunger(g, centerX, centerY, scale, type == AssetType.FENTANYL_SYRINGE, remRatio, 0.0f, nowMs);
+            if (type == AssetType.TRANEXAMIC_ACID) {
+                render3DTxaSyringeWithPlunger(g, centerX, centerY, scale, remRatio, 0.0f, nowMs);
+            } else {
+                render3DOpioidSyringeWithPlunger(g, centerX, centerY, scale, type == AssetType.FENTANYL_SYRINGE, remRatio, 0.0f, nowMs);
+            }
             return;
         }
         List<Line3D> lines = GEOMETRY_CACHE.computeIfAbsent(type, MedicalAssetLibrary::buildGeometry);
@@ -132,6 +142,15 @@ public final class MedicalAssetLibrary {
         List<Line3D> lines = isFentanyl
                 ? buildDynamicFentanylSyringe(remainingRatio, selectedDoseRatio)
                 : buildDynamicMorphineAutoinjector(remainingRatio, selectedDoseRatio);
+        renderLines3D(g, lines, centerX, centerY, scale, nowMs);
+    }
+
+    /**
+     * 在定量注射面板左侧渲染带动态活塞推杆与紫红药液液位全息环的 3D 氨甲环酸注射器
+     */
+    public static void render3DTxaSyringeWithPlunger(GuiGraphics g, float centerX, float centerY, float scale,
+                                                     float remainingRatio, float selectedDoseRatio, long nowMs) {
+        List<Line3D> lines = buildDynamicTranexamicAcidSyringe(remainingRatio, selectedDoseRatio);
         renderLines3D(g, lines, centerX, centerY, scale, nowMs);
     }
 
@@ -240,6 +259,8 @@ public final class MedicalAssetLibrary {
             case NALOXONE_INJECTOR -> buildNaloxoneInjector(out);
             case TOURNIQUET -> buildTourniquet(out);
             case VASCULAR_SUTURE_KIT -> buildVascularSutureKit(out);
+            case FASCIOTOMY_KIT -> buildFasciotomyKit(out);
+            case TRANEXAMIC_ACID -> buildTranexamicAcidInjector(out);
             case SYRINGE -> buildSyringe(out);
             case SPLINT -> buildSplint(out);
             case MEDICINE_BOTTLE -> buildMedicineBottle(out);
@@ -409,6 +430,77 @@ public final class MedicalAssetLibrary {
         return out;
     }
 
+    // ==================== 2B. 氨甲环酸抗纤溶止血注射器 (3D 动态推杆全息投影模型) ====================
+    private static List<Line3D> buildDynamicTranexamicAcidSyringe(float remainingRatio, float selectedDoseRatio) {
+        List<Line3D> out = new ArrayList<>();
+        remainingRatio = Mth.clamp(remainingRatio, 0.0f, 1.0f);
+        selectedDoseRatio = Mth.clamp(selectedDoseRatio, 0.0f, remainingRatio);
+
+        int cBarrelGlass = 0xDDCE93D8;
+        int cTxaLiquid   = 0xFFE040FB;
+        int cDosePulse   = 0xFFFF80AB;
+        int cVioletRing  = 0xFFAA00FF;
+        int cPlungerRod  = 0xFFE1BEE7;
+        int cStopper     = 0xFF7B1FA2;
+        int cNeedle      = 0xFFFFFFFF;
+
+        float barrelTop = -0.34f;
+        float barrelBot = 0.46f;
+        float barrelRad = 0.21f;
+
+        // 1. 针筒尾部双侧防滑翼形指托与战术识别环
+        out.add(new Line3D(-0.44f, barrelTop, 0.0f, 0.44f, barrelTop, 0.0f, cPlungerRod, 2.0f));
+        out.add(new Line3D(0.0f, barrelTop, -0.26f, 0.0f, barrelTop, 0.26f, cPlungerRod, 1.5f));
+        addRingY(out, 0.25f, barrelTop, 12, cVioletRing, 1.7f);
+
+        // 2. 高硼硅玻璃针筒与紫红双色识别环
+        addCylinderY(out, barrelRad, barrelTop, barrelBot, 12, cBarrelGlass, 0x99BA68C8, 1.35f);
+        addRingY(out, barrelRad + 0.015f, barrelTop + 0.07f, 12, cVioletRing, 1.9f);
+        addRingY(out, barrelRad + 0.015f, barrelTop + 0.14f, 12, cTxaLiquid, 1.8f);
+        addRingY(out, barrelRad + 0.015f, barrelBot - 0.06f, 12, cVioletRing, 1.9f);
+
+        for (int k = 1; k <= 5; k++) {
+            float gy = Mth.lerp(k / 6.0f, barrelTop + 0.10f, barrelBot - 0.06f);
+            float tickLen = (k % 2 == 0) ? 0.09f : 0.05f;
+            out.add(new Line3D(-barrelRad, gy, 0.0f, -barrelRad + tickLen, gy, 0.0f, cNeedle, 1.2f));
+            out.add(new Line3D(barrelRad - tickLen, gy, 0.0f, barrelRad, gy, 0.0f, cNeedle, 1.2f));
+        }
+
+        // 3. 随滑块实时推进的十字透明推杆与紫晶拇指推盘
+        float effectivePlungerRatio = Math.max(0.0f, remainingRatio - selectedDoseRatio);
+        float stopperY = Mth.lerp(effectivePlungerRatio, barrelBot - 0.04f, barrelTop + 0.06f);
+        float rodTopY = stopperY - 0.54f;
+
+        addRingY(out, 0.23f, rodTopY, 10, cTxaLiquid, 1.9f);
+        out.add(new Line3D(-0.23f, rodTopY, 0.0f, 0.23f, rodTopY, 0.0f, cPlungerRod, 1.8f));
+        out.add(new Line3D(0.0f, rodTopY, 0.0f, 0.0f, stopperY, 0.0f, cPlungerRod, 1.8f));
+        out.add(new Line3D(-0.08f, rodTopY, 0.0f, -0.08f, stopperY, 0.0f, 0xAACE93D8, 1.1f));
+        out.add(new Line3D(0.08f, rodTopY, 0.0f, 0.08f, stopperY, 0.0f, 0xAACE93D8, 1.1f));
+
+        addRingY(out, barrelRad * 0.86f, stopperY - 0.03f, 10, cStopper, 1.8f);
+        addRingY(out, barrelRad * 0.86f, stopperY, 10, cStopper, 1.8f);
+
+        // 4. 氨甲环酸药液全息环（高亮当前选定推注量切片）
+        if (remainingRatio > 0.01f) {
+            float liqTopY = Mth.lerp(remainingRatio, barrelBot - 0.03f, barrelTop + 0.06f);
+            float afterInjectY = Mth.lerp(effectivePlungerRatio, barrelBot - 0.03f, barrelTop + 0.06f);
+
+            int rings = 6;
+            for (int r = 0; r <= rings; r++) {
+                float ry = Mth.lerp(r / (float) rings, liqTopY, barrelBot - 0.03f);
+                boolean inSelectedSlice = (ry <= afterInjectY + 0.005f) && (selectedDoseRatio > 0.005f);
+                int col = inSelectedSlice ? cDosePulse : cTxaLiquid;
+                addRingY(out, barrelRad * 0.80f, ry, 10, col, inSelectedSlice ? 1.85f : 1.35f);
+            }
+        }
+
+        // 5. 鲁尔锁螺纹金属针座与穿刺针
+        addCylinderY(out, 0.09f, barrelBot, barrelBot + 0.14f, 8, cPlungerRod, cBarrelGlass, 1.4f);
+        out.add(new Line3D(0.0f, barrelBot + 0.14f, 0.0f, 0.0f, barrelBot + 0.46f, 0.0f, cNeedle, 1.85f));
+
+        return out;
+    }
+
     private static void buildBandageRoll(List<Line3D> out, boolean isPressure) {
         int mainCol = isPressure ? 0xFF66BB6A : 0xFFE0F7FA;
         int subCol  = isPressure ? 0xFF43A047 : 0xFF4DD0E1;
@@ -545,5 +637,64 @@ public final class MedicalAssetLibrary {
     private static void buildMedicineBottle(List<Line3D> out) {
         addCylinderY(out, 0.46f, -0.15f, 0.68f, 14, 0xFF29B6F6, 0xFF0288D1, 1.5f);
         addCylinderY(out, 0.28f, -0.62f, -0.34f, 12, 0xFFFFCA28, 0xFFFFB300, 1.6f);
+    }
+
+    private static void buildFasciotomyKit(List<Line3D> out) {
+        int cCase  = 0xFFFFB300;
+        int cCyan  = 0xFF00E5FF;
+        int cGold  = 0xFFFFEA00;
+        int cRed   = 0xFFFF2A4B;
+        int cWhite = 0xFFF0F8FF;
+
+        // 下层战术减压手术托盘外框
+        out.add(new Line3D(-0.66f, 0.35f, -0.44f,  0.66f, 0.35f, -0.44f, cCase, 1.6f));
+        out.add(new Line3D(-0.66f, 0.35f,  0.44f,  0.66f, 0.35f,  0.44f, cCase, 1.6f));
+        out.add(new Line3D(-0.66f, 0.35f, -0.44f, -0.66f, 0.35f,  0.44f, cCase, 1.6f));
+        out.add(new Line3D( 0.66f, 0.35f, -0.44f,  0.66f, 0.35f,  0.44f, cCase, 1.6f));
+        out.add(new Line3D(-0.66f, 0.12f, -0.44f,  0.66f, 0.12f, -0.44f, cCase, 1.4f));
+        out.add(new Line3D(-0.66f, 0.12f,  0.44f,  0.66f, 0.12f,  0.44f, cCase, 1.4f));
+        out.add(new Line3D(-0.66f, 0.12f, -0.44f, -0.66f, 0.12f,  0.44f, cCase, 1.4f));
+        out.add(new Line3D( 0.66f, 0.12f, -0.44f,  0.66f, 0.12f,  0.44f, cCase, 1.4f));
+
+        // 翻开式上盖与电子室压表盘框
+        out.add(new Line3D(-0.66f, 0.12f, -0.44f, -0.66f, -0.62f, -0.64f, cCase, 1.6f));
+        out.add(new Line3D( 0.66f, 0.12f, -0.44f,  0.66f, -0.62f, -0.64f, cCase, 1.6f));
+        out.add(new Line3D(-0.66f, -0.62f, -0.64f, 0.66f, -0.62f, -0.64f, cCase, 1.6f));
+        out.add(new Line3D(-0.42f, -0.44f, -0.54f, -0.06f, -0.44f, -0.54f, cRed, 1.8f));
+        out.add(new Line3D(-0.42f, -0.12f, -0.54f, -0.06f, -0.12f, -0.54f, cRed, 1.8f));
+        out.add(new Line3D(-0.42f, -0.44f, -0.54f, -0.42f, -0.12f, -0.54f, cRed, 1.8f));
+        out.add(new Line3D(-0.06f, -0.44f, -0.54f, -0.06f, -0.12f, -0.54f, cRed, 1.8f));
+
+        // 内部 #15 圆刃解剖手术刀
+        out.add(new Line3D(-0.48f, 0.06f, -0.34f, -0.48f, 0.06f, 0.38f, cWhite, 1.8f));
+        out.add(new Line3D(-0.54f, 0.06f, -0.34f, -0.42f, 0.06f, -0.18f, cCyan, 1.5f));
+        // 内部双极电凝止血镊 (V形双臂 + 金色电极尖端)
+        out.add(new Line3D(-0.10f, 0.05f, 0.36f, -0.18f, 0.05f, -0.22f, cCyan, 1.5f));
+        out.add(new Line3D(-0.10f, 0.05f, 0.36f, -0.02f, 0.05f, -0.22f, cCyan, 1.5f));
+        out.add(new Line3D(-0.18f, 0.05f, -0.22f, -0.14f, 0.05f, -0.36f, cGold, 1.7f));
+        out.add(new Line3D(-0.02f, 0.05f, -0.22f, -0.06f, 0.05f, -0.36f, cGold, 1.7f));
+        // 硅胶减张鞋带环线圈
+        addRingY(out, 0.18f, 0.06f, 12, cGold, 1.6f);
+    }
+
+    private static void buildTranexamicAcidInjector(List<Line3D> out) {
+        int cViolet = 0xFFE040FB;
+        int cGlass  = 0xCCE0F7FA;
+        int cLiquid = 0xFFFF80AB;
+        int cNeedle = 0xFFF0F8FF;
+
+        // 刻度针筒外管与内部抗纤溶药液柱
+        addCylinderY(out, 0.24f, -0.50f, 0.46f, 12, cGlass, cViolet, 1.4f);
+        addCylinderY(out, 0.18f, -0.10f, 0.42f, 10, cLiquid, cLiquid, 1.25f);
+        // 紫红色止血标识环
+        addRingY(out, 0.26f, 0.08f, 12, cViolet, 1.9f);
+        addRingY(out, 0.26f, 0.16f, 12, cViolet, 1.9f);
+        // 顶部推杆十字柄与指托翼
+        out.add(new Line3D(-0.42f, -0.50f, 0.0f, 0.42f, -0.50f, 0.0f, cGlass, 1.8f));
+        out.add(new Line3D(0.0f, -0.88f, 0.0f, 0.0f, -0.10f, 0.0f, cNeedle, 1.6f));
+        addRingY(out, 0.20f, -0.88f, 10, cViolet, 1.7f);
+        // 下端鲁尔锁定头与穿刺针
+        addCylinderY(out, 0.10f, 0.46f, 0.62f, 8, cNeedle, cGlass, 1.4f);
+        out.add(new Line3D(0.0f, 0.62f, 0.0f, 0.0f, 0.94f, 0.0f, cNeedle, 1.8f));
     }
 }

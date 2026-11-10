@@ -63,6 +63,10 @@ public class ModItems {
     public static final DeferredHolder<MobEffect, MobEffect> LIMB_NECROSIS =
             MOB_EFFECTS.register("limb_necrosis", () -> new NamedMobEffect(MobEffectCategory.HARMFUL, 0x6A1B9A, "肢体坏死"));
 
+    /** 骨筋膜室综合征专属 MobEffect（textures/mob_effect/compartment_syndrome.png） */
+    public static final DeferredHolder<MobEffect, MobEffect> COMPARTMENT_SYNDROME =
+            MOB_EFFECTS.register("compartment_syndrome", () -> new NamedMobEffect(MobEffectCategory.HARMFUL, 0xFF6D00, "骨筋膜室综合征"));
+
     public static class NamedMobEffect extends MobEffect {
         private final String displayText;
 
@@ -109,6 +113,14 @@ public class ModItems {
                             MedicalPotency.of(MedicalItemTags.INTERNAL_HEMOSTASIS.location(), 2000.0f)
                     )));
 
+    public static final DeferredItem<Item> FASCIOTOMY_KIT = ITEMS.register("fasciotomy_kit",
+            () -> new BandageItem(new Item.Properties()
+                    .durability(100)
+                    .component(
+                            MedicalComponents.MEDICAL_POTENCY.get(),
+                            MedicalPotency.of(MedicalItemTags.INTERNAL_HEMOSTASIS.location(), 1500.0f)
+                    )));
+
     public static final DeferredItem<Item> MORPHINE = ITEMS.register("morphine",
             () -> new BandageItem(new Item.Properties()
                     .durability(100)
@@ -139,6 +151,30 @@ public class ModItems {
                     .component(
                             MedicalComponents.MEDICAL_POTENCY.get(),
                             MedicalPotency.of(MedicalItemTags.STIMULANT.location(), 55.0f)
+                    )));
+
+    public static final DeferredItem<Item> SPLINT = ITEMS.register("splint",
+            () -> new BandageItem(new Item.Properties()
+                    .durability(100)
+                    .component(
+                            MedicalComponents.MEDICAL_POTENCY.get(),
+                            MedicalPotency.of(MedicalItemTags.SPLINT_EFFECT.location(), 1.0f)
+                    )));
+
+    public static final DeferredItem<Item> IBUPROFEN = ITEMS.register("ibuprofen",
+            () -> new BandageItem(new Item.Properties()
+                    .durability(100)
+                    .component(
+                            MedicalComponents.MEDICAL_POTENCY.get(),
+                            MedicalPotency.of(MedicalItemTags.ANALGESIC.location(), 2.0f)
+                    )));
+
+    public static final DeferredItem<Item> TRANEXAMIC_ACID = ITEMS.register("tranexamic_acid",
+            () -> new BandageItem(new Item.Properties()
+                    .durability(100)
+                    .component(
+                            MedicalComponents.MEDICAL_POTENCY.get(),
+                            MedicalPotency.of(MedicalItemTags.INTERNAL_HEMOSTASIS.location(), 65.0f)
                     )));
 
     public static final DeferredHolder<CreativeModeTab, CreativeModeTab> MEDICAL_TAB =
@@ -246,6 +282,119 @@ public class ModItems {
         }
     }
 
+    public static int getFasciotomyMinConsciousness() {
+        return MedicalConfig.FASCIOTOMY_MIN_CONSCIOUSNESS.get();
+    }
+
+    public static float getCompartmentBlood(MedicalData.LimbData ld) {
+        if (ld instanceof MedicalDataImpl.LimbDataImpl lImpl) {
+            return lImpl.getCompartmentBlood();
+        }
+        return 0.0f;
+    }
+
+    public static void setCompartmentBlood(MedicalData.LimbData ld, float ml) {
+        if (ld instanceof MedicalDataImpl.LimbDataImpl lImpl) {
+            lImpl.setCompartmentBlood(ml);
+        }
+    }
+
+    public static float getCompartmentPressure(MedicalData.LimbData ld) {
+        if (ld instanceof MedicalDataImpl.LimbDataImpl lImpl) {
+            return lImpl.getCompartmentPressure();
+        }
+        return 4.0f;
+    }
+
+    public static void setCompartmentPressure(MedicalData.LimbData ld, float mmHg) {
+        if (ld instanceof MedicalDataImpl.LimbDataImpl lImpl) {
+            lImpl.setCompartmentPressure(mmHg);
+        }
+    }
+
+    public static int getCompartmentTamponadedBleed(MedicalData.LimbData ld) {
+        if (ld instanceof MedicalDataImpl.LimbDataImpl lImpl) {
+            return lImpl.getCompartmentTamponadedBleed();
+        }
+        return 0;
+    }
+
+    public static void setCompartmentTamponadedBleed(MedicalData.LimbData ld, int rate) {
+        if (ld instanceof MedicalDataImpl.LimbDataImpl lImpl) {
+            lImpl.setCompartmentTamponadedBleed(rate);
+        }
+    }
+
+    public static int getCompartmentIschemiaSec(MedicalData.LimbData ld) {
+        if (ld instanceof MedicalDataImpl.LimbDataImpl lImpl) {
+            return lImpl.getCompartmentIschemiaSec();
+        }
+        return 0;
+    }
+
+    public static void setCompartmentIschemiaSec(MedicalData.LimbData ld, int sec) {
+        if (ld instanceof MedicalDataImpl.LimbDataImpl lImpl) {
+            lImpl.setCompartmentIschemiaSec(sec);
+        }
+    }
+
+    public static boolean isCompartmentSyndrome(MedicalData.LimbData ld) {
+        if (ld instanceof MedicalDataImpl.LimbDataImpl lImpl) {
+            return lImpl.isCompartmentSyndrome();
+        }
+        return false;
+    }
+
+    public static void setCompartmentSyndrome(MedicalData.LimbData ld, boolean cs) {
+        if (ld instanceof MedicalDataImpl.LimbDataImpl lImpl) {
+            lImpl.setCompartmentSyndrome(cs);
+        }
+    }
+
+    /**
+     * 调用已有骨折固定与愈合接口（兼容 FractureTreatment 与 LimbData#setSplint / setFractureTimer）
+     */
+    public static void applySplintAndInitFractureHealing(MedicalData data, MedicalData.LimbData ld) {
+        if (ld == null || !ld.hasFracture() || ld.isAmputated()) return;
+        ld.setSplint(true);
+        int healSec = MedicalConfig.SPLINT_FRACTURE_HEAL_TIME_SEC.get();
+        if (ld.getFractureTimer() <= 0) {
+            ld.setFractureTimer(healSec);
+        }
+        int painRelief = MedicalConfig.SPLINT_PAIN_RELIEF.get();
+        if (painRelief > 0 && ld.getPainLevel() > 0) {
+            ld.setPainLevel(Math.max(1, ld.getPainLevel() - painRelief));
+        }
+        tryInvokeFractureTreatmentMethod("applySplint", ld);
+    }
+
+    /**
+     * 完成骨折愈合时调用已有恢复接口
+     */
+    public static void completeFractureHealing(MedicalData.LimbData ld) {
+        if (ld == null) return;
+        ld.setFracture(false);
+        ld.setOpenFracture(false);
+        ld.setSplint(false);
+        ld.setFractureTimer(0);
+        tryInvokeFractureTreatmentMethod("healFracture", ld);
+    }
+
+    private static void tryInvokeFractureTreatmentMethod(String methodName, MedicalData.LimbData ld) {
+        try {
+            Class<?> cls = Class.forName("com.FIYTP.realmedicalmod.treatment.FractureTreatment");
+            for (java.lang.reflect.Method m : cls.getDeclaredMethods()) {
+                if (m.getName().equalsIgnoreCase(methodName) && m.getParameterCount() == 1
+                        && m.getParameterTypes()[0].isAssignableFrom(ld.getClass())) {
+                    m.setAccessible(true);
+                    m.invoke(null, ld);
+                    return;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     public static int getTourniquetTimer(MedicalData.LimbData ld) {
         if (ld instanceof MedicalDataImpl.LimbDataImpl lImpl) {
             return lImpl.getTourniquetTimer();
@@ -287,11 +436,87 @@ public class ModItems {
         if (data == null) return false;
         for (MedicalData.Limb limb : MedicalData.Limb.values()) {
             MedicalData.LimbData ld = data.getLimb(limb);
-            if (ld != null && !ld.isAmputated() && ld.isTourniqueted()) {
+            if (ld != null && ld.isTourniqueted()) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * 火焰/熔岩/灼热伤害触发时立即加速部位烧伤面积、度数与痛感上涨
+     */
+    public static void applyThermalBurnImpulse(ServerPlayer player, MedicalData data, String msgId, float rawDamage) {
+        if (player == null || data == null) return;
+        float mult = MedicalConfig.BURN_RATE_MULTIPLIER.get().floatValue();
+        boolean isLava = "lava".equals(msgId);
+        boolean isHotFloor = "hotFloor".equals(msgId);
+        float baseGain = isLava
+                ? MedicalConfig.BURN_LAVA_AREA_GAIN_PER_SEC.get().floatValue() * 0.65f
+                : (isHotFloor
+                        ? MedicalConfig.BURN_FIRE_AREA_GAIN_PER_SEC.get().floatValue() * 0.45f
+                        : MedicalConfig.BURN_FIRE_AREA_GAIN_PER_SEC.get().floatValue() * 0.55f);
+        float areaDelta = Math.max(0.8f, baseGain * (0.5f + 0.25f * rawDamage) * (mult / 4.0f));
+        int maxPain = MedicalConfig.MAX_PAIN_LEVEL.get();
+
+        for (MedicalData.Limb limb : MedicalData.Limb.values()) {
+            MedicalData.LimbData ld = data.getLimb(limb);
+            if (ld == null) continue;
+            float w = 1.0f;
+            if (isHotFloor) {
+                w = (limb == MedicalData.Limb.LEFT_LEG || limb == MedicalData.Limb.RIGHT_LEG) ? 1.8f : 0.0f;
+            } else if (isLava) {
+                w = (limb == MedicalData.Limb.HEAD) ? 0.75f : 1.25f;
+            } else {
+                w = (limb == MedicalData.Limb.CHEST || limb == MedicalData.Limb.LEFT_ARM || limb == MedicalData.Limb.RIGHT_ARM) ? 1.15f : 0.85f;
+            }
+            if (w <= 0.0f) continue;
+
+            float addArea = areaDelta * w;
+            float nextArea = Mth.clamp(ld.getBurnArea() + addArea, 0.0f, 100.0f);
+            ld.setBurnArea(nextArea);
+            ld.setBurnLoad(ld.getBurnLoad() + addArea * 1.4f);
+            ld.setBurnConv(ld.getBurnConv() + addArea * 1.2f);
+            ld.setBurnHeatTimer(Math.max(ld.getBurnHeatTimer(), isLava ? 12 : 6));
+            ld.setBandaged(false);
+
+            int newDeg = computeBurnDegreeFromAreaAndConv(nextArea, ld.getBurnConv(), isLava);
+            if (newDeg > ld.getBurnDegree()) {
+                ld.setBurnDegree(newDeg);
+            }
+            int minBurnPain = Math.min(maxPain, Math.max(2, newDeg * 2 + (nextArea >= 25.0f ? 1 : 0)));
+            if (ld.getPainLevel() < minBurnPain) {
+                ld.setPainLevel(minBurnPain);
+            }
+        }
+        recalcTotalBurnTBSA(data);
+        player.syncData(MedicalDataCapability.MEDICAL_DATA);
+    }
+
+    public static int computeBurnDegreeFromAreaAndConv(float area, float conv, boolean inLava) {
+        float score = Math.max(area, conv * 1.5f) + (inLava ? 12.0f : 0.0f);
+        if (score >= 38.0f) return 4;
+        if (score >= 20.0f) return 3;
+        if (score >= 7.5f) return 2;
+        if (score > 0.05f) return 1;
+        return 0;
+    }
+
+    public static void recalcTotalBurnTBSA(MedicalData data) {
+        if (data == null) return;
+        float totalTbsa = 0.0f;
+        for (MedicalData.Limb limb : MedicalData.Limb.values()) {
+            MedicalData.LimbData ld = data.getLimb(limb);
+            if (ld == null || !ld.hasBurn()) continue;
+            float limbWeight = switch (limb) {
+                case HEAD -> 0.09f;
+                case CHEST -> 0.36f;
+                case LEFT_ARM, RIGHT_ARM -> 0.09f;
+                case LEFT_LEG, RIGHT_LEG -> 0.18f;
+            };
+            totalTbsa += Mth.clamp(ld.getBurnArea(), 0.0f, 100.0f) * limbWeight;
+        }
+        data.setBurnTBSA(Mth.clamp(totalTbsa, 0.0f, 100.0f));
     }
 
     /**
@@ -421,8 +646,17 @@ public class ModItems {
             MedicalData.LimbData ld = data.getLimb(limb);
             if (ld == null) continue;
             if (ld.isAmputated()) {
+                // 断肢残端可绑止血带或直接结扎血管，但因为肢体已经没了，绝不会累积缺血时间或造成肢体坏死
                 if (isLimbNecrotic(ld)) {
                     setLimbNecrotic(ld, false);
+                    dirty = true;
+                }
+                if (isLimbArterialLigated(ld)) {
+                    setLimbArterialLigated(ld, false);
+                    dirty = true;
+                }
+                if (getTourniquetTimer(ld) > 0) {
+                    setTourniquetTimer(ld, 0);
                     dirty = true;
                 }
                 continue;
@@ -535,6 +769,320 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                     data.setBloodVolume(Math.max(0, data.getBloodVolume() - loss));
                     dirty = true;
                 }
+            }
+        }
+
+        // 6. 四肢内出血“封顶机制”：骨筋膜室综合征 (Osteofascial Compartment Syndrome)
+        int compartmentSyndromeCount = 0;
+        int maxRateCap = MedicalConfig.COMPARTMENT_MAX_INTERNAL_BLEED_RATE.get();
+        float maxBloodCapMl = MedicalConfig.COMPARTMENT_MAX_BLOOD_CAP_ML.get().floatValue();
+        float bloodAccumMult = MedicalConfig.COMPARTMENT_BLOOD_ACCUM_MULT.get().floatValue();
+        float collapseStartMmHg = MedicalConfig.COMPARTMENT_VENOUS_COLLAPSE_MMHG.get().floatValue();
+        float fullTamponadeMmHg = MedicalConfig.COMPARTMENT_TAMPONADE_FULL_MMHG.get().floatValue();
+        float csThreshMmHg = MedicalConfig.COMPARTMENT_SYNDROME_THRESHOLD_MMHG.get().floatValue();
+        float critDeltaP = MedicalConfig.COMPARTMENT_CRITICAL_DELTA_P_MMHG.get().floatValue();
+        float ischStartMmHg = MedicalConfig.COMPARTMENT_ISCHEMIA_START_MMHG.get().floatValue();
+        int csNecrosisSec = MedicalConfig.COMPARTMENT_NECROSIS_TIME_SEC.get();
+        int csStage1Pain = MedicalConfig.COMPARTMENT_STAGE1_MIN_PAIN.get();
+        int csStage2Pain = MedicalConfig.COMPARTMENT_STAGE2_MIN_PAIN.get();
+        float rhabdoToxin = MedicalConfig.COMPARTMENT_RHABDO_TOXIN_PER_SEC.get().floatValue();
+        float naturalAbsorb = MedicalConfig.COMPARTMENT_NATURAL_ABSORB_ML_PER_SEC.get().floatValue();
+
+        MedicalData.Limb[] fourLimbs = new MedicalData.Limb[]{
+                MedicalData.Limb.LEFT_ARM, MedicalData.Limb.RIGHT_ARM,
+                MedicalData.Limb.LEFT_LEG, MedicalData.Limb.RIGHT_LEG
+        };
+        for (MedicalData.Limb fLimb : fourLimbs) {
+            MedicalData.LimbData ld = data.getLimb(fLimb);
+            if (ld == null) continue;
+
+            if (ld.isAmputated()) {
+                // 断肢无密闭筋膜室：清除骨筋膜室压迫与综合征状态
+                if (isCompartmentSyndrome(ld) || getCompartmentTamponadedBleed(ld) > 0 || getCompartmentBlood(ld) > 0.0f) {
+                    setCompartmentSyndrome(ld, false);
+                    setCompartmentTamponadedBleed(ld, 0);
+                    setCompartmentBlood(ld, 0.0f);
+                    setCompartmentPressure(ld, 0.0f);
+                    setCompartmentIschemiaSec(ld, 0);
+                    dirty = true;
+                }
+                continue;
+            }
+
+            int curActiveInt = ld.getInternalBleedingRate();
+            int curTampInt = getCompartmentTamponadedBleed(ld);
+            int rawTotalInt = Math.min(maxRateCap, curActiveInt + curTampInt);
+
+            float curCompBlood = getCompartmentBlood(ld);
+            if (curActiveInt > 0) {
+                float addedMl = (curActiveInt / 60.0f) * bloodAccumMult;
+                curCompBlood = Math.min(maxBloodCapMl, curCompBlood + addedMl);
+                setCompartmentBlood(ld, curCompBlood);
+                dirty = true;
+            } else if (rawTotalInt == 0 && !isCompartmentSyndrome(ld) && curCompBlood > 0.0f) {
+                curCompBlood = Math.max(0.0f, curCompBlood - naturalAbsorb);
+                setCompartmentBlood(ld, curCompBlood);
+                dirty = true;
+            }
+
+            // 非线性深筋膜顺应性曲线计算骨筋膜室室内压 (mmHg) + III/IV度环状焦痂紧缩加成
+            float fillRatio = Mth.clamp(curCompBlood / Math.max(1.0f, maxBloodCapMl), 0.0f, 1.0f);
+            float escharConstruct = (ld.getBurnDegree() >= 3) ? (ld.getBurnArea() * 0.28f) : 0.0f;
+            float icpMmHg = 4.0f + (float) Math.pow(fillRatio, 1.45) * (fullTamponadeMmHg - 2.0f) + escharConstruct;
+            if (Math.abs(icpMmHg - getCompartmentPressure(ld)) > 0.2f) {
+                setCompartmentPressure(ld, icpMmHg);
+                dirty = true;
+            }
+
+            // 高压压迫自限止血封顶机制：当室内压 >= collapseStartMmHg 或积血达容量上限时，压迫闭塞出血血管
+            if (rawTotalInt > 0) {
+                if (icpMmHg >= collapseStartMmHg || fillRatio >= 0.99f) {
+                    float tampRatio = (fillRatio >= 0.99f)
+                            ? 1.0f
+                            : Mth.clamp((icpMmHg - collapseStartMmHg) / Math.max(1.0f, fullTamponadeMmHg - collapseStartMmHg), 0.0f, 1.0f);
+                    int nextActive = Math.round(rawTotalInt * (1.0f - tampRatio));
+                    int nextTamp = rawTotalInt - nextActive;
+                    if (nextActive != curActiveInt || nextTamp != curTampInt) {
+                        ld.setInternalBleedingRate(nextActive);
+                        setCompartmentTamponadedBleed(ld, nextTamp);
+                        dirty = true;
+                    }
+                } else if (curActiveInt != rawTotalInt || curTampInt != 0) {
+                    ld.setInternalBleedingRate(rawTotalInt);
+                    setCompartmentTamponadedBleed(ld, 0);
+                    dirty = true;
+                }
+            }
+
+            // 骨筋膜室综合征诊断 (ICP >= 30 mmHg 或 灌注压差 ΔP = 舒张压 - ICP <= 30 mmHg)
+            float deltaP = data.getDiastolicBP() - icpMmHg;
+            boolean hasCS = (icpMmHg >= csThreshMmHg) || (curCompBlood >= maxBloodCapMl * 0.42f && deltaP <= critDeltaP);
+            if (hasCS != isCompartmentSyndrome(ld)) {
+                setCompartmentSyndrome(ld, hasCS);
+                dirty = true;
+            }
+
+            if (hasCS) {
+                compartmentSyndromeCount++;
+                int maxPainVal = MedicalConfig.MAX_PAIN_LEVEL.get();
+                int reqPain = (icpMmHg >= ischStartMmHg) ? csStage2Pain : csStage1Pain;
+                if (ld.getPainLevel() < reqPain) {
+                    ld.setPainLevel(Math.min(maxPainVal, reqPain));
+                    dirty = true;
+                }
+
+                // 重度室内高压阻断微循环灌注 -> 累计缺血秒数、释放横纹肌溶解肌红蛋白毒素、超时引发肢体坏死
+                if (icpMmHg >= ischStartMmHg || deltaP <= critDeltaP) {
+                    int ischSec = getCompartmentIschemiaSec(ld) + 1;
+                    setCompartmentIschemiaSec(ld, ischSec);
+                    if (rhabdoToxin > 0.0f) {
+                        data.addToxinValue(rhabdoToxin);
+                    }
+                    if (ischSec >= csNecrosisSec && !isLimbNecrotic(ld)) {
+                        setLimbNecrotic(ld, true);
+                        ld.setPainLevel(maxPainVal);
+                        player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                                SoundEvents.WITHER_HURT, SoundSource.PLAYERS, 0.85f, 0.65f);
+                    }
+                    dirty = true;
+                }
+            } else if (getCompartmentIschemiaSec(ld) > 0) {
+                setCompartmentIschemiaSec(ld, Math.max(0, getCompartmentIschemiaSec(ld) - 2));
+                dirty = true;
+            }
+        }
+
+        if (compartmentSyndromeCount > 0) {
+            int desiredCsAmp = Math.min(2, compartmentSyndromeCount - 1);
+            MobEffectInstance curCs = player.getEffect(COMPARTMENT_SYNDROME);
+            if (curCs == null || curCs.getAmplifier() != desiredCsAmp || curCs.getDuration() < 40) {
+                player.addEffect(new MobEffectInstance(
+                        COMPARTMENT_SYNDROME,
+                        220,
+                        desiredCsAmp,
+                        false,
+                        false,
+                        true
+                ));
+            }
+        } else if (player.hasEffect(COMPARTMENT_SYNDROME)) {
+            player.removeEffect(COMPARTMENT_SYNDROME);
+        }
+
+        // 7. 烧伤热负荷快速转化与火焰/熔岩每秒持续烧伤推进（解决烧伤上涨过慢问题）
+        boolean inLava = player.isInLava();
+        boolean onFire = player.isOnFire() || player.getRemainingFireTicks() > 0;
+        float burnMult = MedicalConfig.BURN_RATE_MULTIPLIER.get().floatValue();
+        float fireRate = MedicalConfig.BURN_FIRE_AREA_GAIN_PER_SEC.get().floatValue();
+        float lavaRate = MedicalConfig.BURN_LAVA_AREA_GAIN_PER_SEC.get().floatValue();
+        int maxPainCfg = MedicalConfig.MAX_PAIN_LEVEL.get();
+        boolean anyBurnChanged = false;
+
+        for (MedicalData.Limb limb : MedicalData.Limb.values()) {
+            MedicalData.LimbData ld = data.getLimb(limb);
+            if (ld == null) continue;
+
+            float curArea = ld.getBurnArea();
+            float curLoad = ld.getBurnLoad();
+            float curConv = ld.getBurnConv();
+
+            if (inLava || onFire) {
+                float envGain = (inLava ? lavaRate : fireRate) * (burnMult / 4.0f);
+                float limbFactor = (limb == MedicalData.Limb.HEAD && !inLava) ? 0.65f : 1.0f;
+                curArea = Mth.clamp(curArea + envGain * limbFactor, 0.0f, 100.0f);
+                curConv += envGain * limbFactor;
+                ld.setBurnArea(curArea);
+                ld.setBurnConv(curConv);
+                ld.setBurnHeatTimer(Math.max(ld.getBurnHeatTimer(), inLava ? 10 : 5));
+                ld.setBandaged(false);
+                anyBurnChanged = true;
+            } else if (curLoad > 0.01f) {
+                // 将残留热力缓冲负荷快速转化为实际烧伤面积
+                float transfer = Math.min(curLoad, Math.max(0.5f, curLoad * 0.45f * burnMult));
+                curLoad = Math.max(0.0f, curLoad - transfer);
+                curConv += transfer * burnMult;
+                curArea = Mth.clamp(curArea + transfer * burnMult * 1.8f, 0.0f, 100.0f);
+                ld.setBurnLoad(curLoad);
+                ld.setBurnConv(curConv);
+                ld.setBurnArea(curArea);
+                anyBurnChanged = true;
+            } else if (curConv > 0.05f && curArea < Math.min(100.0f, curConv * 3.5f)) {
+                // 兼容原版 BurnModule 小数值转正负荷，将其放大映射到直观的百分比烧伤面积
+                curArea = Mth.clamp(Math.max(curArea, curConv * 3.5f * (burnMult / 3.0f)), 0.0f, 100.0f);
+                ld.setBurnArea(curArea);
+                anyBurnChanged = true;
+            }
+
+            if (ld.hasBurn() || curArea > 0.05f) {
+                int targetDeg = computeBurnDegreeFromAreaAndConv(curArea, curConv, inLava);
+                if (targetDeg > ld.getBurnDegree()) {
+                    ld.setBurnDegree(targetDeg);
+                    anyBurnChanged = true;
+                }
+                int minBurnPain = Math.min(maxPainCfg, Math.max(1, ld.getBurnDegree() * 2 + (curArea >= 25.0f ? 1 : 0)));
+                if (ld.getPainLevel() < minBurnPain) {
+                    ld.setPainLevel(minBurnPain);
+                    anyBurnChanged = true;
+                }
+            }
+        }
+        if (anyBurnChanged) {
+            recalcTotalBurnTBSA(data);
+            dirty = true;
+        }
+
+        // 8. 骨折夹板固定后的愈合倒计时推进（调用已有 LimbData#getFractureTimer / setFractureTimer / setFracture 接口）
+        int defaultHealSec = MedicalConfig.SPLINT_FRACTURE_HEAL_TIME_SEC.get();
+        for (MedicalData.Limb limb : MedicalData.Limb.values()) {
+            MedicalData.LimbData ld = data.getLimb(limb);
+            if (ld == null || ld.isAmputated() || isLimbNecrotic(ld)) continue;
+            if (ld.hasFracture() && ld.hasSplint()) {
+                int curTimer = ld.getFractureTimer();
+                if (curTimer <= 0) {
+                    ld.setFractureTimer(defaultHealSec);
+                    dirty = true;
+                } else if (!ld.isOpenFracture() || ld.getBleeding() <= 0) {
+                    int nextTimer = curTimer - 1;
+                    if (nextTimer <= 0) {
+                        boolean hadSplint = ld.hasSplint();
+                        completeFractureHealing(ld);
+                        if (hadSplint && !player.getAbilities().instabuild) {
+                            ItemStack returnedSplint = new ItemStack(SPLINT.get());
+                            if (!player.getInventory().add(returnedSplint)) {
+                                player.drop(returnedSplint, false);
+                            }
+                        }
+                        player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                                SoundEvents.ARMOR_EQUIP_LEATHER.value(), SoundSource.PLAYERS, 0.85f, 1.20f);
+                    } else {
+                        ld.setFractureTimer(nextTimer);
+                    }
+                    dirty = true;
+                }
+            }
+        }
+
+        // 9. 非阿片类止痛药（布洛芬 NSAID）：慢起效潜伏期 -> 缓慢爬坡 -> 弱效天花板消除轻痛
+        if (data instanceof MedicalDataImpl nsaidImpl) {
+            int onset = nsaidImpl.getNsaidOnsetTimer();
+            int active = nsaidImpl.getNsaidActiveTimer();
+            if (onset > 0) {
+                nsaidImpl.setNsaidOnsetTimer(onset - 1);
+                dirty = true;
+            } else if (active > 0) {
+                nsaidImpl.setNsaidActiveTimer(active - 1);
+                int rampMax = MedicalConfig.NSAID_RAMP_UP_SEC.get();
+                if (nsaidImpl.getNsaidRampTimer() < rampMax) {
+                    nsaidImpl.setNsaidRampTimer(nsaidImpl.getNsaidRampTimer() + 1);
+                }
+                int intervalSec = Math.max(5, MedicalConfig.NSAID_LIMB_PAIN_RELIEF_INTERVAL_SEC.get());
+                int maxRelieved = MedicalConfig.NSAID_MAX_LIMB_PAIN_REDUCTION.get();
+                int accum = nsaidImpl.getNsaidLimbReliefAccumSec() + 1;
+                if (accum >= intervalSec) {
+                    accum = 0;
+                    if (nsaidImpl.getNsaidLimbRelievedCount() < maxRelieved) {
+                        // 布洛芬口服全身吸收：对全身所有存在轻中度疼痛的部位同时生效（消除 1 级疼痛，受天花板周期次数限制）
+                        boolean relievedAny = false;
+                        for (MedicalData.Limb l : MedicalData.Limb.values()) {
+                            MedicalData.LimbData cand = data.getLimb(l);
+                            if (cand != null && cand.getPainLevel() > 0) {
+                                cand.setPainLevel(Math.max(0, cand.getPainLevel() - 1));
+                                relievedAny = true;
+                            }
+                        }
+                        if (relievedAny) {
+                            nsaidImpl.setNsaidLimbRelievedCount(nsaidImpl.getNsaidLimbRelievedCount() + 1);
+                        }
+                    }
+                }
+                nsaidImpl.setNsaidLimbReliefAccumSec(accum);
+                if (nsaidImpl.getNsaidActiveTimer() <= 0) {
+                    nsaidImpl.setNsaidRampTimer(0);
+                    nsaidImpl.setNsaidLimbReliefAccumSec(0);
+                    nsaidImpl.setNsaidLimbRelievedCount(0);
+                }
+                dirty = true;
+            }
+
+            // 10. 氨甲环酸 (TXA) 持续抗纤溶促凝止内出血 & 过量高凝微血栓副作用
+            float txaConc = nsaidImpl.getTxaConcentration();
+            if (txaConc > 0.0f) {
+                float txaDecay = MedicalConfig.TXA_DECAY_RATE_PER_SEC.get().floatValue();
+                float nextTxa = Math.max(0.0f, txaConc - txaDecay);
+                nsaidImpl.setTxaConcentration(nextTxa);
+
+                int clotPerSec = MedicalConfig.TXA_CONTINUOUS_CLOT_RATE_PER_SEC.get();
+                if (clotPerSec > 0 && nextTxa >= 5.0f) {
+                    for (MedicalData.Limb l : MedicalData.Limb.values()) {
+                        MedicalData.LimbData ld = data.getLimb(l);
+                        if (ld != null && ld.getInternalBleedingRate() > 0) {
+                            ld.setInternalBleedingRate(Math.max(0, ld.getInternalBleedingRate() - clotPerSec));
+                        }
+                    }
+                }
+
+                // 副作用：高浓度 (>=75%) 或淤血部位诱发微血栓 -> 降低血氧并加速止血带/骨筋膜室缺血坏死！
+                int thrombThresh = MedicalConfig.TXA_THROMBOSIS_THRESHOLD.get();
+                if (nextTxa >= thrombThresh) {
+                    float o2Drop = MedicalConfig.TXA_THROMBOSIS_O2_PENALTY_PER_SEC.get().floatValue();
+                    if (o2Drop > 0.0f) {
+                        data.setBloodOxygenFloat(Math.max(0.0f, data.getBloodOxygenFloat() - o2Drop));
+                    }
+                }
+                int ischExtra = Math.max(0, MedicalConfig.TXA_THROMBOSIS_ISCHEMIA_MULT.get() - 1);
+                if (ischExtra > 0 && nextTxa >= thrombThresh * 0.65f) {
+                    for (MedicalData.Limb l : MedicalData.Limb.values()) {
+                        MedicalData.LimbData ld = data.getLimb(l);
+                        if (ld == null || ld.isAmputated()) continue;
+                        if (ld.isTourniqueted()) {
+                            setTourniquetTimer(ld, getTourniquetTimer(ld) + ischExtra);
+                        }
+                        if (isCompartmentSyndrome(ld)) {
+                            setCompartmentIschemiaSec(ld, getCompartmentIschemiaSec(ld) + ischExtra);
+                        }
+                    }
+                }
+                dirty = true;
             }
         }
 

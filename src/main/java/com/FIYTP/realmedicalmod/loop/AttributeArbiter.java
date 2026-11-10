@@ -114,6 +114,60 @@ public class AttributeArbiter {
                 suggest(player, Dimension.ATTACK_SPEED, "arterial_ligation", ligArmMult);
             }
 
+            int csLegs = 0;
+            int csArms = 0;
+            if (ModItems.isCompartmentSyndrome(data.getLimb(MedicalData.Limb.LEFT_LEG))) csLegs++;
+            if (ModItems.isCompartmentSyndrome(data.getLimb(MedicalData.Limb.RIGHT_LEG))) csLegs++;
+            if (ModItems.isCompartmentSyndrome(data.getLimb(MedicalData.Limb.LEFT_ARM))) csArms++;
+            if (ModItems.isCompartmentSyndrome(data.getLimb(MedicalData.Limb.RIGHT_ARM))) csArms++;
+            if (csLegs > 0) {
+                float csLegMult = MedicalConfig.COMPARTMENT_LEG_SPEED_MULT.get().floatValue();
+                suggest(player, Dimension.MOVEMENT_SPEED, "compartment_syndrome", csLegMult);
+            }
+            if (csArms > 0) {
+                float csArmMult = MedicalConfig.COMPARTMENT_ARM_ACTION_MULT.get().floatValue();
+                suggest(player, Dimension.ATTACK_DAMAGE, "compartment_syndrome", csArmMult);
+                suggest(player, Dimension.ATTACK_SPEED, "compartment_syndrome", csArmMult);
+            }
+
+            // ★ 骨折行动力抑制与夹板固定后行动力恢复 ★
+            boolean hasUnsplintedLegFracture = false;
+            boolean hasSplintedLegFracture = false;
+            for (MedicalData.Limb leg : new MedicalData.Limb[]{MedicalData.Limb.LEFT_LEG, MedicalData.Limb.RIGHT_LEG}) {
+                MedicalData.LimbData ld = data.getLimb(leg);
+                if (ld != null && !ld.isAmputated() && ld.hasFracture()) {
+                    if (ld.hasSplint()) hasSplintedLegFracture = true;
+                    else hasUnsplintedLegFracture = true;
+                }
+            }
+            if (hasUnsplintedLegFracture) {
+                suggest(player, Dimension.MOVEMENT_SPEED, "fracture_leg",
+                        MedicalConfig.FRACTURE_UNSPLINTED_LEG_SPEED_MULT.get().floatValue());
+                if (player.isSprinting()) player.setSprinting(false);
+            } else if (hasSplintedLegFracture) {
+                suggest(player, Dimension.MOVEMENT_SPEED, "fracture_leg_splinted",
+                        MedicalConfig.FRACTURE_SPLINTED_LEG_SPEED_MULT.get().floatValue());
+            }
+
+            boolean hasUnsplintedArmFracture = false;
+            boolean hasSplintedArmFracture = false;
+            for (MedicalData.Limb arm : new MedicalData.Limb[]{MedicalData.Limb.LEFT_ARM, MedicalData.Limb.RIGHT_ARM}) {
+                MedicalData.LimbData ld = data.getLimb(arm);
+                if (ld != null && !ld.isAmputated() && ld.hasFracture()) {
+                    if (ld.hasSplint()) hasSplintedArmFracture = true;
+                    else hasUnsplintedArmFracture = true;
+                }
+            }
+            if (hasUnsplintedArmFracture) {
+                float m = MedicalConfig.FRACTURE_UNSPLINTED_ARM_ACTION_MULT.get().floatValue();
+                suggest(player, Dimension.ATTACK_DAMAGE, "fracture_arm", m);
+                suggest(player, Dimension.ATTACK_SPEED, "fracture_arm", m);
+            } else if (hasSplintedArmFracture) {
+                float m = MedicalConfig.FRACTURE_SPLINTED_ARM_ACTION_MULT.get().floatValue();
+                suggest(player, Dimension.ATTACK_DAMAGE, "fracture_arm_splinted", m);
+                suggest(player, Dimension.ATTACK_SPEED, "fracture_arm_splinted", m);
+            }
+
             if (necLegs > 0) {
                 hasNecroticLeg = true;
                 float legMult = (necLegs >= 2)

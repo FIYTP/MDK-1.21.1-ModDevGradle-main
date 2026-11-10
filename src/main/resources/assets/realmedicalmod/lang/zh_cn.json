@@ -127,5 +127,10 @@
   "item.realmedicalmod.tourniquet": "旋压式止血带",
   "effect.realmedicalmod.limb_necrosis": "肢体坏死",
   "medical.status.necrotic": "肢体坏死",
-  "item.realmedicalmod.field_vascular_suture_kit": "野战血管缝合手术包"
+  "item.realmedicalmod.field_vascular_suture_kit": "野战血管缝合手术包",
+  "item.realmedicalmod.fasciotomy_kit": "野战筋膜切开减压包",
+  "effect.realmedicalmod.compartment_syndrome": "骨筋膜室综合征",
+  "item.realmedicalmod.splint": "铝塑卷式骨折夹板",
+  "item.realmedicalmod.ibuprofen": "布洛芬缓释止痛片",
+  "item.realmedicalmod.tranexamic_acid": "氨甲环酸止血注射器"
 }

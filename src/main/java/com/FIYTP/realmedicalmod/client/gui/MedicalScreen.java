@@ -1785,6 +1785,8 @@ public class MedicalScreen extends Screen {
         private int btnEcgX, btnEcgY, btnEcgW, btnEcgH;
         private int btnUnbindX, btnUnbindY, btnUnbindW, btnUnbindH;
         private MedicalData.Limb unbindTargetLimb = null;
+        private int btnUnbindSplintX, btnUnbindSplintY, btnUnbindSplintW, btnUnbindSplintH;
+        private MedicalData.Limb unbindSplintTargetLimb = null;
 
         public void renderLimbOrOverviewPanel(GuiGraphics g, Font font,
                                               int panelX, int panelY, int panelWidth, int panelHeight,
@@ -1919,8 +1921,14 @@ public class MedicalScreen extends Screen {
                     drawMetricCard(g, font, x, y, colW, tr("medical.detail.bleeding_rate"), bleed + " mL/m",
                             Math.min(1f, bleed / 500f), bleed > 0 ? C_ALERT_RED : 0xFF37474F);
                 }
-                drawMetricCard(g, font, x + colW + 6, y, colW, tr("medical.detail.internal_bleeding_rate"), inBleed + " mL/m",
-                        Math.min(1f, inBleed / 300f), inBleed > 0 ? 0xFFE040FB : 0xFF37474F);
+                int tampInBleed = com.FIYTP.realmedicalmod.treatment.ModItems.getCompartmentTamponadedBleed(ld);
+                if (tampInBleed > 0 && inBleed <= 0) {
+                    drawDashedBleedCard(g, font, x + colW + 6, y, colW, tr("medical.detail.internal_bleeding_rate"),
+                            tampInBleed + " mL/m", Math.min(1f, tampInBleed / 300f), 0xFFE040FB);
+                } else {
+                    drawMetricCard(g, font, x + colW + 6, y, colW, tr("medical.detail.internal_bleeding_rate"), inBleed + " mL/m",
+                            Math.min(1f, inBleed / 300f), inBleed > 0 ? 0xFFE040FB : 0xFF37474F);
+                }
                 y += 24;
 
                 drawMetricCard(g, font, x, y, colW, tr("medical.detail.pain_level"), pain + " / 10",
@@ -1936,7 +1944,11 @@ public class MedicalScreen extends Screen {
                     y = drawFullRow(g, font, x, y, w, tr("medical.detail.bleeding_rate"), bleed + " mL/min",
                             Math.min(1f, bleed / 500f), C_ALERT_RED);
                 }
-                if (inBleed > 0) {
+                int tampInBleed = com.FIYTP.realmedicalmod.treatment.ModItems.getCompartmentTamponadedBleed(ld);
+                if (tampInBleed > 0 && inBleed <= 0) {
+                    y = drawDashedBleedFullRow(g, font, x, y, w, tr("medical.detail.internal_bleeding_rate"),
+                            tampInBleed + " mL/min", Math.min(1f, tampInBleed / 300f), 0xFFE040FB);
+                } else if (inBleed > 0) {
                     y = drawFullRow(g, font, x, y, w, tr("medical.detail.internal_bleeding_rate"), inBleed + " mL/min",
                             Math.min(1f, inBleed / 300f), 0xFFE040FB);
                 }
@@ -1948,28 +1960,52 @@ public class MedicalScreen extends Screen {
 
             if (ld.hasFracture() && ld.hasSplint() && ld.getFractureTimer() > 0) {
                 y = drawFullRow(g, font, x, y, w, tr("medical.detail.fracture_healing"), ld.getFractureTimer() + "s",
-                        Mth.clamp(1.0f - ld.getFractureTimer() / 300.0f, 0.0f, 1.0f), C_SAFE_GREEN);
+                        Mth.clamp(1.0f - ld.getFractureTimer() / Math.max(1.0f, MedicalConfig.SPLINT_FRACTURE_HEAL_TIME_SEC.get().floatValue()), 0.0f, 1.0f), C_SAFE_GREEN);
             }
             if (ld.hasBurn()) {
                 y = drawFullRow(g, font, x, y, w, "烧伤 (" + ld.getBurnDegree() + "°)",
                         String.format("%.1f%%", ld.getBurnArea()), Mth.clamp(ld.getBurnArea() / 25.0f, 0.0f, 1.0f), 0xFFFF6D00);
             }
+            if (limb != MedicalData.Limb.HEAD && limb != MedicalData.Limb.CHEST && !ld.isAmputated()) {
+                float icp = com.FIYTP.realmedicalmod.treatment.ModItems.getCompartmentPressure(ld);
+                float cBlood = com.FIYTP.realmedicalmod.treatment.ModItems.getCompartmentBlood(ld);
+                if (icp > 8.0f || cBlood > 5.0f || com.FIYTP.realmedicalmod.treatment.ModItems.isCompartmentSyndrome(ld)) {
+                    int icpCol = com.FIYTP.realmedicalmod.treatment.ModItems.isCompartmentSyndrome(ld) ? C_ALERT_RED : C_WARN_YELLOW;
+                    y = drawFullRow(g, font, x, y, w, "筋膜室压",
+                            String.format("%.0f mmHg (%.0f mL)", icp, cBlood),
+                            Mth.clamp(icp / 65.0f, 0.0f, 1.0f), icpCol);
+                }
+            }
 
             y = drawLimbStatusPills(g, font, x, y + 2, w, ld);
-            if (ld.isTourniqueted() && !ld.isAmputated()) {
+            if (ld.isTourniqueted()) {
                 this.unbindTargetLimb = limb;
                 this.btnUnbindX = x;
                 this.btnUnbindY = y + 3;
                 this.btnUnbindW = Math.min(86, w);
                 this.btnUnbindH = 15;
                 int tqSec = com.FIYTP.realmedicalmod.treatment.ModItems.getTourniquetTimer(ld);
-                int bCol = (tqSec >= MedicalConfig.TOURNIQUET_ISCHEMIA_STAGE2_SEC.get()) ? C_ALERT_RED : C_WARN_YELLOW;
+                int bCol = (!ld.isAmputated() && tqSec >= MedicalConfig.TOURNIQUET_ISCHEMIA_STAGE2_SEC.get()) ? C_ALERT_RED : C_WARN_YELLOW;
                 HudRenderHelper.drawSciFiCard(g, btnUnbindX, btnUnbindY, btnUnbindW, btnUnbindH, 2, withAlpha(bCol, 0.28f), bCol);
                 g.drawCenteredString(font, "解开止血带", btnUnbindX + btnUnbindW / 2, btnUnbindY + 4, 0xFFFFFFFF);
                 y += 20;
             } else {
                 this.unbindTargetLimb = null;
                 this.btnUnbindW = 0;
+            }
+            if (ld.hasSplint()) {
+                this.unbindSplintTargetLimb = limb;
+                this.btnUnbindSplintX = x;
+                this.btnUnbindSplintY = y + 3;
+                this.btnUnbindSplintW = Math.min(86, w);
+                this.btnUnbindSplintH = 15;
+                int sCol = C_SAFE_GREEN;
+                HudRenderHelper.drawSciFiCard(g, btnUnbindSplintX, btnUnbindSplintY, btnUnbindSplintW, btnUnbindSplintH, 2, withAlpha(sCol, 0.26f), sCol);
+                g.drawCenteredString(font, "拆下夹板", btnUnbindSplintX + btnUnbindSplintW / 2, btnUnbindSplintY + 4, 0xFFFFFFFF);
+                y += 20;
+            } else {
+                this.unbindSplintTargetLimb = null;
+                this.btnUnbindSplintW = 0;
             }
 
             if (limb == MedicalData.Limb.CHEST) {
@@ -2193,13 +2229,19 @@ public class MedicalScreen extends Screen {
             boolean abnormal = false;
 
             if (ld.isAmputated()) {
-                drawPill(g, font, px, py, tr("medical.status.amputated"), 0xFFFF1744);
-                return py + 14;
+                abnormal = true;
+                int nx = drawWrappedPill(g, font, x, px, py, rightEdge, tr("medical.status.amputated"), 0xFFFF1744);
+                if (nx < 0) { py += 14; px = drawWrappedPill(g, font, x, x, py, rightEdge, tr("medical.status.amputated"), 0xFFFF1744); } else px = nx;
             }
             if (com.FIYTP.realmedicalmod.treatment.ModItems.isLimbNecrotic(ld)) {
                 abnormal = true;
                 int nx = drawWrappedPill(g, font, x, px, py, rightEdge, "肢体坏死", 0xFFCE93D8);
                 if (nx < 0) { py += 14; px = drawWrappedPill(g, font, x, x, py, rightEdge, "肢体坏死", 0xFFCE93D8); } else px = nx;
+            }
+            if (com.FIYTP.realmedicalmod.treatment.ModItems.isCompartmentSyndrome(ld)) {
+                abnormal = true;
+                int nx = drawWrappedPill(g, font, x, px, py, rightEdge, "骨筋膜室综合征", 0xFFFF6D00);
+                if (nx < 0) { py += 14; px = drawWrappedPill(g, font, x, x, py, rightEdge, "骨筋膜室综合征", 0xFFFF6D00); } else px = nx;
             }
             if (ld.isBandaged()) {
                 px = drawWrappedPill(g, font, x, px, py, rightEdge, tr("medical.status.bandaged"), 0xFF00E676);
@@ -2267,6 +2309,14 @@ public class MedicalScreen extends Screen {
                     && mouseY >= btnUnbindY && mouseY <= btnUnbindY + btnUnbindH) {
                 com.FIYTP.realmedicalmod.network.NetworkHandler.sendTreatmentToServer(
                         new com.FIYTP.realmedicalmod.network.TreatmentApplyPacket(0, unbindTargetLimb.ordinal(), -1));
+                MedicalSoundHelper.playLimbSelectSound();
+                return true;
+            }
+            if (unbindSplintTargetLimb != null && btnUnbindSplintW > 0
+                    && mouseX >= btnUnbindSplintX && mouseX <= btnUnbindSplintX + btnUnbindSplintW
+                    && mouseY >= btnUnbindSplintY && mouseY <= btnUnbindSplintY + btnUnbindSplintH) {
+                com.FIYTP.realmedicalmod.network.NetworkHandler.sendTreatmentToServer(
+                        new com.FIYTP.realmedicalmod.network.TreatmentApplyPacket(0, unbindSplintTargetLimb.ordinal(), -2));
                 MedicalSoundHelper.playLimbSelectSound();
                 return true;
             }

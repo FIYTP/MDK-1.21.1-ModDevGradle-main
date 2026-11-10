@@ -54,14 +54,28 @@ public class JumpCancelHandler {
             return;
         }
 
-        // 优先级 2: 腿部骨折且配置禁止跳跃 -> 取消跳跃
+        // 优先级 2: 腿部骨折跳跃判定（未上夹板完全禁止跳跃；绑上夹板固定后恢复受限跳跃行动力）
         if (!MedicalConfig.LEG_FRACTURE_JUMP_ALLOWED.get()) {
             MedicalData.LimbData leftLeg = data.getLimb(MedicalData.Limb.LEFT_LEG);
             MedicalData.LimbData rightLeg = data.getLimb(MedicalData.Limb.RIGHT_LEG);
-            if ((leftLeg != null && leftLeg.hasFracture())
-                    || (rightLeg != null && rightLeg.hasFracture())) {
+            boolean leftUnsplinted = leftLeg != null && leftLeg.hasFracture() && !leftLeg.hasSplint();
+            boolean rightUnsplinted = rightLeg != null && rightLeg.hasFracture() && !rightLeg.hasSplint();
+            boolean anySplintedFrac = (leftLeg != null && leftLeg.hasFracture() && leftLeg.hasSplint())
+                    || (rightLeg != null && rightLeg.hasFracture() && rightLeg.hasSplint());
+
+            if (leftUnsplinted || rightUnsplinted) {
                 cancelJump(player);
                 return;
+            } else if (anySplintedFrac) {
+                if (MedicalConfig.SPLINT_ALLOW_WEAK_JUMP.get()) {
+                    float jumpMul = MedicalConfig.SPLINT_JUMP_VELOCITY_MULT.get().floatValue();
+                    Vec3 motion = player.getDeltaMovement();
+                    player.setDeltaMovement(motion.x * 0.85, motion.y * jumpMul, motion.z * 0.85);
+                    return;
+                } else {
+                    cancelJump(player);
+                    return;
+                }
             }
         }
 

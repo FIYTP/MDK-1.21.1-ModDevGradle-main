@@ -115,11 +115,23 @@ public class BandageItem extends Item {
         if (!stack.isDamageableItem() || stack.getMaxDamage() <= 0) {
             return super.getBarColor(stack);
         }
+        if (TreatmentRouter.isTranexamicAcidItem(stack)) {
+            return 0xFFE040FB;
+        }
+        if (TreatmentRouter.isIbuprofenItem(stack)) {
+            return 0xFFFF9100;
+        }
+        if (TreatmentRouter.isSplintItem(stack)) {
+            return 0xFF69F0AE;
+        }
         if (TreatmentRouter.isAdrenalineItem(stack)) {
             return 0xFFFFD600;
         }
         if (TreatmentRouter.isNaloxoneItem(stack)) {
             return 0xFF00E5FF;
+        }
+        if (TreatmentRouter.isFasciotomyKitItem(stack)) {
+            return 0xFFFF6D00;
         }
         if (TreatmentRouter.isSutureKitItem(stack)) {
             return 0xFF00E676;
@@ -145,7 +157,15 @@ public class BandageItem extends Item {
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
         if (level.isClientSide()) {
-            if (TreatmentRouter.isAdrenalineItem(stack) || TreatmentRouter.isNaloxoneItem(stack)) {
+            if (TreatmentRouter.isIbuprofenItem(stack)) {
+                // 布洛芬口服止痛药：直接吃下一片，全身生效，无需选择肢体
+                NetworkHandler.sendTreatmentToServer(new TreatmentApplyPacket(
+                        hand.ordinal(),
+                        MedicalData.Limb.CHEST.ordinal(),
+                        100
+                ));
+                return InteractionResultHolder.success(stack);
+            } else if (TreatmentRouter.isAdrenalineItem(stack) || TreatmentRouter.isNaloxoneItem(stack)) {
                 MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
                 MedicalData.Limb target = MedicalData.Limb.LEFT_LEG;
                 if (data != null) {
@@ -162,16 +182,20 @@ public class BandageItem extends Item {
                         }
                     }
                 }
+                TreatmentClientHooks.startSyringeInjectionAnimation(hand, target, stack, 100);
                 NetworkHandler.sendTreatmentToServer(new TreatmentApplyPacket(
                         hand.ordinal(),
                         target.ordinal(),
                         100
                 ));
                 return InteractionResultHolder.success(stack);
+            } else if (TreatmentRouter.isFasciotomyKitItem(stack)) {
+                TreatmentClientHooks.openFasciotomyScreen(hand, null);
+                return InteractionResultHolder.success(stack);
             } else if (TreatmentRouter.isSutureKitItem(stack)) {
                 TreatmentClientHooks.openVascularSutureScreen(hand, null);
                 return InteractionResultHolder.success(stack);
-            } else if (TreatmentRouter.isOpioidItem(stack)) {
+            } else if (TreatmentRouter.isOpioidItem(stack) || TreatmentRouter.isTranexamicAcidItem(stack)) {
                 TreatmentClientHooks.openOpioidDoseScreen(hand, null);
                 return InteractionResultHolder.success(stack);
             }

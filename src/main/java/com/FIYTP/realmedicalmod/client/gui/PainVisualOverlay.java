@@ -50,6 +50,32 @@ public class PainVisualOverlay {
     private static float smoothLeftPain = 0.0f;
     private static float smoothRightPain = 0.0f;
 
+    // 3A 烧伤独特视觉状态（焦化热浪暗角、热空气折射波纹、表皮火纹与上升火星粒子）
+    private static float smoothBurnIntensity = 0.0f;
+    private static float smoothBurnTop = 0.0f;
+    private static float smoothBurnBottom = 0.0f;
+    private static float smoothBurnLeft = 0.0f;
+    private static float smoothBurnRight = 0.0f;
+    private static int currentMaxBurnDegree = 0;
+    private static float emberSpawnAccum = 0.0f;
+
+    private static final class BurnEmberParticle {
+        boolean active;
+        float x, y;
+        float vx, vy;
+        float size;
+        float age, maxAge;
+        float phase;
+        boolean isAsh;
+    }
+
+    private static final BurnEmberParticle[] BURN_EMBERS = new BurnEmberParticle[56];
+    static {
+        for (int i = 0; i < BURN_EMBERS.length; i++) {
+            BURN_EMBERS[i] = new BurnEmberParticle();
+        }
+    }
+
     @SubscribeEvent
     public static void onComputeCameraAngles(ViewportEvent.ComputeCameraAngles event) {
         if (!MedicalConfig.PAIN_VIGNETTE_ENABLED.get()) return;
@@ -63,7 +89,8 @@ public class PainVisualOverlay {
         float painFactor = Mth.clamp((smoothPain - startThreshold) / Math.max(1.0f, fullThreshold - startThreshold), 0.0f, 1.0f);
 
         float shockAlpha = MedicalConfig.PAIN_SHOCK_ENABLED.get() ? PainShockClientState.getShockAlpha() : 0.0f;
-        if (painFactor <= 0.001f && shockAlpha <= 0.001f) return;
+        float burnCam = MedicalConfig.BURN_VFX_ENABLED.get() ? smoothBurnIntensity : 0.0f;
+        if (painFactor <= 0.001f && shockAlpha <= 0.001f && burnCam <= 0.005f) return;
 
         double timeSec = System.currentTimeMillis() / 1000.0;
         float pulse = evaluateDicroticPulse(heartPhase);
@@ -95,6 +122,13 @@ public class PainVisualOverlay {
             tremorRoll += (dir * 0.7f + hitX * 0.6f) * shockAlpha * maxOffset * 1.15f * shockWave;
             tremorPitch += (0.65f + Math.abs(hitY) * 0.5f) * shockAlpha * maxOffset * 0.85f * shockWave;
             tremorYaw += -dir * shockAlpha * maxOffset * 0.60f * shockWave;
+        }
+
+        if (burnCam > 0.01f) {
+            // 烧伤灼痛热浪引起的视野高频微幅热折射颤动
+            tremorPitch += (float) (Math.sin(timeSec * 16.5) * 0.22 + Math.cos(timeSec * 24.3) * 0.14) * burnCam;
+            tremorYaw += (float) (Math.cos(timeSec * 14.2) * 0.18) * burnCam;
+            tremorRoll += (smoothBurnRight - smoothBurnLeft) * 0.42f * burnCam;
         }
 
         event.setRoll(event.getRoll() + tremorRoll);
@@ -155,14 +189,18 @@ public class PainVisualOverlay {
         smoothLeftPain = Mth.lerp(limbLerp, smoothLeftPain, targetLeft);
         smoothRightPain = Mth.lerp(limbLerp, smoothRightPain, targetRight);
 
+        // 计算全身与各方位烧伤强度（用于 3A 烧伤独特视觉效果）
+        updateBurnVisualState(player, data, dt);
+
         float startThreshold = MedicalConfig.PAIN_VIGNETTE_START_THRESHOLD.get().floatValue();
         float fullThreshold = MedicalConfig.PAIN_VIGNETTE_FULL_THRESHOLD.get().floatValue();
         float grayThreshold = MedicalConfig.PAIN_GRAY_WASH_THRESHOLD.get().floatValue();
 
-        if (smoothPain < startThreshold * 0.85f) return;
-
-        float painFactor = Mth.clamp((smoothPain - startThreshold) / Math.max(1.0f, fullThreshold - startThreshold), 0.0f, 1.0f);
-        if (painFactor <= 0.002f) return;
+        float painFactor = (smoothPain >= startThreshold * 0.85f)
+                ? Mth.clamp((smoothPain - startThreshold) / Math.max(1.0f, fullThreshold - startThreshold), 0.0f, 1.0f)
+                : 0.0f;
+        boolean hasBurnVfx = MedicalConfig.BURN_VFX_ENABLED.get() && smoothBurnIntensity > 0.004f;
+        if (painFactor <= 0.002f && !hasBurnVfx) return;
 
         float consciousness = data.getConsciousness();
         float consciousnessBudget = (consciousness < 40.0f)
@@ -204,7 +242,7 @@ public class PainVisualOverlay {
         }
 
         // ---------- 层级 2：主血管搏动无缝椭圆暗红晕影 ----------
-        float baseVignetteAlpha = painFactor * maxAlphaCfg * consciousnessBudget;
+        float baseVignetteAlpha = (painFactor > 0.002f) ? (painFactor * maxAlphaCfg * consciousnessBudget) : 0.0f;
         float outerPulseAlpha = Mth.clamp(baseVignetteAlpha * (0.68f + 0.32f * pulse), 0.0f, 0.88f);
 
         float innerRadius = 0.74f - 0.20f * painFactor - 0.04f * pulse * painFactor;
@@ -263,6 +301,11 @@ public class PainVisualOverlay {
                 drawScreenEdgeAnchoredCapillaries(pose, w, h, veinAlpha, painFactor, pulse,
                         leftBoost, rightBoost, topBoost, bottomBoost);
             }
+        }
+
+        // ---------- 层级 5：3A 级烧伤独特视觉系统（焦化热浪暗角 + 热空气折射波纹 + 表皮焦裂火纹 + 飞散火星） ----------
+        if (hasBurnVfx) {
+            renderThermalBurnVisuals(graphics, pose, w, h, dt, pulse, consciousnessBudget);
         }
 
         RenderSystem.enableDepthTest();
@@ -556,6 +599,297 @@ public class PainVisualOverlay {
             float t = (phase - 0.44f) / 0.56f;
             float inv = 1.0f - t;
             return 0.28f * inv * inv;
+        }
+    }
+
+    private static void updateBurnVisualState(Player player, MedicalData data, float dt) {
+        MedicalData.LimbData head = data.getLimb(MedicalData.Limb.HEAD);
+        MedicalData.LimbData chest = data.getLimb(MedicalData.Limb.CHEST);
+        MedicalData.LimbData lArm = data.getLimb(MedicalData.Limb.LEFT_ARM);
+        MedicalData.LimbData rArm = data.getLimb(MedicalData.Limb.RIGHT_ARM);
+        MedicalData.LimbData lLeg = data.getLimb(MedicalData.Limb.LEFT_LEG);
+        MedicalData.LimbData rLeg = data.getLimb(MedicalData.Limb.RIGHT_LEG);
+
+        int maxDeg = 0;
+        for (MedicalData.Limb limb : MedicalData.Limb.values()) {
+            MedicalData.LimbData ld = data.getLimb(limb);
+            if (ld != null && ld.getBurnDegree() > maxDeg) {
+                maxDeg = ld.getBurnDegree();
+            }
+        }
+        currentMaxBurnDegree = maxDeg;
+
+        float activeFireBoost = (player.isInLava() ? 0.55f : (player.isOnFire() ? 0.32f : 0.0f));
+        float tHead = computeLimbBurnSeverity(head) + activeFireBoost * 0.6f;
+        float tChest = computeLimbBurnSeverity(chest) + activeFireBoost * 0.8f;
+        float tLeft = Math.max(computeLimbBurnSeverity(lArm), computeLimbBurnSeverity(lLeg)) + activeFireBoost * 0.7f;
+        float tRight = Math.max(computeLimbBurnSeverity(rArm), computeLimbBurnSeverity(rLeg)) + activeFireBoost * 0.7f;
+
+        float tbsaNorm = Mth.clamp(data.getBurnTBSA() / 35.0f, 0.0f, 1.0f);
+        float maxLimbSev = Math.max(Math.max(tHead, tChest), Math.max(tLeft, tRight));
+        float targetIntensity = Mth.clamp(Math.max(maxLimbSev * 0.85f, tbsaNorm), 0.0f, 1.0f);
+
+        float lerpRate = Math.min(1.0f, dt * (targetIntensity > smoothBurnIntensity ? 5.0f : 2.5f));
+        smoothBurnIntensity = Mth.lerp(lerpRate, smoothBurnIntensity, targetIntensity);
+        smoothBurnTop = Mth.lerp(lerpRate, smoothBurnTop, Mth.clamp(tHead * 0.8f + tChest * 0.35f, 0.0f, 1.2f));
+        smoothBurnBottom = Mth.lerp(lerpRate, smoothBurnBottom, Mth.clamp(tChest * 0.65f + (tLeft + tRight) * 0.35f, 0.0f, 1.2f));
+        smoothBurnLeft = Mth.lerp(lerpRate, smoothBurnLeft, Mth.clamp(tLeft, 0.0f, 1.2f));
+        smoothBurnRight = Mth.lerp(lerpRate, smoothBurnRight, Mth.clamp(tRight, 0.0f, 1.2f));
+    }
+
+    private static float computeLimbBurnSeverity(MedicalData.LimbData ld) {
+        if (ld == null || !ld.hasBurn()) return 0.0f;
+        float areaNorm = Mth.clamp(ld.getBurnArea() / 28.0f, 0.08f, 1.0f);
+        float degFactor = switch (ld.getBurnDegree()) {
+            case 1 -> 0.38f;
+            case 2 -> 0.65f;
+            case 3 -> 0.88f;
+            case 4 -> 1.00f;
+            default -> 0.25f;
+        };
+        float heatBoost = (ld.getBurnHeatTimer() > 0) ? 0.18f : 0.0f;
+        return Mth.clamp(areaNorm * 0.65f + degFactor * 0.45f + heatBoost, 0.0f, 1.0f);
+    }
+
+    /**
+     * 渲染 3A 级独特烧伤视觉效果：
+     * 1. 外圈焦黑碳化痂壳 (III/IV度) + 中圈水疱灼伤烈焰橙晕影 + 内圈加色混合白炽热浪脉动
+     * 2. 屏幕四边上升的扭曲热空气折射波纹带 (Thermal Mirage Convection Ribbons)
+     * 3. 锚定屏幕四边的表皮焦裂熔岩火纹 (Epidermal Crackling Ember Fissures)
+     * 4. 随热气流飘升的灼热火星与焦灰粒子 (Rising Ember Sparks & Char Ash)
+     */
+    private static void renderThermalBurnVisuals(
+            GuiGraphics graphics, Matrix4f pose, int w, int h,
+            float dt, float pulse, float consciousnessBudget) {
+
+        float maxCfg = MedicalConfig.BURN_VFX_MAX_INTENSITY.get().floatValue();
+        float intensity = Mth.clamp(smoothBurnIntensity * maxCfg * consciousnessBudget, 0.0f, 0.95f);
+        if (intensity <= 0.004f) return;
+
+        float timeSec = (System.currentTimeMillis() % 120000L) / 1000.0f;
+        float thermalWave = 0.5f + 0.5f * Mth.sin(timeSec * 3.4f + pulse * 0.9f);
+
+        float bLeft = smoothBurnLeft * 0.55f;
+        float bRight = smoothBurnRight * 0.55f;
+        float bTop = smoothBurnTop * 0.55f;
+        float bBottom = smoothBurnBottom * 0.65f;
+
+        float innerR = 0.76f - 0.18f * intensity - 0.03f * thermalWave * intensity;
+        float midR = innerR + 0.20f;
+
+        // 1) 重度烧伤 (III/IV度) 外缘焦黑碳化痂壳层 (Charred Eschar Outer Ring)
+        if (currentMaxBurnDegree >= 3 || intensity > 0.55f) {
+            float charAlpha = Mth.clamp(intensity * (currentMaxBurnDegree >= 4 ? 0.82f : 0.62f), 0.0f, 0.80f);
+            drawEllipticalRing(pose, w, h,
+                    midR - 0.04f, 0.0f,
+                    1.45f, charAlpha,
+                    28, 6, 2,
+                    bLeft, bRight, bTop, bBottom);
+        }
+
+        // 2) 中层灼伤烈焰红橙水疱热晕 (Blistering Scald Orange-Red Vignette)
+        float midAlpha = Mth.clamp(intensity * (0.52f + 0.25f * thermalWave), 0.0f, 0.76f);
+        drawEllipticalRing(pose, w, h,
+                innerR, 0.0f,
+                midR + 0.08f, midAlpha,
+                235, 58, 8,
+                bLeft, bRight, bTop, bBottom);
+
+        // 3) 内层加色混合白炽琥珀热浪光晕与上升热气流波纹 (Additive Thermal Shimmer & Convection Ripples)
+        RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
+
+        float glowAlpha = Mth.clamp(intensity * (0.28f + 0.30f * pulse + 0.18f * thermalWave), 0.0f, 0.58f);
+        drawEllipticalRing(pose, w, h,
+                innerR - 0.05f, 0.0f,
+                innerR + 0.15f, glowAlpha,
+                255, 145, 15,
+                bLeft, bRight, bTop, bBottom);
+
+        drawThermalConvectionWaves(pose, w, h, intensity, timeSec, bLeft, bRight, bTop, bBottom);
+        RenderSystem.defaultBlendFunc();
+
+        // 4) 严格锚定屏幕边缘的表皮焦裂火纹 (Epidermal Crackling Ember Fissures)
+        if (intensity > 0.12f) {
+            drawThermalFissureCracks(pose, w, h, intensity, timeSec, pulse, bLeft, bRight, bTop, bBottom);
+        }
+
+        // 5) 实时上升火星与焦灰粒子 (Rising Ember Sparks & Ash)
+        updateAndRenderBurnEmbers(pose, w, h, dt, intensity, timeSec);
+    }
+
+    private static void drawThermalConvectionWaves(
+            Matrix4f pose, int w, int h, float intensity, float timeSec,
+            float bLeft, float bRight, float bTop, float bBottom) {
+
+        Tesselator tess = Tesselator.getInstance();
+        BufferBuilder buf = tess.begin(VertexFormat.Mode.TRIANGLE_STRIP, DefaultVertexFormat.POSITION_COLOR);
+
+        int steps = 40;
+        float bandDepth = Math.min(w, h) * (0.09f + 0.10f * intensity);
+        for (int i = 0; i <= steps; i++) {
+            float u = i / (float) steps;
+            float x = u * w;
+            float wave1 = Mth.sin(u * 14.0f - timeSec * 4.8f) * 0.5f + Mth.cos(u * 23.0f + timeSec * 6.2f) * 0.5f;
+            float localH = bandDepth * (0.65f + 0.35f * wave1) * (1.0f + bBottom * 0.5f) * Mth.sin(u * (float) Math.PI);
+            int aBot = (int) (Mth.clamp(intensity * 0.38f * (1.0f + bBottom * 0.4f), 0.0f, 0.55f) * 255.0f);
+
+            buf.addVertex(pose, x, h + 2.0f, 0.0f).setColor(255, 95, 10, aBot);
+            buf.addVertex(pose, x + wave1 * 6.0f, h - localH, 0.0f).setColor(255, 190, 40, 0);
+        }
+
+        MeshData mesh = buf.build();
+        if (mesh != null) {
+            BufferUploader.drawWithShader(mesh);
+        }
+    }
+
+    private static void drawThermalFissureCracks(
+            Matrix4f pose, int w, int h, float intensity, float timeSec, float pulse,
+            float bLeft, float bRight, float bTop, float bBottom) {
+
+        float cx = w * 0.5f;
+        float cy = h * 0.5f;
+        int totalCracks = 24;
+        int crackSteps = 9;
+
+        Tesselator tess = Tesselator.getInstance();
+        BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+
+        for (int i = 0; i < totalCracks; i++) {
+            float perim = (i + 0.5f) / (float) totalCracks * 4.0f;
+            int edge = ((int) perim) % 4;
+            float frac = Mth.clamp(perim - (int) perim + Mth.sin(i * 19.3f) * 0.03f, 0.03f, 0.97f);
+
+            float rx, ry;
+            float dirWeight = 1.0f;
+            switch (edge) {
+                case 0 -> { rx = frac * w; ry = -2.0f; dirWeight += bTop; }
+                case 1 -> { rx = w + 2.0f; ry = frac * h; dirWeight += bRight; }
+                case 2 -> { rx = (1.0f - frac) * w; ry = h + 2.0f; dirWeight += bBottom; }
+                default -> { rx = -2.0f; ry = (1.0f - frac) * h; dirWeight += bLeft; }
+            }
+
+            float dx = cx - rx;
+            float dy = cy - ry;
+            float dist = Mth.sqrt(dx * dx + dy * dy);
+            if (dist < 1.0f) continue;
+            float inX = dx / dist;
+            float inY = dy / dist;
+            float pX = -inY;
+            float pY = inX;
+
+            float maxLen = Math.min(w, h) * (0.09f + 0.13f * intensity * dirWeight) * (0.75f + 0.25f * Mth.sin(i * 31.7f));
+            float baseA = Mth.clamp(intensity * dirWeight * 0.88f, 0.0f, 0.94f);
+            float baseW = 1.25f + 1.05f * intensity;
+
+            float prevX = rx;
+            float prevY = ry;
+
+            for (int s = 1; s <= crackSteps; s++) {
+                float t = s / (float) crackSteps;
+                float prevT = (s - 1) / (float) crackSteps;
+
+                // 折线形焦裂折角（不同于平滑正弦血管，呈现干裂灼伤纹路）
+                float zig = Mth.sin(s * 2.45f + i * 3.1f) * maxLen * 0.12f * Mth.sin(t * (float) Math.PI);
+                float curX = rx + inX * (t * maxLen) + pX * zig;
+                float curY = ry + inY * (t * maxLen) + pY * zig;
+
+                float tap1 = 1.0f - prevT * 0.85f;
+                float tap2 = 1.0f - t * 0.92f;
+                int a1 = (int) (baseA * tap1 * 255.0f);
+                int a2 = (int) (baseA * tap2 * 255.0f);
+
+                // 外层焦黑碳化裂口边缘
+                addTaperedQuadSegment(buf, pose, prevX, prevY, curX, curY,
+                        baseW * tap1 * 2.0f, baseW * tap2 * 2.0f,
+                        38, 8, 2, a1 * 2 / 3, a2 * 2 / 3);
+
+                // 内层炽热熔金橙红火芯
+                float sparkPulse = 0.5f + 0.5f * Mth.sin(timeSec * 6.5f - t * 4.5f + i);
+                int cr = 255;
+                int cg = (int) Mth.lerp(sparkPulse, 85, 215);
+                int cb = (int) Mth.lerp(sparkPulse, 5, 65);
+                addTaperedQuadSegment(buf, pose, prevX, prevY, curX, curY,
+                        baseW * tap1 * 0.78f, baseW * tap2 * 0.78f,
+                        cr, cg, cb, a1, a2);
+
+                prevX = curX;
+                prevY = curY;
+            }
+        }
+
+        MeshData mesh = buf.build();
+        if (mesh != null) {
+            BufferUploader.drawWithShader(mesh);
+        }
+    }
+
+    private static void updateAndRenderBurnEmbers(Matrix4f pose, int w, int h, float dt, float intensity, float timeSec) {
+        emberSpawnAccum += dt * (14.0f + 42.0f * intensity);
+        while (emberSpawnAccum >= 1.0f) {
+            emberSpawnAccum -= 1.0f;
+            for (BurnEmberParticle p : BURN_EMBERS) {
+                if (!p.active) {
+                    p.active = true;
+                    // 主要从屏幕底部与左右烧伤边缘升起
+                    int side = (int) (Math.random() * 10);
+                    if (side < 6) {
+                        p.x = (float) (Math.random() * w);
+                        p.y = h + 3.0f;
+                    } else if (side < 8) {
+                        p.x = (float) (Math.random() * (w * 0.18f));
+                        p.y = h * (0.35f + (float) Math.random() * 0.65f);
+                    } else {
+                        p.x = w - (float) (Math.random() * (w * 0.18f));
+                        p.y = h * (0.35f + (float) Math.random() * 0.65f);
+                    }
+                    p.vx = (float) (Math.random() * 18.0 - 9.0);
+                    p.vy = -(28.0f + (float) (Math.random() * 46.0f) * (0.6f + 0.6f * intensity));
+                    p.size = 1.1f + (float) (Math.random() * 1.6f);
+                    p.age = 0.0f;
+                    p.maxAge = 0.85f + (float) (Math.random() * 1.15f);
+                    p.phase = (float) (Math.random() * Math.PI * 2.0);
+                    p.isAsh = Math.random() < 0.28;
+                    break;
+                }
+            }
+        }
+
+        Tesselator tess = Tesselator.getInstance();
+        BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        boolean any = false;
+
+        for (BurnEmberParticle p : BURN_EMBERS) {
+            if (!p.active) continue;
+            p.age += dt;
+            if (p.age >= p.maxAge) {
+                p.active = false;
+                continue;
+            }
+            float sway = Mth.sin(timeSec * 5.2f + p.phase + p.age * 3.5f) * 16.0f;
+            p.x += (p.vx + sway) * dt;
+            p.y += p.vy * dt;
+
+            float life = 1.0f - (p.age / p.maxAge);
+            float alpha = Mth.sin(life * (float) Math.PI) * Mth.clamp(intensity * 1.25f, 0.25f, 0.95f);
+            int a = Mth.clamp((int) (alpha * 255.0f), 0, 255);
+            if (a <= 2) continue;
+
+            int r = p.isAsh ? 55 : 255;
+            int g = p.isAsh ? 28 : (int) Mth.lerp(life, 75, 220);
+            int b = p.isAsh ? 22 : (int) Mth.lerp(life, 10, 80);
+            float hs = p.size * (0.6f + 0.4f * life);
+
+            buf.addVertex(pose, p.x - hs, p.y + hs, 0.0f).setColor(r, g, b, a);
+            buf.addVertex(pose, p.x + hs, p.y + hs, 0.0f).setColor(r, g, b, a);
+            buf.addVertex(pose, p.x + hs, p.y - hs, 0.0f).setColor(r, g, b, a);
+            buf.addVertex(pose, p.x - hs, p.y - hs, 0.0f).setColor(r, g, b, a);
+            any = true;
+        }
+
+        MeshData mesh = buf.build();
+        if (mesh != null && any) {
+            BufferUploader.drawWithShader(mesh);
         }
     }
 }

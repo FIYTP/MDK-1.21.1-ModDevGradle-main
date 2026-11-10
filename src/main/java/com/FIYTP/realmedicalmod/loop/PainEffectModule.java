@@ -68,12 +68,15 @@ public class PainEffectModule implements UpdateModule {
 
             float normP = Mth.clamp(p / maxLimbPain, 0.0f, 1.0f);
             float nonLinearCurve = (float) Math.pow(normP, actionExponent);
+            float splintMobilityRelief = (limbData.hasFracture() && limbData.hasSplint())
+                    ? (1.0f - Mth.clamp(MedicalConfig.SPLINT_MOBILITY_PAIN_RELIEF_FACTOR.get().floatValue(), 0.0f, 0.9f))
+                    : 1.0f;
 
             switch (limb) {
                 case LEFT_LEG, RIGHT_LEG -> {
                     float linearLoss = legSlope * p;
                     float expLoss = legMaxPenalty * nonLinearCurve;
-                    float totalLoss = Mth.clamp(Math.max(linearLoss, expLoss) * adrPainReliefFactor, 0.0f, legMaxPenalty);
+                    float totalLoss = Mth.clamp(Math.max(linearLoss, expLoss) * adrPainReliefFactor * splintMobilityRelief, 0.0f, legMaxPenalty);
                     float mul = Mth.clamp(1.0f - totalLoss, 0.05f, 1.0f);
 
                     AttributeArbiter.suggest(player, Dimension.MOVEMENT_SPEED,
@@ -85,8 +88,8 @@ public class PainEffectModule implements UpdateModule {
                 case LEFT_ARM, RIGHT_ARM -> {
                     String src = "pain_" + limb.name().toLowerCase();
 
-                    float atkLoss = Mth.clamp(Math.max(armAttackSlope * p, armMaxAttackPenalty * nonLinearCurve) * adrPainReliefFactor, 0.0f, armMaxAttackPenalty);
-                    float spdLoss = Mth.clamp(Math.max(armSpeedSlope * p, armMaxSpeedPenalty * nonLinearCurve) * adrPainReliefFactor, 0.0f, armMaxSpeedPenalty);
+                    float atkLoss = Mth.clamp(Math.max(armAttackSlope * p, armMaxAttackPenalty * nonLinearCurve) * adrPainReliefFactor * splintMobilityRelief, 0.0f, armMaxAttackPenalty);
+                    float spdLoss = Mth.clamp(Math.max(armSpeedSlope * p, armMaxSpeedPenalty * nonLinearCurve) * adrPainReliefFactor * splintMobilityRelief, 0.0f, armMaxSpeedPenalty);
 
                     AttributeArbiter.suggest(player, Dimension.ATTACK_DAMAGE, src, Mth.clamp(1.0f - atkLoss, 0.05f, 1.0f));
                     AttributeArbiter.suggest(player, Dimension.ATTACK_SPEED, src, Mth.clamp(1.0f - spdLoss, 0.05f, 1.0f));
@@ -109,8 +112,19 @@ public class PainEffectModule implements UpdateModule {
             float sysNorm = Mth.clamp(perceivedPain / maxPerceivedPain, 0.0f, 1.0f);
             float sysCurve = (float) Math.pow(sysNorm, actionExponent);
 
-            float sysSpeedMul = Mth.clamp(1.0f - systemicMaxSpeedPenalty * sysCurve * adrPainReliefFactor, 0.05f, 1.0f);
-            float sysActionMul = Mth.clamp(1.0f - systemicMaxActionPenalty * sysCurve * adrPainReliefFactor, 0.05f, 1.0f);
+            boolean anySplinted = false;
+            for (MedicalData.Limb l : MedicalData.Limb.values()) {
+                MedicalData.LimbData ld = data.getLimb(l);
+                if (ld != null && ld.hasFracture() && ld.hasSplint()) {
+                    anySplinted = true;
+                    break;
+                }
+            }
+            float sysSplintRelief = anySplinted
+                    ? (1.0f - Mth.clamp(MedicalConfig.SPLINT_MOBILITY_PAIN_RELIEF_FACTOR.get().floatValue() * 0.5f, 0.0f, 0.6f))
+                    : 1.0f;
+            float sysSpeedMul = Mth.clamp(1.0f - systemicMaxSpeedPenalty * sysCurve * adrPainReliefFactor * sysSplintRelief, 0.05f, 1.0f);
+            float sysActionMul = Mth.clamp(1.0f - systemicMaxActionPenalty * sysCurve * adrPainReliefFactor * sysSplintRelief, 0.05f, 1.0f);
 
             AttributeArbiter.suggest(player, Dimension.MOVEMENT_SPEED, "pain_systemic", sysSpeedMul);
             AttributeArbiter.suggest(player, Dimension.ATTACK_DAMAGE, "pain_systemic", sysActionMul);

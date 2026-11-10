@@ -85,6 +85,22 @@ public class VanillaDamageBlocker {
             }
         }
 
+        // 若是火焰、熔岩、岩浆块、火球等热力伤害，加速目标肢体烧伤面积与烧伤度数上涨
+        if (player instanceof ServerPlayer spBurn) {
+            boolean isThermal = "inFire".equals(msgId) || "onFire".equals(msgId)
+                    || "lava".equals(msgId) || "hotFloor".equals(msgId)
+                    || "fireball".equals(msgId) || "unattributed_fireball".equals(msgId)
+                    || "campfire".equals(msgId)
+                    || source.is(net.minecraft.tags.DamageTypeTags.IS_FIRE);
+            if (isThermal) {
+                MedicalData burnData = spBurn.getData(MedicalDataCapability.MEDICAL_DATA);
+                if (burnData != null) {
+                    float thermalRaw = Math.max(1.0f, Math.max(event.getOriginalDamage(), event.getNewDamage()));
+                    ModItems.applyThermalBurnImpulse(spBurn, burnData, msgId, thermalRaw);
+                }
+            }
+        }
+
         // 受伤时赋予短暂的内源性「肾上腺素激增 I」应激 Buff
         if (player instanceof ServerPlayer sp && !"inWall".equals(msgId) && !"drown".equals(msgId) && !"starve".equals(msgId)) {
             float rawDmg = Math.max(event.getOriginalDamage(), event.getNewDamage());
