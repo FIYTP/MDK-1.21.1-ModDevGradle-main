@@ -678,6 +678,106 @@ public class MedicalConfig {
     public static ModConfigSpec.IntValue TXA_THROMBOSIS_ISCHEMIA_MULT;
     public static ModConfigSpec.IntValue TXA_DIZZINESS_TICKS;
 
+    public static ModConfigSpec.IntValue ORTHO_MIN_CONSCIOUSNESS;
+    public static ModConfigSpec.IntValue ORTHO_DURABILITY_COST;
+    public static ModConfigSpec.IntValue ORTHO_SURGERY_HEAL_TIME_SEC;
+    public static ModConfigSpec.IntValue ORTHO_MISTAKE_PAIN_GAIN;
+    public static ModConfigSpec.IntValue ORTHO_MISTAKE_BLOOD_LOSS;
+    public static ModConfigSpec.IntValue ORTHO_ABORT_INTERNAL_BLEED_PENALTY;
+    public static ModConfigSpec.IntValue ORTHO_SPLINTER_COUNT;
+    public static ModConfigSpec.DoubleValue ORTHO_REDUCTION_TOLERANCE_PX;
+    public static ModConfigSpec.DoubleValue ORTHO_REDUCTION_HOLD_SECONDS;
+    public static ModConfigSpec.IntValue ORTHO_SCREW_COUNT;
+    public static ModConfigSpec.DoubleValue ORTHO_DRILL_HOLD_SECONDS;
+    public static ModConfigSpec.IntValue OPEN_FRACTURE_SPLINT_INFECTION_PENALTY_PER_SEC;
+    public static ModConfigSpec.IntValue UNSTABLE_FRACTURE_MOVE_INTERNAL_BLEED_GAIN;
+    public static ModConfigSpec.IntValue RIB_FRACTURE_DELAYED_HEMOTHORAX_STRAIN_THRESHOLD;
+    public static ModConfigSpec.DoubleValue RIB_FRACTURE_DELAYED_HEMOTHORAX_BLOOD_ML;
+    public static ModConfigSpec.DoubleValue FLAIL_CHEST_O2_PENALTY_PER_SEC;
+
+    public static ModConfigSpec.IntValue CHEST_DRAIN_MIN_CONSCIOUSNESS;
+    public static ModConfigSpec.IntValue CHEST_DRAIN_DURABILITY_COST;
+    public static ModConfigSpec.IntValue CHEST_DRAIN_MISTAKE_PAIN_GAIN;
+    public static ModConfigSpec.IntValue CHEST_DRAIN_MISTAKE_BLOOD_LOSS;
+    public static ModConfigSpec.IntValue CHEST_DRAIN_ABORT_BLEED_PENALTY;
+    public static ModConfigSpec.DoubleValue HEMOTHORAX_SELF_ABSORB_MAX_ML;
+    public static ModConfigSpec.DoubleValue HEMOTHORAX_SELF_ABSORB_RATE_ML_PER_SEC;
+    public static ModConfigSpec.DoubleValue LUNG_CONTUSION_BASE_DECAY_PER_SEC;
+    public static ModConfigSpec.DoubleValue LUNG_CONTUSION_TXA_SPEED_MULT;
+    public static ModConfigSpec.DoubleValue LUNG_CONTUSION_NSAID_SPEED_MULT;
+    public static ModConfigSpec.DoubleValue LUNG_CONTUSION_SPRINT_WORSEN_PER_SEC;
+
+    // --- 创伤性气胸（闭合性/开放性吸吮伤/张力性气胸）与 14G 胸腔穿刺减压针配置 (11项) ---
+    public static ModConfigSpec.DoubleValue PNEUMOTHORAX_CLOSED_SELF_ABSORB_MAX_ML;
+    public static ModConfigSpec.DoubleValue PNEUMOTHORAX_SELF_ABSORB_RATE_ML_PER_SEC;
+    public static ModConfigSpec.DoubleValue PNEUMOTHORAX_OPEN_INFLOW_ML_PER_SEC;
+    public static ModConfigSpec.DoubleValue PNEUMOTHORAX_VALVE_SEAL_VENT_ML_PER_SEC;
+    public static ModConfigSpec.DoubleValue PNEUMOTHORAX_DEAD_SEAL_TENSION_GAIN_ML_PER_SEC;
+    public static ModConfigSpec.DoubleValue PNEUMOTHORAX_TENSION_THRESHOLD_ML;
+    public static ModConfigSpec.IntValue PNEUMOTHORAX_TENSION_BP_DROP_PER_SEC;
+    public static ModConfigSpec.DoubleValue PNEUMOTHORAX_TENSION_O2_LOSS_PER_SEC;
+    public static ModConfigSpec.DoubleValue DECOMPRESSION_NEEDLE_DRAIN_ML;
+    public static ModConfigSpec.IntValue DECOMPRESSION_NEEDLE_SAFE_WINDOW_SEC;
+    public static ModConfigSpec.IntValue DECOMPRESSION_NEEDLE_DURABILITY_COST;
+
+    // --- 中毒、局部/全身感染与 SIRS（全身炎症反应综合征）临床药物与针剂配置 (33项) ---
+    public static ModConfigSpec.IntValue CHARCOAL_DOSE_DURABILITY_COST;
+    public static ModConfigSpec.DoubleValue CHARCOAL_IMMEDIATE_TOXIN_CLEAR;
+    public static ModConfigSpec.IntValue CHARCOAL_DURATION_SEC;
+    public static ModConfigSpec.DoubleValue CHARCOAL_DECAY_MULT;
+    public static ModConfigSpec.DoubleValue CHARCOAL_SEVERE_TOXIN_THRESHOLD;
+    public static ModConfigSpec.IntValue CHARCOAL_MIN_CONSCIOUSNESS;
+
+    public static ModConfigSpec.IntValue NAC_MAX_DOSE_UNITS;
+    public static ModConfigSpec.DoubleValue NAC_MAX_MG;
+    public static ModConfigSpec.DoubleValue NAC_IMMEDIATE_TOXIN_CLEAR;
+    public static ModConfigSpec.DoubleValue NAC_CONCENTRATION_PER_FULL_DOSE;
+    public static ModConfigSpec.DoubleValue NAC_DECAY_RATE_PER_SEC;
+    public static ModConfigSpec.DoubleValue NAC_CONTINUOUS_TOXIN_CLEAR_PER_SEC;
+    public static ModConfigSpec.IntValue NAC_HISTAMINE_OVERDOSE_THRESHOLD;
+    public static ModConfigSpec.IntValue NAC_HISTAMINE_SYS_BP_DROP;
+    public static ModConfigSpec.DoubleValue NAC_HISTAMINE_BRONCHOSPASM_O2_LOSS;
+
+    public static ModConfigSpec.IntValue POVIDONE_DURABILITY_COST;
+    public static ModConfigSpec.IntValue POVIDONE_IMMEDIATE_INFECTION_CLEAN;
+    public static ModConfigSpec.IntValue POVIDONE_DEEP_INFECTION_THRESHOLD;
+    public static ModConfigSpec.IntValue POVIDONE_PROTECTION_DURATION_SEC;
+    public static ModConfigSpec.DoubleValue POVIDONE_IMMUNE_SPEED_MULT;
+    public static ModConfigSpec.IntValue POVIDONE_OPEN_WOUND_STING_PAIN;
+
+    public static ModConfigSpec.IntValue AMOXICILLIN_DOSE_DURABILITY_COST;
+    public static ModConfigSpec.IntValue AMOXICILLIN_ONSET_DELAY_SEC;
+    public static ModConfigSpec.IntValue AMOXICILLIN_ACTIVE_DURATION_SEC;
+    public static ModConfigSpec.DoubleValue AMOXICILLIN_CONTINUOUS_KILL_PER_SEC;
+    public static ModConfigSpec.DoubleValue AMOXICILLIN_IMMUNE_MULT;
+    public static ModConfigSpec.DoubleValue AMOXICILLIN_SHOCK_MALABSORPTION_FACTOR;
+    public static ModConfigSpec.DoubleValue AMOXICILLIN_OVERDOSE_TOXIN_GAIN;
+
+    public static ModConfigSpec.IntValue MEROPENEM_MAX_DOSE_UNITS;
+    public static ModConfigSpec.DoubleValue MEROPENEM_MAX_MG;
+    public static ModConfigSpec.IntValue MEROPENEM_TARGET_INFECTION_CLEAR;
+    public static ModConfigSpec.IntValue MEROPENEM_SYSTEMIC_INFECTION_CLEAR;
+    public static ModConfigSpec.DoubleValue MEROPENEM_CONCENTRATION_PER_FULL_DOSE;
+    public static ModConfigSpec.DoubleValue MEROPENEM_DECAY_RATE_PER_SEC;
+    public static ModConfigSpec.DoubleValue MEROPENEM_CONTINUOUS_KILL_PER_SEC;
+    public static ModConfigSpec.DoubleValue MEROPENEM_SIRS_RECOVERY_SPEED_MULT;
+    public static ModConfigSpec.DoubleValue MEROPENEM_SIRS_TPR_RESTORE;
+    public static ModConfigSpec.IntValue MEROPENEM_HERXHEIMER_INFECTION_THRESHOLD;
+    public static ModConfigSpec.DoubleValue MEROPENEM_HERXHEIMER_DOSE_RATIO_THRESHOLD;
+    public static ModConfigSpec.DoubleValue MEROPENEM_HERXHEIMER_TOXIN_SPIKE;
+    public static ModConfigSpec.IntValue MEROPENEM_NEUROTOXIC_THRESHOLD;
+    public static ModConfigSpec.BooleanValue LOCK_HOTBAR_DURING_MEDICAL_ANIM;
+    public static ModConfigSpec.IntValue SURGICAL_KIT_READY_ANIM_DURATION_MS;
+
+
+
+
+
+
+
+
+
+
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
 
@@ -2289,6 +2389,8 @@ public class MedicalConfig {
                 .comment("肾上腺素退潮透支期内的移动速度与攻速倍率 (默认 0.88 = -12% 移速)")
                 .defineInRange("adrenalineCrashSpeedMult", 0.88, 0.3, 1.0);
 
+        builder.pop();
+
         // ==================== 盐酸纳洛酮与止血带/肢体坏死配置 ====================
         builder.comment("盐酸纳洛酮拮抗剂、止血带大出血限制、肢体缺血坏死与突发重伤视觉配置")
                 .push("naloxone_and_tourniquet");
@@ -2372,79 +2474,7 @@ public class MedicalConfig {
                 .defineInRange("heavyTraumaCameraRecoilMult", 2.2, 0.5, 10.0);
 
 
-            builder.comment("野战血管缝合手术包 (field_vascular_suture_kit) 与双路径微创手术小游戏参数")
-                    .push("vascular_suture_kit");
-
-            SUTURE_MIN_CONSCIOUSNESS = builder
-                    .comment("使用野战血管缝合手术包所需的最低清醒意识阈值 (% ，默认 50)")
-                    .defineInRange("sutureMinConsciousness", 50, 10, 100);
-            SUTURE_ARTERIAL_BLEED_THRESHOLD = builder
-                    .comment("判定为主干动脉断裂（推荐路径B血管桥接，若强行选路径A结扎将引发缺血）的出血率阈值 (mL/min，默认 1000)")
-                    .defineInRange("sutureArterialBleedThreshold", 1000, 200, 5000);
-            SUTURE_LIGATION_DURABILITY_COST = builder
-                    .comment("完成路径 A（血管结扎闭塞术）消耗的手术包耐久度 (默认 20，满耐久 100)")
-                    .defineInRange("sutureLigationDurabilityCost", 20, 1, 100);
-            SUTURE_ANASTOMOSIS_DURABILITY_COST = builder
-                    .comment("完成路径 B（血管吻合桥接术）消耗的手术包耐久度 (默认 25，满耐久 100)")
-                    .defineInRange("sutureAnastomosisDurabilityCost", 25, 1, 100);
-            SUTURE_MISTAKE_PAIN_GAIN = builder
-                    .comment("手术小游戏操作失误（夹偏、崩断缝线、收缩期强夹、缝歪）单次增加的局部疼痛等级 (默认 1)")
-                    .defineInRange("sutureMistakePainGain", 1, 0, 10);
-            SUTURE_MISTAKE_BLOOD_LOSS = builder
-                    .comment("手术小游戏操作失误单次喷溅流失的血量 (mL，默认 15)")
-                    .defineInRange("sutureMistakeBloodLoss", 15, 0, 500);
-            SUTURE_ABORT_TEAR_BLEED_INCREASE = builder
-                    .comment("撑开切口后未完成手术强行中断或昏迷造成的血管二次撕裂出血增量 (mL/min，默认 120)")
-                    .defineInRange("sutureAbortTearBleedIncrease", 120, 0, 1000);
-            SUTURE_ARTERIAL_LIGATION_LEG_SPEED_MULT = builder
-                    .comment("对 >1000 mL/min 腿部主干动脉强行采取路径 A 结扎后的缺血移速倍率 (默认 0.62)")
-                    .defineInRange("sutureArterialLigationLegSpeedMult", 0.62, 0.05, 1.0);
-            SUTURE_ARTERIAL_LIGATION_ARM_ACTION_MULT = builder
-                    .comment("对 >1000 mL/min 手臂主干动脉强行采取路径 A 结扎后的缺血攻速与伤害倍率 (默认 0.65)")
-                    .defineInRange("sutureArterialLigationArmActionMult", 0.65, 0.05, 1.0);
-
-            SUTURE_RETRACTOR_OPEN_THRESHOLD = builder
-                    .comment("第 1 步左右创口牵开器撑开并锁定切口所需的最小张开比例 (默认 0.88)")
-                    .defineInRange("sutureRetractorOpenThreshold", 0.88, 0.50, 0.98);
-            SUTURE_STUMP_DRIFT_AMPLITUDE = builder
-                    .comment("路径 A-2 游离血管断端受组织痉挛摆动的幅度 (像素，默认 8.5)")
-                    .defineInRange("sutureStumpDriftAmplitude", 8.5, 0.0, 30.0);
-            SUTURE_STUMP_CLAMP_RADIUS = builder
-                    .comment("止血钳/微血管夹精准夹持血管断端的判定半径 (像素，默认 13.0)")
-                    .defineInRange("sutureStumpClampRadius", 13.0, 4.0, 30.0);
-            SUTURE_WINDING_REQUIRED_DEGREES = builder
-                    .comment("路径 A-3 外科结绕线所需的累计旋转角度 (度，默认 720.0 = 绕满 2 圈)")
-                    .defineInRange("sutureWindingRequiredDegrees", 720.0, 180.0, 1800.0);
-            SUTURE_KNOT_TENSION_MIN = builder
-                    .comment("路径 A-3 死结收紧锁死绿色区间的张力下限 (默认 0.68)")
-                    .defineInRange("sutureKnotTensionMin", 0.68, 0.30, 0.90);
-            SUTURE_KNOT_TENSION_MAX = builder
-                    .comment("路径 A-3 死结收紧锁死绿色区间的张力上限 (默认 0.92)")
-                    .defineInRange("sutureKnotTensionMax", 0.92, 0.50, 0.98);
-            SUTURE_KNOT_TENSION_SNAP = builder
-                    .comment("路径 A-3 用力过猛导致缝线崩断的极限张力阈值 (默认 0.98)")
-                    .defineInRange("sutureKnotTensionSnap", 0.98, 0.80, 1.00);
-            SUTURE_KNOT_HOLD_SECONDS = builder
-                    .comment("路径 A-3 在绿色锁死张力区间内需保持的时长 (秒，默认 0.75)")
-                    .defineInRange("sutureKnotHoldSeconds", 0.75, 0.20, 5.00);
-            SUTURE_BULLDOG_CALM_BEAT_MAX = builder
-                    .comment("路径 B-2 动脉舒张期允许扣上哈巴狗阻断夹的最大搏动波阈值 (默认 0.35)")
-                    .defineInRange("sutureBulldogCalmBeatMax", 0.35, 0.05, 0.90);
-            SUTURE_GRAFT_ALIGN_TOLERANCE_DEG = builder
-                    .comment("路径 B-3 人工血管桥接管嵌入时允许的最大角度偏差 (度，默认 9.5)")
-                    .defineInRange("sutureGraftAlignToleranceDeg", 9.5, 2.0, 30.0);
-            SUTURE_GRAFT_SNAP_DISTANCE = builder
-                    .comment("路径 B-3 人工血管桥接管嵌入断端中心的判定半径 (像素，默认 13.0)")
-                    .defineInRange("sutureGraftSnapDistance", 13.0, 4.0, 35.0);
-            SUTURE_ANASTOMOSIS_STITCH_COUNT = builder
-                    .comment("路径 B-4 端端血管吻合所需的总缝合针数 (默认 6)")
-                    .defineInRange("sutureAnastomosisStitchCount", 6, 2, 12);
-            SUTURE_CURSOR_PAIN_SHAKE_MAX = builder
-                    .comment("剧痛状态下手术器械准星的最大生理震颤幅度 (像素，默认 4.2)")
-                    .defineInRange("sutureCursorPainShakeMax", 4.2, 0.0, 15.0);
-            SUTURE_CURSOR_WITHDRAWAL_SHAKE = builder
-                    .comment("阿片戒断状态下手术器械准星叠加的额外手抖幅度 (像素，默认 4.5)")
-                    .defineInRange("sutureCursorWithdrawalShake", 4.5, 0.0, 15.0);
+        builder.pop();
 
             builder.comment("野战血管缝合手术包 (field_vascular_suture_kit) 与双路径微创手术小游戏参数")
                     .push("vascular_suture_kit");
@@ -2539,6 +2569,8 @@ public class MedicalConfig {
                 .comment("3A 烧伤独特视觉效果的最大强度与不透明度上限 (默认 0.88)")
                 .defineInRange("burnVfxMaxIntensity", 0.88, 0.0, 1.0);
 
+        builder.pop();
+
         builder.comment("四肢内出血封顶机制（骨筋膜室综合征）与野战筋膜切开减压包配置")
                 .push("compartment_syndrome_and_fasciotomy");
 
@@ -2615,6 +2647,8 @@ public class MedicalConfig {
         FASCIOTOMY_CAUTERY_HOLD_SECONDS = builder
                 .comment("第 3 步双极电凝镊在单个深部出血点上需保持电凝的时长 (秒，默认 0.55)")
                 .defineInRange("fasciotomyCauteryHoldSeconds", 0.55, 0.15, 3.0);
+
+        builder.pop();
 
         builder.comment("骨折夹板固定愈合、布洛芬缓释止痛片（非阿片类）与氨甲环酸内出血止血注射器配置")
                 .push("splint_nsaid_and_txa");
@@ -2709,7 +2743,268 @@ public class MedicalConfig {
                 .comment("低压或过量推注氨甲环酸引发脑供血不足与GABA拮抗眩晕的时间 (Ticks，默认 100 = 5秒)")
                 .defineInRange("txaDizzinessTicks", 100, 0, 1200);
 
+        builder.pop();
+
+        builder.comment("野战骨科复位固定包、四肢开放性/不稳定骨折与胸部肋骨骨折/连枷胸/迟发性血气胸配置")
+                .push("orthopedic_and_rib_fracture");
+
+        ORTHO_MIN_CONSCIOUSNESS = builder
+                .comment("执行骨科复位固定手术所需的最低意识阈值 (% ，默认 50)")
+                .defineInRange("orthoMinConsciousness", 50, 10, 100);
+        ORTHO_DURABILITY_COST = builder
+                .comment("单次骨科复位固定手术消耗的手术包耐久度 (默认 25，满耐久 100 = 4次)")
+                .defineInRange("orthoDurabilityCost", 25, 1, 100);
+        ORTHO_SURGERY_HEAL_TIME_SEC = builder
+                .comment("经骨科手术（外固定架/肋骨环抱器）精确复位锁定后的骨折愈合倒计时秒数 (默认 210 秒)")
+                .defineInRange("orthoSurgeryHealTimeSec", 210, 30, 3600);
+        ORTHO_MISTAKE_PAIN_GAIN = builder
+                .comment("骨科手术步骤失误（夹伤血管或钻偏骨皮质）增加的局部疼痛等级 (默认 1)")
+                .defineInRange("orthoMistakePainGain", 1, 0, 10);
+        ORTHO_MISTAKE_BLOOD_LOSS = builder
+                .comment("骨科手术步骤失误造成的瞬时失血量 (mL，默认 15)")
+                .defineInRange("orthoMistakeBloodLoss", 15, 0, 500);
+        ORTHO_ABORT_INTERNAL_BLEED_PENALTY = builder
+                .comment("骨科手术中途强行退出或昏迷中断导致骨断端二次移位刺伤血管增加的内出血速率 (mL/min，默认 85)")
+                .defineInRange("orthoAbortInternalBleedPenalty", 85, 0, 1000);
+        ORTHO_SPLINTER_COUNT = builder
+                .comment("骨科手术阶段1：需用咬骨钳清理夹除的游离碎骨片数量 (默认 4)")
+                .defineInRange("orthoSplinterCount", 4, 2, 8);
+        ORTHO_REDUCTION_TOLERANCE_PX = builder
+                .comment("骨科手术阶段2：X光透视下骨断端牵引对位允许的最大像素误差 (默认 8.5)")
+                .defineInRange("orthoReductionTolerancePx", 8.5, 3.0, 24.0);
+        ORTHO_REDUCTION_HOLD_SECONDS = builder
+                .comment("骨科手术阶段2：骨断端对位在绿区内保持稳定以锁紧复位钳所需的秒数 (默认 0.65)")
+                .defineInRange("orthoReductionHoldSeconds", 0.65, 0.20, 3.0);
+        ORTHO_SCREW_COUNT = builder
+                .comment("骨科手术阶段3：需钻入的钛合金固定螺钉 / 镍钛肋骨环抱器卡爪数量 (默认 4)")
+                .defineInRange("orthoScrewCount", 4, 2, 6);
+        ORTHO_DRILL_HOLD_SECONDS = builder
+                .comment("骨科手术阶段3：每枚骨螺钉钻入或肋骨环抱器卡合所需的按住秒数 (默认 0.48)")
+                .defineInRange("orthoDrillHoldSeconds", 0.48, 0.15, 2.5);
+        OPEN_FRACTURE_SPLINT_INFECTION_PENALTY_PER_SEC = builder
+                .comment("临床禁忌惩罚：对未清创的开放性骨折直接绑夹板导致封闭创腔每秒额外增加的感染值 (默认 1)")
+                .defineInRange("openFractureSplintInfectionPenaltyPerSec", 1, 0, 20);
+        UNSTABLE_FRACTURE_MOVE_INTERNAL_BLEED_GAIN = builder
+                .comment("未固定的开放性/移位骨折在疾跑或跳跃时断骨切割血管每次增加的内出血速率 (mL/min，默认 18)")
+                .defineInRange("unstableFractureMoveInternalBleedGain", 18, 0, 200);
+        RIB_FRACTURE_DELAYED_HEMOTHORAX_STRAIN_THRESHOLD = builder
+                .comment("未绑加压胸带的单纯肋骨骨折在跑跳/战斗下触发「非静默迟发性血气胸」所需的累积胸壁应力阈值 (默认 12)")
+                .defineInRange("ribFractureDelayedHemothoraxStrainThreshold", 12, 3, 120);
+        RIB_FRACTURE_DELAYED_HEMOTHORAX_BLOOD_ML = builder
+                .comment("迟发性血气胸触发瞬间肋骨断端刺破肺脏/肋间血管涌入胸腔的积血量 (mL，默认 180.0)")
+                .defineInRange("ribFractureDelayedHemothoraxBloodMl", 180.0, 20.0, 1000.0);
+        FLAIL_CHEST_O2_PENALTY_PER_SEC = builder
+                .comment("连枷胸（浮动胸壁反常呼吸）未做肋骨环抱器内固定手术前每秒额外损失的血氧饱和度 (%/秒，默认 0.55)")
+                .defineInRange("flailChestO2PenaltyPerSec", 0.55, 0.05, 5.0);
+
+        CHEST_DRAIN_MIN_CONSCIOUSNESS = builder
+                .comment("执行胸腔闭式引流手术所需的最低意识阈值 (% ，默认 50)")
+                .defineInRange("chestDrainMinConsciousness", 50, 10, 100);
+        CHEST_DRAIN_DURABILITY_COST = builder
+                .comment("单次胸腔闭式引流手术消耗的引流包耐久度 (默认 25，满耐久 100 = 4次)")
+                .defineInRange("chestDrainDurabilityCost", 25, 1, 100);
+        CHEST_DRAIN_MISTAKE_PAIN_GAIN = builder
+                .comment("胸腔闭式引流手术操作失误（切伤肋间动脉或负压过高）增加的胸痛等级 (默认 1)")
+                .defineInRange("chestDrainMistakePainGain", 1, 0, 10);
+        CHEST_DRAIN_MISTAKE_BLOOD_LOSS = builder
+                .comment("胸腔闭式引流手术操作失误造成的瞬时失血量 (mL，默认 15)")
+                .defineInRange("chestDrainMistakeBloodLoss", 15, 0, 500);
+        CHEST_DRAIN_ABORT_BLEED_PENALTY = builder
+                .comment("胸腔闭式引流切开肋间后强行中断手术导致开放性气胸与出血增加的内出血速率 (mL/min，默认 90)")
+                .defineInRange("chestDrainAbortBleedPenalty", 90, 0, 1000);
+        HEMOTHORAX_SELF_ABSORB_MAX_ML = builder
+                .comment("胸膜淋巴系统可自行缓慢吸收的最大少量胸腔积血上限 (mL，默认 250.0；超过此值必须用胸腔闭式引流包排空)")
+                .defineInRange("hemothoraxSelfAbsorbMaxMl", 250.0, 0.0, 1000.0);
+        HEMOTHORAX_SELF_ABSORB_RATE_ML_PER_SEC = builder
+                .comment("少量胸腔积血 (<250mL) 在无活动性胸腔内出血时的自然吸收速率 (mL/秒，默认 2.5)")
+                .defineInRange("hemothoraxSelfAbsorbRateMlPerSec", 2.5, 0.1, 50.0);
+        LUNG_CONTUSION_BASE_DECAY_PER_SEC = builder
+                .comment("解除血胸压迫与连枷胸后，肺挫伤在非疾跑状态下的基础自然消退速率 (%/秒，默认 0.25)")
+                .defineInRange("lungContusionBaseDecayPerSec", 0.25, 0.01, 10.0);
+        LUNG_CONTUSION_TXA_SPEED_MULT = builder
+                .comment("体内存在氨甲环酸 (TXA) 有效浓度时，封堵肺泡毛细血管渗血带来的肺挫伤消退加速倍率 (默认 2.0 倍)")
+                .defineInRange("lungContusionTxaSpeedMult", 2.0, 1.0, 10.0);
+        LUNG_CONTUSION_NSAID_SPEED_MULT = builder
+                .comment("口服布洛芬抗炎起效期间，减轻肺间质炎性水肿带来的肺挫伤消退加速倍率 (默认 1.8 倍)")
+                .defineInRange("lungContusionNsaidSpeedMult", 1.8, 1.0, 10.0);
+        LUNG_CONTUSION_SPRINT_WORSEN_PER_SEC = builder
+                .comment("顶着肺挫伤强行剧烈疾跑导致肺毛细血管压飙升、肺泡水肿加重的速率 (%/秒，默认 0.35)")
+                .defineInRange("lungContusionSprintWorsenPerSec", 0.35, 0.0, 10.0);
+        PNEUMOTHORAX_CLOSED_SELF_ABSORB_MAX_ML = builder
+                .comment("胸膜毛细血管可自行缓慢吸收的闭合性轻度气胸最大积气量上限 (mL，默认 250.0)")
+                .defineInRange("pneumothoraxClosedSelfAbsorbMaxMl", 250.0, 0.0, 1000.0);
+        PNEUMOTHORAX_SELF_ABSORB_RATE_ML_PER_SEC = builder
+                .comment("闭合性轻度气胸 (<=250mL) 在非疾跑状态下的自然吸收速率 (mL/秒，默认 2.0)")
+                .defineInRange("pneumothoraxSelfAbsorbRateMlPerSec", 2.0, 0.1, 50.0);
+        PNEUMOTHORAX_OPEN_INFLOW_ML_PER_SEC = builder
+                .comment("未封堵的开放性气胸（吸吮性胸壁伤口）每秒从外界吸入胸膜腔的空气量 (mL/秒，默认 18.0)")
+                .defineInRange("pneumothoraxOpenInflowMlPerSec", 18.0, 1.0, 200.0);
+        PNEUMOTHORAX_VALVE_SEAL_VENT_ML_PER_SEC = builder
+                .comment("使用加压绷带执行「三边单向阀胸封」后，呼气相每秒单向排出的胸膜腔残气量 (mL/秒，默认 4.5)")
+                .defineInRange("pneumothoraxValveSealVentMlPerSec", 4.5, 0.5, 50.0);
+        PNEUMOTHORAX_DEAD_SEAL_TENSION_GAIN_ML_PER_SEC = builder
+                .comment("临床禁忌惩罚：用普通绷带死封未排气的气胸伤口，导致肺漏气只进不出憋成张力性气胸的积气速率 (mL/秒，默认 22.0)")
+                .defineInRange("pneumothoraxDeadSealTensionGainMlPerSec", 22.0, 2.0, 200.0);
+        PNEUMOTHORAX_TENSION_THRESHOLD_ML = builder
+                .comment("触发致命「张力性气胸（胸内正压 >+15cmH2O，压迫腔静脉引发梗阻性休克）」的胸膜腔积气阈值 (mL，默认 800.0)")
+                .defineInRange("pneumothoraxTensionThresholdMl", 800.0, 300.0, 2000.0);
+        PNEUMOTHORAX_TENSION_BP_DROP_PER_SEC = builder
+                .comment("张力性气胸压瘪上下腔静脉导致回心血量断崖下跌（梗阻性休克）每秒扣减的收缩压/舒张压 (mmHg/秒，默认 2)")
+                .defineInRange("pneumothoraxTensionBpDropPerSec", 2, 0, 20);
+        PNEUMOTHORAX_TENSION_O2_LOSS_PER_SEC = builder
+                .comment("张力性气胸导致患侧肺完全塌陷与纵隔移位每秒额外扣除的血氧饱和度 (%/秒，默认 0.85)")
+                .defineInRange("pneumothoraxTensionO2LossPerSec", 0.85, 0.1, 10.0);
+        DECOMPRESSION_NEEDLE_DRAIN_ML = builder
+                .comment("单次使用 14G 胸腔穿刺减压针在第 2 肋间穿刺排出的高压胸膜腔积气量 (mL，默认 550.0)")
+                .defineInRange("decompressionNeedleDrainMl", 550.0, 100.0, 2000.0);
+        DECOMPRESSION_NEEDLE_SAFE_WINDOW_SEC = builder
+                .comment("胸腔穿刺减压针留置套管单向阀阻止张力性气胸复发的安全窗口持续秒数 (默认 180 秒)")
+                .defineInRange("decompressionNeedleSafeWindowSec", 180, 30, 1800);
+        DECOMPRESSION_NEEDLE_DURABILITY_COST = builder
+                .comment("单次胸腔穿刺减压消耗的减压针耐久度 (默认 50，满耐久 100 = 2次)")
+                .defineInRange("decompressionNeedleDurabilityCost", 50, 1, 100);
+
+
             builder.pop();
+
+        builder.comment("中毒、局部/全身感染与 SIRS（全身炎症反应综合征）临床阶梯药物与针剂配置")
+                .push("toxin_infection_and_sirs_drugs");
+
+        CHARCOAL_DOSE_DURABILITY_COST = builder
+                .comment("单次口服医用活性炭混悬液消耗的耐久度 (默认 25，满耐久 100 = 4次)")
+                .defineInRange("charcoalDoseDurabilityCost", 25, 1, 100);
+        CHARCOAL_IMMEDIATE_TOXIN_CLEAR = builder
+                .comment("医用活性炭混悬液口服瞬间在胃肠道直接吸附清除的轻中度毒素值 (默认 22.0)")
+                .defineInRange("charcoalImmediateToxinClear", 22.0, 1.0, 100.0);
+        CHARCOAL_DURATION_SEC = builder
+                .comment("医用活性炭在肠道内维持肠肝循环阻断与加速排毒的持续时间 (秒，默认 90)")
+                .defineInRange("charcoalDurationSec", 90, 10, 1200);
+        CHARCOAL_DECAY_MULT = builder
+                .comment("医用活性炭生效期间对体内毒素每秒自然代谢清除速率的加速倍率 (默认 2.4)")
+                .defineInRange("charcoalDecayMult", 2.4, 1.0, 10.0);
+        CHARCOAL_SEVERE_TOXIN_THRESHOLD = builder
+                .comment("判定为重度深部血液/细胞内中毒（单纯胃肠活性炭直接吸附效率折减 50%，需配合乙酰半胱氨酸静脉解毒）的毒素阈值 (默认 60.0)")
+                .defineInRange("charcoalSevereToxinThreshold", 60.0, 20.0, 100.0);
+        CHARCOAL_MIN_CONSCIOUSNESS = builder
+                .comment("安全口服活性炭混悬液所需的最低清醒意识阈值（防黑炭误吸性肺炎，默认 35）")
+                .defineInRange("charcoalMinConsciousness", 35, 1, 100);
+
+        NAC_MAX_DOSE_UNITS = builder
+                .comment("单支乙酰半胱氨酸解毒注射液的最大刻度单位 (默认 100)")
+                .defineInRange("nacMaxDoseUnits", 100, 10, 1000);
+        NAC_MAX_MG = builder
+                .comment("单支乙酰半胱氨酸解毒注射液对应的标准毫克数 (默认 2000.0 mg)")
+                .defineInRange("nacMaxMg", 2000.0, 100.0, 10000.0);
+        NAC_IMMEDIATE_TOXIN_CLEAR = builder
+                .comment("乙酰半胱氨酸全支 (100% 剂量) 推注瞬间中和清除的血液/横纹肌溶解毒素值 (默认 48.0)")
+                .defineInRange("nacImmediateToxinClear", 48.0, 5.0, 100.0);
+        NAC_CONCENTRATION_PER_FULL_DOSE = builder
+                .comment("乙酰半胱氨酸全支推注增加的体内血药浓度百分比 (默认 65.0%)")
+                .defineInRange("nacConcentrationPerFullDose", 65.0, 10.0, 150.0);
+        NAC_DECAY_RATE_PER_SEC = builder
+                .comment("体内乙酰半胱氨酸血药浓度每秒自然代谢衰减速率 (%/秒，默认 0.70)")
+                .defineInRange("nacDecayRatePerSec", 0.70, 0.05, 10.0);
+        NAC_CONTINUOUS_TOXIN_CLEAR_PER_SEC = builder
+                .comment("乙酰半胱氨酸有效血药浓度期间每秒持续中和清除的全身毒素值 (点/秒，默认 0.85)")
+                .defineInRange("nacContinuousToxinClearPerSec", 0.85, 0.05, 10.0);
+        NAC_HISTAMINE_OVERDOSE_THRESHOLD = builder
+                .comment("触发乙酰半胱氨酸过快/过量推注「类过敏组胺释放反应 (Anaphylactoid Reaction)」的血药浓度阈值 (% ，默认 70)")
+                .defineInRange("nacHistamineOverdoseThreshold", 70, 25, 100);
+        NAC_HISTAMINE_SYS_BP_DROP = builder
+                .comment("乙酰半胱氨酸过量诱发组胺释放导致外周血管扩张引发的收缩压下降值 (mmHg，默认 18)")
+                .defineInRange("nacHistamineSysBpDrop", 18, 0, 80);
+        NAC_HISTAMINE_BRONCHOSPASM_O2_LOSS = builder
+                .comment("乙酰半胱氨酸过量诱发组胺支气管痉挛每秒额外扣除的血氧值 (%/秒，默认 0.55)")
+                .defineInRange("nacHistamineBronchospasmO2Loss", 0.55, 0.0, 5.0);
+
+        POVIDONE_DURABILITY_COST = builder
+                .comment("单次对部位喷涂聚维酮碘消毒喷雾消耗的耐久度 (默认 20，满耐久 100 = 5次)")
+                .defineInRange("povidoneDurabilityCost", 20, 1, 100);
+        POVIDONE_IMMEDIATE_INFECTION_CLEAN = builder
+                .comment("聚维酮碘对轻度表浅感染部位直接杀灭消除的感染值 (默认 18)")
+                .defineInRange("povidoneImmediateInfectionClean", 18, 1, 100);
+        POVIDONE_DEEP_INFECTION_THRESHOLD = builder
+                .comment("局部感染深入肌层（单纯外用碘伏直接清除效果折减 65%，需配合全身抗生素）的感染阈值 (默认 45)")
+                .defineInRange("povidoneDeepInfectionThreshold", 45, 10, 100);
+        POVIDONE_PROTECTION_DURATION_SEC = builder
+                .comment("聚维酮碘在创面形成棕褐色络合碘杀菌保护膜的持续秒数 (默认 120 秒)")
+                .defineInRange("povidoneProtectionDurationSec", 120, 10, 1200);
+        POVIDONE_IMMUNE_SPEED_MULT = builder
+                .comment("聚维酮碘保护膜生效期内局部伤口感染清除速率倍率 (默认 2.5)")
+                .defineInRange("povidoneImmuneSpeedMult", 2.5, 1.0, 10.0);
+        POVIDONE_OPEN_WOUND_STING_PAIN = builder
+                .comment("对未闭合开放性伤口或浅表烧伤直接喷涂高浓度碘伏引发的短暂化学刺激痛增量 (默认 1)")
+                .defineInRange("povidoneOpenWoundStingPain", 1, 0, 5);
+
+        AMOXICILLIN_DOSE_DURABILITY_COST = builder
+                .comment("单次口服阿莫西林克拉维酸钾片消耗的药瓶耐久度 (默认 25，满耐久 100 = 4次)")
+                .defineInRange("amoxicillinDoseDurabilityCost", 25, 1, 100);
+        AMOXICILLIN_ONSET_DELAY_SEC = builder
+                .comment("阿莫西林克拉维酸钾口服后胃肠吸收进入血液循环所需的潜伏延迟秒数 (默认 15 秒)")
+                .defineInRange("amoxicillinOnsetDelaySec", 15, 1, 300);
+        AMOXICILLIN_ACTIVE_DURATION_SEC = builder
+                .comment("阿莫西林克拉维酸钾在体内维持有效抑菌血药浓度的持续秒数 (默认 180 秒)")
+                .defineInRange("amoxicillinActiveDurationSec", 180, 20, 1800);
+        AMOXICILLIN_CONTINUOUS_KILL_PER_SEC = builder
+                .comment("阿莫西林起效期间每秒主动杀灭全身各部位细菌感染的速率 (点/秒，默认 0.48)")
+                .defineInRange("amoxicillinContinuousKillPerSec", 0.48, 0.05, 10.0);
+        AMOXICILLIN_IMMUNE_MULT = builder
+                .comment("阿莫西林起效期间对全身免疫抗感染速率的加成倍率 (默认 3.5)")
+                .defineInRange("amoxicillinImmuneMult", 3.5, 1.0, 10.0);
+        AMOXICILLIN_SHOCK_MALABSORPTION_FACTOR = builder
+                .comment("当处于 SIRS >= 2 级或休克低血压 (MAP < 65) 胃肠缺血水肿时，口服抗生素吸收率保留比例 (默认 0.30 = 衰减 70%)")
+                .defineInRange("amoxicillinShockMalabsorptionFactor", 0.30, 0.05, 1.0);
+        AMOXICILLIN_OVERDOSE_TOXIN_GAIN = builder
+                .comment("在阿莫西林药效期内重复过量吞服引发肠道菌群失调与肝肾代谢毒性增加的毒素值 (默认 10.0)")
+                .defineInRange("amoxicillinOverdoseToxinGain", 10.0, 0.0, 100.0);
+
+        MEROPENEM_MAX_DOSE_UNITS = builder
+                .comment("单支注射用美罗培南复合针剂的最大刻度单位 (默认 100)")
+                .defineInRange("meropenemMaxDoseUnits", 100, 10, 1000);
+        MEROPENEM_MAX_MG = builder
+                .comment("单支注射用美罗培南复合针剂对应的标准毫克数 (默认 1000.0 mg)")
+                .defineInRange("meropenemMaxMg", 1000.0, 100.0, 5000.0);
+        MEROPENEM_TARGET_INFECTION_CLEAR = builder
+                .comment("美罗培南复合针剂全支 (100% 剂量) 推注瞬间对目标部位直接清除的深部感染值 (默认 38)")
+                .defineInRange("meropenemTargetInfectionClear", 38, 1, 100);
+        MEROPENEM_SYSTEMIC_INFECTION_CLEAR = builder
+                .comment("美罗培南复合针剂全支 (100% 剂量) 推注瞬间随血液循环对全身其余部位直接清除的感染值 (默认 22)")
+                .defineInRange("meropenemSystemicInfectionClear", 22, 0, 100);
+        MEROPENEM_CONCENTRATION_PER_FULL_DOSE = builder
+                .comment("美罗培南复合针剂全支推注增加的体内血药浓度百分比 (默认 70.0%)")
+                .defineInRange("meropenemConcentrationPerFullDose", 70.0, 10.0, 150.0);
+        MEROPENEM_DECAY_RATE_PER_SEC = builder
+                .comment("体内美罗培南血药浓度每秒自然代谢衰减速率 (%/秒，默认 0.55)")
+                .defineInRange("meropenemDecayRatePerSec", 0.55, 0.05, 10.0);
+        MEROPENEM_CONTINUOUS_KILL_PER_SEC = builder
+                .comment("美罗培南有效血药浓度期间每秒持续清除全身各部位感染的速率 (点/秒，默认 1.15)")
+                .defineInRange("meropenemContinuousKillPerSec", 1.15, 0.05, 10.0);
+        MEROPENEM_SIRS_RECOVERY_SPEED_MULT = builder
+                .comment("美罗培南+氢化可的松压制全身细胞因子风暴、加速 SIRS 降级的速率倍率 (默认 4.5 倍)")
+                .defineInRange("meropenemSirsRecoverySpeedMult", 4.5, 1.0, 20.0);
+        MEROPENEM_SIRS_TPR_RESTORE = builder
+                .comment("复合针剂中的氢化可的松对抗脓毒症分布性休克血管麻痹、恢复外周血管阻力 (TPR) 的提升值 (默认 0.22)")
+                .defineInRange("meropenemSirsTprRestore", 0.22, 0.0, 1.5);
+        MEROPENEM_HERXHEIMER_INFECTION_THRESHOLD = builder
+                .comment("触发「赫氏反应 (Jarisch-Herxheimer 内毒素休克风暴)」的全身总感染阈值 (默认 110)")
+                .defineInRange("meropenemHerxheimerInfectionThreshold", 110, 30, 500);
+        MEROPENEM_HERXHEIMER_DOSE_RATIO_THRESHOLD = builder
+                .comment("在重度感染或高阶 SIRS 下单次推注比例超过该阈值时触发细菌大面积裂解内毒素释放反应 (默认 0.65)")
+                .defineInRange("meropenemHerxheimerDoseRatioThreshold", 0.65, 0.20, 1.0);
+        MEROPENEM_HERXHEIMER_TOXIN_SPIKE = builder
+                .comment("赫氏反应触发瞬间裂解细菌向血液释放的内毒素激增数值 (默认 18.0)")
+                .defineInRange("meropenemHerxheimerToxinSpike", 18.0, 0.0, 100.0);
+        MEROPENEM_NEUROTOXIC_THRESHOLD = builder
+                .comment("连续过量推注美罗培南触发中枢 GABA 受体拮抗惊厥/眩晕的血药浓度阈值 (% ，默认 85)")
+                .defineInRange("meropenemNeurotoxicThreshold", 85, 30, 100);
+        LOCK_HOTBAR_DURING_MEDICAL_ANIM = builder
+                .comment("播放第一人称医疗动画（器械就绪检视、打针、缠绷带、绑止血带、服药、喷碘伏）期间是否锁定热键栏槽位，严禁切到其他物品打断动画 (默认 true)")
+                .define("lockHotbarDuringMedicalAnim", true);
+        SURGICAL_KIT_READY_ANIM_DURATION_MS = builder
+                .comment("切换手持四大重型医疗器械包时的第一人称真实模型就绪动画持续毫秒数 (默认 1050 ms)")
+                .defineInRange("surgicalKitReadyAnimDurationMs", 1050, 400, 3000);
+
+        builder.pop();
 
         SPEC = builder.build();
     }

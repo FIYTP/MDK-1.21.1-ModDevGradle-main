@@ -61,9 +61,9 @@ public class BandageItem extends Item {
     public static boolean isAddictionHallucinating(int tier, long timeBucketSeed) {
         if (tier <= 0) return false;
         double chance = switch (tier) {
-            case 1 -> MedicalConfig.ADDICTION_NAME_HALLUCINATION_CHANCE_T1.get();
-            case 2 -> MedicalConfig.ADDICTION_NAME_HALLUCINATION_CHANCE_T2.get();
-            default -> MedicalConfig.ADDICTION_NAME_HALLUCINATION_CHANCE_T3.get();
+            case 1 -> ModItems.safeCfgDouble(MedicalConfig.ADDICTION_NAME_HALLUCINATION_CHANCE_T1, 0.25);
+            case 2 -> ModItems.safeCfgDouble(MedicalConfig.ADDICTION_NAME_HALLUCINATION_CHANCE_T2, 0.60);
+            default -> ModItems.safeCfgDouble(MedicalConfig.ADDICTION_NAME_HALLUCINATION_CHANCE_T3, 0.95);
         };
         if (chance >= 0.99) return true;
         long hash = timeBucketSeed * 6364136223846793005L + 1442695040888963407L;
@@ -118,6 +118,21 @@ public class BandageItem extends Item {
         if (TreatmentRouter.isTranexamicAcidItem(stack)) {
             return 0xFFE040FB;
         }
+        if (TreatmentRouter.isActivatedCharcoalItem(stack)) {
+            return 0xFFFFCA28;
+        }
+        if (TreatmentRouter.isAcetylcysteineItem(stack)) {
+            return 0xFF00E676;
+        }
+        if (TreatmentRouter.isPovidoneIodineItem(stack)) {
+            return 0xFFFF8F00;
+        }
+        if (TreatmentRouter.isAmoxicillinItem(stack)) {
+            return 0xFF29B6F6;
+        }
+        if (TreatmentRouter.isMeropenemItem(stack)) {
+            return 0xFFFFD54F;
+        }
         if (TreatmentRouter.isIbuprofenItem(stack)) {
             return 0xFFFF9100;
         }
@@ -128,6 +143,15 @@ public class BandageItem extends Item {
             return 0xFFFFD600;
         }
         if (TreatmentRouter.isNaloxoneItem(stack)) {
+            return 0xFF00E5FF;
+        }
+        if (TreatmentRouter.isDecompressionNeedleItem(stack)) {
+            return 0xFF00E5FF;
+        }
+        if (TreatmentRouter.isChestDrainKitItem(stack)) {
+            return 0xFF29B6F6;
+        }
+        if (TreatmentRouter.isOrthopedicKitItem(stack)) {
             return 0xFF00E5FF;
         }
         if (TreatmentRouter.isFasciotomyKitItem(stack)) {
@@ -157,8 +181,18 @@ public class BandageItem extends Item {
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
         if (level.isClientSide()) {
-            if (TreatmentRouter.isIbuprofenItem(stack)) {
-                // 布洛芬口服止痛药：直接吃下一片，全身生效，无需选择肢体
+            if (TreatmentRouter.isOralMedicineItem(stack)) {
+                // 口服药物（布洛芬缓释止痛片 / 阿莫西林克拉维酸钾片 / 医用活性炭混悬液）：直接口服，播放专属拧盖仰头服用动画
+                TreatmentClientHooks.startIbuprofenDrinkAnimation(hand, stack);
+                NetworkHandler.sendTreatmentToServer(new TreatmentApplyPacket(
+                        hand.ordinal(),
+                        MedicalData.Limb.CHEST.ordinal(),
+                        100
+                ));
+                return InteractionResultHolder.success(stack);
+            } else if (TreatmentRouter.isDecompressionNeedleItem(stack)) {
+                // 14G 胸腔穿刺减压针：右键直接对准胸腔第 2 肋间穿刺放气，1 秒解除张力性气胸保命
+                TreatmentClientHooks.startSyringeInjectionAnimation(hand, MedicalData.Limb.CHEST, stack, 100);
                 NetworkHandler.sendTreatmentToServer(new TreatmentApplyPacket(
                         hand.ordinal(),
                         MedicalData.Limb.CHEST.ordinal(),
@@ -189,13 +223,19 @@ public class BandageItem extends Item {
                         100
                 ));
                 return InteractionResultHolder.success(stack);
+            } else if (TreatmentRouter.isChestDrainKitItem(stack)) {
+                TreatmentClientHooks.openChestDrainScreen(hand);
+                return InteractionResultHolder.success(stack);
+            } else if (TreatmentRouter.isOrthopedicKitItem(stack)) {
+                TreatmentClientHooks.openOrthopedicScreen(hand, null);
+                return InteractionResultHolder.success(stack);
             } else if (TreatmentRouter.isFasciotomyKitItem(stack)) {
                 TreatmentClientHooks.openFasciotomyScreen(hand, null);
                 return InteractionResultHolder.success(stack);
             } else if (TreatmentRouter.isSutureKitItem(stack)) {
                 TreatmentClientHooks.openVascularSutureScreen(hand, null);
                 return InteractionResultHolder.success(stack);
-            } else if (TreatmentRouter.isOpioidItem(stack) || TreatmentRouter.isTranexamicAcidItem(stack)) {
+            } else if (TreatmentRouter.isQuantitativeSyringeItem(stack)) {
                 TreatmentClientHooks.openOpioidDoseScreen(hand, null);
                 return InteractionResultHolder.success(stack);
             }

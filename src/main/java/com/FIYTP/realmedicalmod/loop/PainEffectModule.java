@@ -68,7 +68,7 @@ public class PainEffectModule implements UpdateModule {
 
             float normP = Mth.clamp(p / maxLimbPain, 0.0f, 1.0f);
             float nonLinearCurve = (float) Math.pow(normP, actionExponent);
-            float splintMobilityRelief = (limbData.hasFracture() && limbData.hasSplint())
+            float splintMobilityRelief = (limbData.hasFracture() && (limbData.hasSplint() || ModItems.isLimbOrthopedicFixed(limbData)))
                     ? (1.0f - Mth.clamp(MedicalConfig.SPLINT_MOBILITY_PAIN_RELIEF_FACTOR.get().floatValue(), 0.0f, 0.9f))
                     : 1.0f;
 
@@ -115,7 +115,7 @@ public class PainEffectModule implements UpdateModule {
             boolean anySplinted = false;
             for (MedicalData.Limb l : MedicalData.Limb.values()) {
                 MedicalData.LimbData ld = data.getLimb(l);
-                if (ld != null && ld.hasFracture() && ld.hasSplint()) {
+                if (ld != null && ld.hasFracture() && (ld.hasSplint() || ModItems.isLimbOrthopedicFixed(ld))) {
                     anySplinted = true;
                     break;
                 }

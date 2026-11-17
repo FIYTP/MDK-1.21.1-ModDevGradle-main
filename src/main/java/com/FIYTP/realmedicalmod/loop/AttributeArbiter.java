@@ -136,7 +136,7 @@ public class AttributeArbiter {
             for (MedicalData.Limb leg : new MedicalData.Limb[]{MedicalData.Limb.LEFT_LEG, MedicalData.Limb.RIGHT_LEG}) {
                 MedicalData.LimbData ld = data.getLimb(leg);
                 if (ld != null && !ld.isAmputated() && ld.hasFracture()) {
-                    if (ld.hasSplint()) hasSplintedLegFracture = true;
+                    if (ld.hasSplint() || ModItems.isLimbOrthopedicFixed(ld)) hasSplintedLegFracture = true;
                     else hasUnsplintedLegFracture = true;
                 }
             }
@@ -154,7 +154,7 @@ public class AttributeArbiter {
             for (MedicalData.Limb arm : new MedicalData.Limb[]{MedicalData.Limb.LEFT_ARM, MedicalData.Limb.RIGHT_ARM}) {
                 MedicalData.LimbData ld = data.getLimb(arm);
                 if (ld != null && !ld.isAmputated() && ld.hasFracture()) {
-                    if (ld.hasSplint()) hasSplintedArmFracture = true;
+                    if (ld.hasSplint() || ModItems.isLimbOrthopedicFixed(ld)) hasSplintedArmFracture = true;
                     else hasUnsplintedArmFracture = true;
                 }
             }

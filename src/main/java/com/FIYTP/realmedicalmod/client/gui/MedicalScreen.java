@@ -1067,19 +1067,24 @@ public class MedicalScreen extends Screen {
                         C_VITAL_BP);
             }
             case 2 -> {
-                String fracState = ld.isOpenFracture() ? tr("medical.status.open_fracture")
-                        : (ld.hasFracture() ? (ld.hasSplint() ? tr("medical.status.fracture_splinted") : tr("medical.status.fracture"))
-                        : tr("medical.status.healthy"));
+                boolean orthoFixed = com.FIYTP.realmedicalmod.treatment.ModItems.isLimbOrthopedicFixed(ld);
+                boolean chestBraced = com.FIYTP.realmedicalmod.treatment.ModItems.isChestBraced(ld);
+                String fracState = !ld.hasFracture() ? tr("medical.status.healthy")
+                        : (orthoFixed ? "骨科内/外固定已锁定"
+                        : (ld.isOpenFracture() ? (selectedLimb == MedicalData.Limb.CHEST ? "连枷胸 (浮动胸壁)" : tr("medical.status.open_fracture"))
+                        : (ld.hasSplint() ? tr("medical.status.fracture_splinted")
+                        : (chestBraced ? "肋骨骨折 (胸带支撑)" : tr("medical.status.fracture")))));
                 drawTomographyMetric(g, rightX, metricY, rightW, tr("medical.detail.fracture"),
-                        fracState, ld.hasFracture() ? C_ALERT_RED : C_SAFE_GREEN);
+                        fracState, ld.hasFracture() ? (orthoFixed ? C_NEON_CYAN : C_ALERT_RED) : C_SAFE_GREEN);
                 drawTomographyMetric(g, rightX, metricY + 28, rightW, "关节对位",
                         ld.hasDislocation() ? tr("medical.status.dislocation") : "正常",
                         ld.hasDislocation() ? C_WARN_YELLOW : C_SAFE_GREEN);
                 drawTomographyMetric(g, rightX, metricY + 56, rightW, tr("medical.detail.fracture_healing"),
-                        ld.hasFracture() ? ld.getFractureTimer() + " s" : "完整", C_NEON_CYAN);
-                drawTomographyMetric(g, rightX, metricY + 84, rightW, "夹板固定",
-                        ld.hasSplint() ? "已固定" : "无",
-                        ld.hasSplint() ? C_SAFE_GREEN : 0xFF90A4AE);
+                        ld.hasFracture() ? (ld.getFractureTimer() > 0 ? ld.getFractureTimer() + " s" : "需手术/固定") : "完整", C_NEON_CYAN);
+                String fixText = orthoFixed ? "钛合金固定架/环抱器" : (ld.hasSplint() ? "铝合金夹板" : (chestBraced ? "加压弹性胸带" : "无"));
+                drawTomographyMetric(g, rightX, metricY + 84, rightW, "骨科固定",
+                        fixText,
+                        (orthoFixed || ld.hasSplint() || chestBraced) ? C_SAFE_GREEN : 0xFF90A4AE);
             }
             default -> {
                 drawTomographyMetric(g, rightX, metricY, rightW, tr("medical.detail.infection"),
@@ -1958,9 +1963,14 @@ public class MedicalScreen extends Screen {
                         inf / 100f, inf > 0 ? C_WARN_YELLOW : 0xFF455A64);
             }
 
-            if (ld.hasFracture() && ld.hasSplint() && ld.getFractureTimer() > 0) {
+            boolean isOrthoFixed = com.FIYTP.realmedicalmod.treatment.ModItems.isLimbOrthopedicFixed(ld);
+            boolean isChestBraced = com.FIYTP.realmedicalmod.treatment.ModItems.isChestBraced(ld);
+            if (ld.hasFracture() && (ld.hasSplint() || isOrthoFixed || (limb == MedicalData.Limb.CHEST && isChestBraced)) && ld.getFractureTimer() > 0) {
+                float maxHealT = isOrthoFixed
+                        ? MedicalConfig.ORTHO_SURGERY_HEAL_TIME_SEC.get().floatValue()
+                        : MedicalConfig.SPLINT_FRACTURE_HEAL_TIME_SEC.get().floatValue();
                 y = drawFullRow(g, font, x, y, w, tr("medical.detail.fracture_healing"), ld.getFractureTimer() + "s",
-                        Mth.clamp(1.0f - ld.getFractureTimer() / Math.max(1.0f, MedicalConfig.SPLINT_FRACTURE_HEAL_TIME_SEC.get().floatValue()), 0.0f, 1.0f), C_SAFE_GREEN);
+                        Mth.clamp(1.0f - ld.getFractureTimer() / Math.max(1.0f, maxHealT), 0.0f, 1.0f), isOrthoFixed ? C_NEON_CYAN : C_SAFE_GREEN);
             }
             if (ld.hasBurn()) {
                 y = drawFullRow(g, font, x, y, w, "烧伤 (" + ld.getBurnDegree() + "°)",
@@ -2258,10 +2268,28 @@ public class MedicalScreen extends Screen {
             }
             if (ld.hasFracture()) {
                 abnormal = true;
-                String fTxt = ld.isOpenFracture() ? tr("medical.status.open_fracture")
-                        : (ld.hasSplint() ? tr("medical.status.fracture_splinted") : tr("medical.status.fracture"));
-                int nx = drawWrappedPill(g, font, x, px, py, rightEdge, fTxt, 0xFFFF1744);
-                if (nx < 0) { py += 14; px = drawWrappedPill(g, font, x, x, py, rightEdge, fTxt, 0xFFFF1744); } else px = nx;
+                boolean orthoFixed = com.FIYTP.realmedicalmod.treatment.ModItems.isLimbOrthopedicFixed(ld);
+                boolean chestBraced = com.FIYTP.realmedicalmod.treatment.ModItems.isChestBraced(ld);
+                String fTxt;
+                int fCol;
+                if (orthoFixed) {
+                    fTxt = "骨科外固定锁定";
+                    fCol = 0xFF00E5FF;
+                } else if (ld.isOpenFracture()) {
+                    fTxt = ld.hasSplint() ? "开放骨折(夹板禁忌!)" : "开放/连枷骨折(需手术)";
+                    fCol = 0xFFFF1744;
+                } else if (ld.hasSplint()) {
+                    fTxt = tr("medical.status.fracture_splinted");
+                    fCol = 0xFF00E676;
+                } else if (chestBraced) {
+                    fTxt = "肋骨骨折(胸带支撑)";
+                    fCol = 0xFF00E676;
+                } else {
+                    fTxt = tr("medical.status.fracture");
+                    fCol = 0xFFFF1744;
+                }
+                int nx = drawWrappedPill(g, font, x, px, py, rightEdge, fTxt, fCol);
+                if (nx < 0) { py += 14; px = drawWrappedPill(g, font, x, x, py, rightEdge, fTxt, fCol); } else px = nx;
             }
             if (ld.hasDislocation()) {
                 abnormal = true;

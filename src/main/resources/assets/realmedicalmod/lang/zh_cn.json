@@ -132,5 +132,17 @@
   "effect.realmedicalmod.compartment_syndrome": "骨筋膜室综合征",
   "item.realmedicalmod.splint": "铝塑卷式骨折夹板",
   "item.realmedicalmod.ibuprofen": "布洛芬缓释止痛片",
-  "item.realmedicalmod.tranexamic_acid": "氨甲环酸止血注射器"
+  "item.realmedicalmod.tranexamic_acid": "氨甲环酸止血注射器",
+  "item.realmedicalmod.orthopedic_fixation_kit": "野战骨科复位固定包",
+  "medical.status.orthopedic_fixed": "外固定已锁定",
+  "medical.status.flail_chest": "连枷胸 (反常呼吸)",
+  "medical.status.chest_braced": "胸带已固定",
+  "item.realmedicalmod.chest_drain_kit": "胸腔闭式引流包",
+  "item.realmedicalmod.decompression_needle": "14G 胸腔穿刺减压针",
+  "effect.realmedicalmod.pneumothorax": "创伤性气胸",
+  "item.realmedicalmod.activated_charcoal": "医用活性炭混悬液",
+  "item.realmedicalmod.acetylcysteine": "乙酰半胱氨酸解毒注射液",
+  "item.realmedicalmod.povidone_iodine": "聚维酮碘消毒喷雾",
+  "item.realmedicalmod.amoxicillin": "阿莫西林克拉维酸钾片",
+  "item.realmedicalmod.meropenem": "注射用美罗培南复合针剂"
 }

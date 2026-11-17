@@ -528,6 +528,10 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
                 dImpl.setCompartmentTamponadedBleed(sImpl.getCompartmentTamponadedBleed());
                 dImpl.setCompartmentIschemiaSec(sImpl.getCompartmentIschemiaSec());
                 dImpl.setCompartmentSyndrome(sImpl.isCompartmentSyndrome());
+                dImpl.setOrthopedicFixed(sImpl.isOrthopedicFixed());
+                dImpl.setChestBraced(sImpl.isChestBraced());
+                dImpl.setDelayedHemothoraxStrain(sImpl.getDelayedHemothoraxStrain());
+                dImpl.setFractureTimerAuthoritative(sImpl.getFractureTimer());
             }
         }
     }
@@ -641,6 +645,9 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
                 limbTag.putInt("compartmentTamponadedBleed", lImpl.getCompartmentTamponadedBleed());
                 limbTag.putInt("compartmentIschemiaSec", lImpl.getCompartmentIschemiaSec());
                 limbTag.putBoolean("compartmentSyndrome", lImpl.isCompartmentSyndrome());
+                limbTag.putBoolean("orthopedicFixed", lImpl.isOrthopedicFixed());
+                limbTag.putBoolean("chestBraced", lImpl.isChestBraced());
+                limbTag.putInt("delayedHemothoraxStrain", lImpl.getDelayedHemothoraxStrain());
             }
             tag.put(limb.name(), limbTag);
         }
@@ -736,7 +743,12 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
             ld.setOpenWound(limbTag.contains("hasOpenWound") ? limbTag.getBoolean("hasOpenWound") : false);
             ld.setInternalBleedingRate(limbTag.getInt("internalBleeding"));
             ld.setFracture(limbTag.getBoolean("fracture"));
-            ld.setFractureTimer(limbTag.contains("fractureTimer") ? limbTag.getInt("fractureTimer") : 0);
+            int loadedFracTimer = limbTag.contains("fractureTimer") ? limbTag.getInt("fractureTimer") : 0;
+            if (ld instanceof LimbDataImpl ldAuth) {
+                ldAuth.setFractureTimerAuthoritative(loadedFracTimer);
+            } else {
+                ld.setFractureTimer(loadedFracTimer);
+            }
             ld.setOpenFracture(limbTag.contains("openFracture") ? limbTag.getBoolean("openFracture") : false);
             ld.setSplint(limbTag.contains("splint") ? limbTag.getBoolean("splint") : false);
             ld.setDislocation(limbTag.getBoolean("dislocation"));
@@ -764,6 +776,9 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
                 lImpl.setCompartmentTamponadedBleed(limbTag.contains("compartmentTamponadedBleed") ? limbTag.getInt("compartmentTamponadedBleed") : 0);
                 lImpl.setCompartmentIschemiaSec(limbTag.contains("compartmentIschemiaSec") ? limbTag.getInt("compartmentIschemiaSec") : 0);
                 lImpl.setCompartmentSyndrome(limbTag.contains("compartmentSyndrome") && limbTag.getBoolean("compartmentSyndrome"));
+                lImpl.setOrthopedicFixed(limbTag.contains("orthopedicFixed") && limbTag.getBoolean("orthopedicFixed"));
+                lImpl.setChestBraced(limbTag.contains("chestBraced") && limbTag.getBoolean("chestBraced"));
+                lImpl.setDelayedHemothoraxStrain(limbTag.contains("delayedHemothoraxStrain") ? limbTag.getInt("delayedHemothoraxStrain") : 0);
             }
         }
     }
@@ -805,6 +820,9 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         private int compartmentTamponadedBleed = 0;
         private int compartmentIschemiaSec = 0;
         private boolean compartmentSyndrome = false;
+        private boolean orthopedicFixed = false;
+        private boolean chestBraced = false;
+        private int delayedHemothoraxStrain = 0;
 
         // ====== 烧伤 ======
         private float burnLoad = 0.0f; // 热力缓冲负荷（未定型）
@@ -840,10 +858,29 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         @Override public synchronized void setInternalBleedingRate(int value) { this.internalBleeding = Math.max(0, value); }
 
         @Override public synchronized boolean hasFracture() { return fracture; }
-        @Override public synchronized void setFracture(boolean fracture) { this.fracture = fracture; }
+        @Override public synchronized void setFracture(boolean fracture) {
+            this.fracture = fracture;
+            if (!fracture) {
+                this.orthopedicFixed = false;
+                this.chestBraced = false;
+                this.delayedHemothoraxStrain = 0;
+            }
+        }
 
         @Override public synchronized int getFractureTimer() { return fractureTimer; }
-        @Override public synchronized void setFractureTimer(int seconds) { this.fractureTimer = Math.max(0, seconds); }
+        @Override public synchronized void setFractureTimer(int seconds) {
+            int clamped = Math.max(0, seconds);
+            // ★ 防止外部旧 Loop 模块在夹板/手术固定愈合倒计时推进中将 299 错误重置回 300 ★
+            if (this.fracture && (this.splint || this.orthopedicFixed || this.chestBraced)
+                    && this.fractureTimer > 0 && clamped >= this.fractureTimer) {
+                return;
+            }
+            this.fractureTimer = clamped;
+        }
+
+        public synchronized void setFractureTimerAuthoritative(int seconds) {
+            this.fractureTimer = Math.max(0, seconds);
+        }
 
         @Override public synchronized boolean isOpenFracture() { return openFracture; }
         @Override public synchronized void setOpenFracture(boolean open) { this.openFracture = open; }
@@ -904,6 +941,15 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
 
         public synchronized boolean isCompartmentSyndrome() { return compartmentSyndrome; }
         public synchronized void setCompartmentSyndrome(boolean cs) { this.compartmentSyndrome = cs; }
+
+        public synchronized boolean isOrthopedicFixed() { return orthopedicFixed; }
+        public synchronized void setOrthopedicFixed(boolean fixed) { this.orthopedicFixed = fixed; }
+
+        public synchronized boolean isChestBraced() { return chestBraced; }
+        public synchronized void setChestBraced(boolean braced) { this.chestBraced = braced; }
+
+        public synchronized int getDelayedHemothoraxStrain() { return delayedHemothoraxStrain; }
+        public synchronized void setDelayedHemothoraxStrain(int strain) { this.delayedHemothoraxStrain = Math.max(0, strain); }
 
         @Override public synchronized float getBurnLoad() { return burnLoad; }
         @Override public synchronized void setBurnLoad(float load) { this.burnLoad = Math.max(0.0f, load); }

@@ -58,10 +58,10 @@ public class JumpCancelHandler {
         if (!MedicalConfig.LEG_FRACTURE_JUMP_ALLOWED.get()) {
             MedicalData.LimbData leftLeg = data.getLimb(MedicalData.Limb.LEFT_LEG);
             MedicalData.LimbData rightLeg = data.getLimb(MedicalData.Limb.RIGHT_LEG);
-            boolean leftUnsplinted = leftLeg != null && leftLeg.hasFracture() && !leftLeg.hasSplint();
-            boolean rightUnsplinted = rightLeg != null && rightLeg.hasFracture() && !rightLeg.hasSplint();
-            boolean anySplintedFrac = (leftLeg != null && leftLeg.hasFracture() && leftLeg.hasSplint())
-                    || (rightLeg != null && rightLeg.hasFracture() && rightLeg.hasSplint());
+            boolean leftUnsplinted = leftLeg != null && leftLeg.hasFracture() && !(leftLeg.hasSplint() || com.FIYTP.realmedicalmod.treatment.ModItems.isLimbOrthopedicFixed(leftLeg));
+            boolean rightUnsplinted = rightLeg != null && rightLeg.hasFracture() && !(rightLeg.hasSplint() || com.FIYTP.realmedicalmod.treatment.ModItems.isLimbOrthopedicFixed(rightLeg));
+            boolean anySplintedFrac = (leftLeg != null && leftLeg.hasFracture() && (leftLeg.hasSplint() || com.FIYTP.realmedicalmod.treatment.ModItems.isLimbOrthopedicFixed(leftLeg)))
+                    || (rightLeg != null && rightLeg.hasFracture() && (rightLeg.hasSplint() || com.FIYTP.realmedicalmod.treatment.ModItems.isLimbOrthopedicFixed(rightLeg)));
 
             if (leftUnsplinted || rightUnsplinted) {
                 cancelJump(player);

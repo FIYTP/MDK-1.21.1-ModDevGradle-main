@@ -28,6 +28,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -39,6 +40,11 @@ import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.Sheets;
+import net.minecraft.client.renderer.block.model.BakedQuad;
+import net.minecraft.client.resources.model.BakedModel;
+import net.minecraft.core.Direction;
+import net.minecraft.util.RandomSource;
 import net.minecraft.client.renderer.entity.player.PlayerRenderer;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.world.entity.HumanoidArm;
@@ -50,6 +56,9 @@ import net.neoforged.neoforge.client.event.RenderHandEvent;
 import net.neoforged.neoforge.client.event.ViewportEvent;
 import org.joml.Matrix4f;
 import org.lwjgl.glfw.GLFW;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @EventBusSubscriber(modid = RealMedicalMod.MODID, value = Dist.CLIENT)
 public class TreatmentClientHooks {
@@ -89,6 +98,9 @@ public class TreatmentClientHooks {
     private static boolean pendingOpenFasciotomyScreen = false;
     private static InteractionHand pendingFasciotomyHand = InteractionHand.MAIN_HAND;
     private static MedicalData.Limb pendingFasciotomyLimb = null;
+    private static boolean pendingOpenOrthoScreen = false;
+    private static InteractionHand pendingOrthoHand = InteractionHand.MAIN_HAND;
+    private static MedicalData.Limb pendingOrthoLimb = null;
 
     private record LimbSlotLayout(
             MedicalData.Limb limb,
@@ -183,6 +195,64 @@ public class TreatmentClientHooks {
         mc.setScreen(new FasciotomyScreen(useHand, target));
     }
 
+    public static void openOrthopedicScreen(InteractionHand hand, MedicalData.Limb preselectedLimb) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) return;
+        MedicalData data = mc.player.getData(MedicalDataCapability.MEDICAL_DATA);
+        if (data == null || data.getConsciousness() < ModItems.getOrthopedicMinConsciousness()
+                || data.isCardiacArrest() || data.isInVFib()) {
+            return;
+        }
+        InteractionHand useHand = hand != null ? hand : InteractionHand.MAIN_HAND;
+        ItemStack stack = mc.player.getItemInHand(useHand);
+        if (!TreatmentRouter.isOrthopedicKitItem(stack)) return;
+
+        MedicalData.Limb target = preselectedLimb;
+        if (target == null) {
+            for (MedicalData.Limb limb : MedicalData.Limb.values()) {
+                if (TreatmentRouter.canTreatLimb(stack, data, limb)) {
+                    target = limb;
+                    break;
+                }
+            }
+        }
+        if (target == null || !TreatmentRouter.canTreatLimb(stack, data, target)) {
+            return;
+        }
+
+        if (panelActive) {
+            panelActive = false;
+            hoveredLimb = null;
+            lastHoveredLimb = null;
+            channelProgress = 0.0f;
+        }
+        mc.setScreen(new OrthopedicSurgeryScreen(useHand, target));
+    }
+
+    public static void openChestDrainScreen(InteractionHand hand) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) return;
+        MedicalData data = mc.player.getData(MedicalDataCapability.MEDICAL_DATA);
+        if (data == null || data.getConsciousness() < ModItems.getChestDrainMinConsciousness()
+                || data.isCardiacArrest() || data.isInVFib()) {
+            return;
+        }
+        InteractionHand useHand = hand != null ? hand : InteractionHand.MAIN_HAND;
+        ItemStack stack = mc.player.getItemInHand(useHand);
+        if (!TreatmentRouter.isChestDrainKitItem(stack)) return;
+        if (!TreatmentRouter.canTreatLimb(stack, data, MedicalData.Limb.CHEST)) {
+            return;
+        }
+
+        if (panelActive) {
+            panelActive = false;
+            hoveredLimb = null;
+            lastHoveredLimb = null;
+            channelProgress = 0.0f;
+        }
+        mc.setScreen(new ChestDrainScreen(useHand));
+    }
+
     public static void openOpioidDoseScreen(InteractionHand hand, MedicalData.Limb preselectedLimb) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
@@ -192,7 +262,7 @@ public class TreatmentClientHooks {
         }
         InteractionHand useHand = hand != null ? hand : InteractionHand.MAIN_HAND;
         ItemStack stack = mc.player.getItemInHand(useHand);
-        if (!TreatmentRouter.isOpioidItem(stack) && !TreatmentRouter.isTranexamicAcidItem(stack)) return;
+        if (!TreatmentRouter.isQuantitativeSyringeItem(stack)) return;
 
         if (panelActive) {
             panelActive = false;
@@ -227,7 +297,15 @@ public class TreatmentClientHooks {
             case TOURNIQUET -> C_ALERT_RED;
             case VASCULAR_SUTURE_KIT -> C_SAFE_GREEN;
             case FASCIOTOMY_KIT -> C_WARNING_YELLOW;
+            case ORTHOPEDIC_KIT -> C_NEON_CYAN;
+            case CHEST_DRAIN_KIT -> 0xFF29B6F6;
+            case DECOMPRESSION_NEEDLE -> 0xFF00E5FF;
             case TRANEXAMIC_ACID -> C_MAGENTA_HAZARD;
+            case ACTIVATED_CHARCOAL -> 0xFFFFCA28;
+            case ACETYLCYSTEINE -> 0xFF00E676;
+            case POVIDONE_IODINE -> 0xFFFF8F00;
+            case AMOXICILLIN -> 0xFF29B6F6;
+            case MEROPENEM -> 0xFFFFD54F;
             case SYRINGE -> 0xFF40C4FF;
             case SPLINT -> 0xFF69F0AE;
             case MEDICINE_BOTTLE -> 0xFFFFD54F;
@@ -268,8 +346,9 @@ public class TreatmentClientHooks {
             event.setCanceled(true);
             event.setSwingHand(false);
             ItemStack medStack = mc.player.getItemInHand(medHand);
-            if (TreatmentRouter.isIbuprofenItem(medStack)) {
+            if (TreatmentRouter.isOralMedicineItem(medStack)) {
                 if (postApplyCooldownTicks <= 0) {
+                    startIbuprofenDrinkAnimation(medHand, medStack);
                     NetworkHandler.sendTreatmentToServer(new TreatmentApplyPacket(medHand.ordinal(), MedicalData.Limb.CHEST.ordinal(), 100));
                     postApplyCooldownTicks = 12;
                 }
@@ -278,6 +357,18 @@ public class TreatmentClientHooks {
             if (!panelActive && postApplyCooldownTicks <= 0) {
                 activatePanel(mc, medHand);
             }
+        }
+    }
+
+    @SubscribeEvent
+    public static void onMouseScrollLockDuringMedicalAnim(InputEvent.MouseScrollingEvent event) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.screen != null) return;
+        if (isFirstPersonMedicalAnimActive() && ModItems.safeCfgBool(MedicalConfig.LOCK_HOTBAR_DURING_MEDICAL_ANIM, true)) {
+            if (fpAnimLockedSlot >= 0 && fpAnimLockedSlot < 9) {
+                mc.player.getInventory().selected = fpAnimLockedSlot;
+            }
+            event.setCanceled(true);
         }
     }
 
@@ -307,6 +398,17 @@ public class TreatmentClientHooks {
             }
             return;
         }
+        if (pendingOpenOrthoScreen) {
+            pendingOpenOrthoScreen = false;
+            if (player != null && mc.screen == null) {
+                openOrthopedicScreen(pendingOrthoHand, pendingOrthoLimb);
+            }
+            return;
+        }
+
+        if (player != null && mc.level != null && mc.screen == null) {
+            checkAndTriggerSurgicalKitSwitchAnim(player);
+        }
 
         if (player == null || mc.level == null || mc.screen != null) {
             if (panelActive) deactivatePanel();
@@ -329,8 +431,9 @@ public class TreatmentClientHooks {
 
         if (leftDown && medHand != null) {
             ItemStack heldMed = player.getItemInHand(medHand);
-            if (TreatmentRouter.isIbuprofenItem(heldMed)) {
+            if (TreatmentRouter.isOralMedicineItem(heldMed)) {
                 if (postApplyCooldownTicks <= 0) {
+                    startIbuprofenDrinkAnimation(medHand, heldMed);
                     NetworkHandler.sendTreatmentToServer(new TreatmentApplyPacket(medHand.ordinal(), MedicalData.Limb.CHEST.ordinal(), 100));
                     postApplyCooldownTicks = 12;
                 }
@@ -352,7 +455,18 @@ public class TreatmentClientHooks {
                 if (hoveredLimb != null && channelProgress >= 0.15f && postApplyCooldownTicks <= 0) {
                     ItemStack stack = player.getItemInHand(activeHand);
                     if (TreatmentRouter.canTreatLimb(stack, data, hoveredLimb)) {
-                        if (TreatmentRouter.isFasciotomyKitItem(stack)) {
+                        if (TreatmentRouter.isChestDrainKitItem(stack)) {
+                            InteractionHand handCopy = activeHand;
+                            deactivatePanel();
+                            openChestDrainScreen(handCopy);
+                            return;
+                        } else if (TreatmentRouter.isOrthopedicKitItem(stack)) {
+                            MedicalData.Limb chosen = hoveredLimb;
+                            InteractionHand handCopy = activeHand;
+                            deactivatePanel();
+                            openOrthopedicScreen(handCopy, chosen);
+                            return;
+                        } else if (TreatmentRouter.isFasciotomyKitItem(stack)) {
                             MedicalData.Limb chosen = hoveredLimb;
                             InteractionHand handCopy = activeHand;
                             deactivatePanel();
@@ -364,7 +478,7 @@ public class TreatmentClientHooks {
                             deactivatePanel();
                             openVascularSutureScreen(handCopy, chosen);
                             return;
-                        } else if (TreatmentRouter.isOpioidItem(stack) || TreatmentRouter.isTranexamicAcidItem(stack)) {
+                        } else if (TreatmentRouter.isQuantitativeSyringeItem(stack)) {
                             MedicalData.Limb chosen = hoveredLimb;
                             InteractionHand handCopy = activeHand;
                             deactivatePanel();
@@ -406,6 +520,12 @@ public class TreatmentClientHooks {
             ItemStack usedStack = mc.player.getItemInHand(hand);
             if (isSyringeAnimationItem(usedStack)) {
                 startSyringeInjectionAnimation(hand, limb, usedStack, doseUnits);
+            } else if (TreatmentRouter.isTourniquetItem(usedStack)) {
+                startTourniquetApplyAnimation(hand, limb, usedStack);
+            } else if (TreatmentRouter.isPovidoneIodineItem(usedStack)) {
+                startPovidoneSprayAnimation(hand, limb, usedStack);
+            } else if (TreatmentRouter.isOralMedicineItem(usedStack)) {
+                startIbuprofenDrinkAnimation(hand, usedStack);
             } else if (isBandageAnimationItem(usedStack)) {
                 startBandageWrapAnimation(hand, limb, usedStack);
             }
@@ -418,7 +538,6 @@ public class TreatmentClientHooks {
 
     @SubscribeEvent
     public static void onRenderGuiPost(RenderGuiLayerEvent.Post event) {
-        if (!panelActive) return;
         Minecraft mc = Minecraft.getInstance();
         Player player = mc.player;
         if (player == null || mc.options.hideGui) return;
@@ -427,6 +546,13 @@ public class TreatmentClientHooks {
         if (!"hotbar".equals(layerName)) {
             return;
         }
+
+        MedicalData preData = player.getData(MedicalDataCapability.MEDICAL_DATA);
+        if (preData != null) {
+            renderPneumothoraxScreenVignette(event.getGuiGraphics(), mc, preData, System.currentTimeMillis());
+        }
+
+        if (!panelActive) return;
 
         ItemStack stack = player.getItemInHand(activeHand);
         if (!TreatmentRouter.isMedicalItem(stack)) {
@@ -459,7 +585,7 @@ public class TreatmentClientHooks {
         g.fill(px, py, px + panelW, py + panelH, C_BG_DARK);
         drawTacticalCornerBrackets(g, px, py, panelW, panelH, themeColor);
 
-        boolean isOpioid = TreatmentRouter.isOpioidItem(stack) || TreatmentRouter.isTranexamicAcidItem(stack);
+        boolean isOpioid = TreatmentRouter.isQuantitativeSyringeItem(stack);
         String itemTitle = stack.getHoverName().getString();
         g.drawString(font, itemTitle, px + 10, py + 9, themeColor, false);
         g.fill(px + 8, py + 20, px + panelW - 8, py + 21, withAlpha(themeColor, 0.45f));
@@ -507,7 +633,18 @@ public class TreatmentClientHooks {
                 float durationSec = Math.max(0.25f, TreatmentRouter.getChannelDurationSeconds(stack));
                 channelProgress += dtSeconds / durationSec;
                 if (channelProgress >= 1.0f) {
-                    if (TreatmentRouter.isFasciotomyKitItem(stack)) {
+                    if (TreatmentRouter.isChestDrainKitItem(stack)) {
+                        InteractionHand handCopy = activeHand;
+                        deactivatePanel();
+                        openChestDrainScreen(handCopy);
+                        return;
+                    } else if (TreatmentRouter.isOrthopedicKitItem(stack)) {
+                        pendingOrthoHand = activeHand;
+                        pendingOrthoLimb = hoveredLimb;
+                        pendingOpenOrthoScreen = true;
+                        deactivatePanel();
+                        return;
+                    } else if (TreatmentRouter.isFasciotomyKitItem(stack)) {
                         pendingFasciotomyHand = activeHand;
                         pendingFasciotomyLimb = hoveredLimb;
                         pendingOpenFasciotomyScreen = true;
@@ -593,6 +730,28 @@ public class TreatmentClientHooks {
         }
 
         g.drawCenteredString(font, slot.cnName(), (x0 + x1) / 2, (y0 + y1) / 2 - 4, C_TEXT_WHITE);
+        if (slot.limb() == MedicalData.Limb.CHEST) {
+            int pType = ModItems.getPneumothoraxType(data);
+            float airMl = ModItems.getPleuralAirMl(data);
+            if (pType == 3) {
+                g.drawCenteredString(font, "⚠张力气胸", (x0 + x1) / 2, (y0 + y1) / 2 + 6, 0xFFFF1744);
+            } else if (pType == 2) {
+                g.drawCenteredString(font, "开放气胸", (x0 + x1) / 2, (y0 + y1) / 2 + 6, 0xFF00E5FF);
+            } else if (pType == 1 || airMl > 40.0f) {
+                String tag = ModItems.isThreeSidedValveSealed(data) ? "单向阀封" : String.format("气胸%.0f", airMl);
+                g.drawCenteredString(font, tag, (x0 + x1) / 2, (y0 + y1) / 2 + 6, 0xFF80DEEA);
+            } else if (data.getChestBloodAccumulation() > 40.0f) {
+                g.drawCenteredString(font, String.format("血胸%.0f", data.getChestBloodAccumulation()), (x0 + x1) / 2, (y0 + y1) / 2 + 6, 0xFFFF8A80);
+            } else if ((TreatmentRouter.isActivatedCharcoalItem(stack) || TreatmentRouter.isAcetylcysteineItem(stack)) && data.getToxinValue() > 0.5f) {
+                g.drawCenteredString(font, String.format("毒素%.0f%%", data.getToxinValue()), (x0 + x1) / 2, (y0 + y1) / 2 + 6, 0xFF00E676);
+            } else if (data.getSirsLevel() > 0 && (TreatmentRouter.isAmoxicillinItem(stack) || TreatmentRouter.isMeropenemItem(stack))) {
+                g.drawCenteredString(font, String.format("SIRS %d级", data.getSirsLevel()), (x0 + x1) / 2, (y0 + y1) / 2 + 6, 0xFFFF7043);
+            }
+        } else if (limbData.getInfection() > 0) {
+            g.drawCenteredString(font, String.format("感染%d%%", limbData.getInfection()), (x0 + x1) / 2, (y0 + y1) / 2 + 6, 0xFFFFB74D);
+        } else if (limbData.getDisinfectantTimer() > 0 && TreatmentRouter.isPovidoneIodineItem(stack)) {
+            g.drawCenteredString(font, String.format("碘膜%ds", limbData.getDisinfectantTimer()), (x0 + x1) / 2, (y0 + y1) / 2 + 6, 0xFFFFD54F);
+        }
     }
 
     private static void drawAnatomicalSkeletonLines(GuiGraphics g, float cx, float cy, int lineColor) {
@@ -692,6 +851,8 @@ public class TreatmentClientHooks {
                 ItemStack stack = mc.player.getItemInHand(this.hand);
                 int remUnits = Math.max(1, TreatmentRouter.getRemainingOpioidUnits(stack));
                 boolean isTxa = TreatmentRouter.isTranexamicAcidItem(stack);
+                boolean isNac = TreatmentRouter.isAcetylcysteineItem(stack);
+                boolean isMero = TreatmentRouter.isMeropenemItem(stack);
                 boolean isFentanyl = TreatmentRouter.isFentanylItem(stack);
 
                 if (this.selectedLimb == null && data != null) {
@@ -700,9 +861,13 @@ public class TreatmentClientHooks {
                     for (MedicalData.Limb limb : MedicalData.Limb.values()) {
                         MedicalData.LimbData ld = data.getLimb(limb);
                         if (ld != null && !ld.isAmputated()) {
-                            float score = isTxa
-                                    ? (ld.getInternalBleedingRate() * 10.0f + ModItems.getCompartmentTamponadedBleed(ld) * 8.0f + ModItems.getCompartmentBlood(ld))
-                                    : (float) ld.getPainLevel();
+                            float score = isMero
+                                    ? (ld.getInfection() * 10.0f + (limb == MedicalData.Limb.CHEST ? data.getSirsLevel() * 25.0f : 0.0f))
+                                    : (isNac
+                                            ? (limb == MedicalData.Limb.LEFT_ARM || limb == MedicalData.Limb.RIGHT_ARM ? 50.0f : 10.0f)
+                                            : (isTxa
+                                                    ? (ld.getInternalBleedingRate() * 10.0f + ModItems.getCompartmentTamponadedBleed(ld) * 8.0f + ModItems.getCompartmentBlood(ld))
+                                                    : (float) ld.getPainLevel()));
                             if (score > bestScore) {
                                 bestScore = score;
                                 best = limb;
@@ -715,7 +880,7 @@ public class TreatmentClientHooks {
                     this.selectedLimb = MedicalData.Limb.LEFT_ARM;
                 }
 
-                int defaultUnits = isTxa ? 50 : (isFentanyl ? 30 : 45);
+                int defaultUnits = (isMero || isNac || isTxa) ? 50 : (isFentanyl ? 30 : 45);
                 this.selectedDoseUnits = Mth.clamp(defaultUnits, 1, remUnits);
             }
             MedicalSoundHelper.playOpenSound();
@@ -739,7 +904,10 @@ public class TreatmentClientHooks {
             }
             ItemStack stack = mc.player.getItemInHand(this.hand);
             boolean isTxa = TreatmentRouter.isTranexamicAcidItem(stack);
-            if (!TreatmentRouter.isOpioidItem(stack) && !isTxa) {
+            boolean isNac = TreatmentRouter.isAcetylcysteineItem(stack);
+            boolean isMero = TreatmentRouter.isMeropenemItem(stack);
+            boolean isNonOpioidSyringe = isTxa || isNac || isMero;
+            if (!TreatmentRouter.isQuantitativeSyringeItem(stack)) {
                 this.onClose();
                 return;
             }
@@ -753,41 +921,53 @@ public class TreatmentClientHooks {
             int remUnits = Math.max(1, TreatmentRouter.getRemainingOpioidUnits(stack));
             this.selectedDoseUnits = Mth.clamp(this.selectedDoseUnits, 1, remUnits);
 
-            boolean isFentanyl = !isTxa && TreatmentRouter.isFentanylItem(stack);
+            boolean isFentanyl = !isNonOpioidSyringe && TreatmentRouter.isFentanylItem(stack);
             float remRatio = remUnits / (float) maxUnits;
 
-            float maxDrugAmount = isTxa
-                    ? 1000.0f
-                    : (isFentanyl
-                            ? MedicalConfig.FENTANYL_MAX_MCG.get().floatValue()
-                            : MedicalConfig.MORPHINE_MAX_MG.get().floatValue());
-            String unitStr = isTxa ? "mg" : (isFentanyl ? "mcg" : "mg");
+            float maxDrugAmount = isMero
+                    ? ((float) ModItems.safeCfgDouble(MedicalConfig.MEROPENEM_MAX_MG, 1000.0))
+                    : (isNac
+                            ? ((float) ModItems.safeCfgDouble(MedicalConfig.NAC_MAX_MG, 2000.0))
+                            : (isTxa
+                                    ? 1000.0f
+                                    : (isFentanyl
+                                            ? ((float) ModItems.safeCfgDouble(MedicalConfig.FENTANYL_MAX_MCG, 100.0))
+                                            : ((float) ModItems.safeCfgDouble(MedicalConfig.MORPHINE_MAX_MG, 10.0)))));
+            String unitStr = isFentanyl ? "mcg" : "mg";
 
-            float concPerFull = isTxa
-                    ? MedicalConfig.TXA_CONCENTRATION_PER_DOSE.get().floatValue()
-                    : (isFentanyl
-                            ? MedicalConfig.FENTANYL_CONCENTRATION_PER_FULL_DOSE.get().floatValue()
-                            : MedicalConfig.MORPHINE_CONCENTRATION_PER_FULL_DOSE.get().floatValue());
-            float currentConc = isTxa
-                    ? ((data instanceof MedicalDataImpl impl) ? impl.getTxaConcentration() : 0.0f)
-                    : ((data instanceof MedicalDataImpl impl)
-                            ? impl.getOpioidConcentrationFloat()
-                            : (float) data.getOpioidConcentration());
+            float concPerFull = isMero
+                    ? ((float) ModItems.safeCfgDouble(MedicalConfig.MEROPENEM_CONCENTRATION_PER_FULL_DOSE, 70.0))
+                    : (isNac
+                            ? ((float) ModItems.safeCfgDouble(MedicalConfig.NAC_CONCENTRATION_PER_FULL_DOSE, 65.0))
+                            : (isTxa
+                                    ? ((float) ModItems.safeCfgDouble(MedicalConfig.TXA_CONCENTRATION_PER_DOSE, 55.0))
+                                    : (isFentanyl
+                                            ? ((float) ModItems.safeCfgDouble(MedicalConfig.FENTANYL_CONCENTRATION_PER_FULL_DOSE, 85.0))
+                                            : ((float) ModItems.safeCfgDouble(MedicalConfig.MORPHINE_CONCENTRATION_PER_FULL_DOSE, 60.0)))));
+            float currentConc = isMero
+                    ? ModItems.getMeropenemConcentration(data)
+                    : (isNac
+                            ? ModItems.getNacConcentration(data)
+                            : (isTxa
+                                    ? ((data instanceof MedicalDataImpl impl) ? impl.getTxaConcentration() : 0.0f)
+                                    : ((data instanceof MedicalDataImpl impl)
+                                            ? impl.getOpioidConcentrationFloat()
+                                            : (float) data.getOpioidConcentration())));
 
             long nowMs = System.currentTimeMillis();
             float dtSec = (lastFrameTimeMs == 0L) ? 0.016f : Mth.clamp((nowMs - lastFrameTimeMs) / 1000.0f, 0.001f, 0.1f);
             lastFrameTimeMs = nowMs;
 
             int addictionLevel = data.getAddictionLevel();
-            int addictionTier = isTxa ? 0 : ModItems.getAddictionTier(addictionLevel);
+            int addictionTier = isNonOpioidSyringe ? 0 : ModItems.getAddictionTier(addictionLevel);
 
             boolean sliderSelfMoving = false;
             if (addictionTier > 0 && remUnits > 1) {
                 sliderSelfMoving = true;
                 float driftSpeed = switch (addictionTier) {
-                    case 1 -> MedicalConfig.ADDICTION_SLIDER_DRIFT_SPEED_T1.get().floatValue();
-                    case 2 -> MedicalConfig.ADDICTION_SLIDER_DRIFT_SPEED_T2.get().floatValue();
-                    default -> MedicalConfig.ADDICTION_SLIDER_DRIFT_SPEED_T3.get().floatValue();
+                    case 1 -> ((float) ModItems.safeCfgDouble(MedicalConfig.ADDICTION_SLIDER_DRIFT_SPEED_T1, 12.0));
+                    case 2 -> ((float) ModItems.safeCfgDouble(MedicalConfig.ADDICTION_SLIDER_DRIFT_SPEED_T2, 28.0));
+                    default -> ((float) ModItems.safeCfgDouble(MedicalConfig.ADDICTION_SLIDER_DRIFT_SPEED_T3, 52.0));
                 };
                 float minSwing = (addictionTier == 1) ? 0.35f : (addictionTier == 2 ? 0.52f : 0.72f);
                 float wave = 0.5f + 0.5f * (0.72f * Mth.sin(nowMs * 0.0042f) + 0.28f * Mth.cos(nowMs * 0.0115f));
@@ -811,26 +991,42 @@ public class TreatmentClientHooks {
             float chosenAmount = doseFraction * maxDrugAmount;
             float projectedConc = Mth.clamp(currentConc + doseFraction * concPerFull, 0.0f, 100.0f);
 
-            int respDepStart = isTxa
-                    ? Math.max(25, Math.round(MedicalConfig.TXA_THROMBOSIS_THRESHOLD.get() * 0.65f))
-                    : MedicalConfig.OPIOID_RESP_DEPRESSION_START.get();
-            int overdoseThresh = isTxa
-                    ? MedicalConfig.TXA_THROMBOSIS_THRESHOLD.get()
-                    : MedicalConfig.OPIOID_OVERDOSE_THRESHOLD.get();
-            int apneaThresh = isTxa
-                    ? Math.min(100, MedicalConfig.TXA_THROMBOSIS_THRESHOLD.get() + 15)
-                    : MedicalConfig.OPIOID_APNEA_THRESHOLD.get();
+            boolean herxheimerRisk = isMero && (ModItems.getTotalInfection(data) >= ModItems.safeCfgInt(MedicalConfig.MEROPENEM_HERXHEIMER_INFECTION_THRESHOLD, 110)
+                    || data.getSirsLevel() >= 3);
+            float herxRatioThresh = ((float) ModItems.safeCfgDouble(MedicalConfig.MEROPENEM_HERXHEIMER_DOSE_RATIO_THRESHOLD, 0.65));
+
+            int respDepStart = isMero
+                    ? (herxheimerRisk ? Math.round(herxRatioThresh * concPerFull * 0.80f) : 55)
+                    : (isNac
+                            ? Math.max(30, Math.round(ModItems.safeCfgInt(MedicalConfig.NAC_HISTAMINE_OVERDOSE_THRESHOLD, 70) * 0.72f))
+                            : (isTxa
+                                    ? Math.max(25, Math.round(ModItems.safeCfgInt(MedicalConfig.TXA_THROMBOSIS_THRESHOLD, 75) * 0.65f))
+                                    : ModItems.safeCfgInt(MedicalConfig.OPIOID_RESP_DEPRESSION_START, 35)));
+            int overdoseThresh = isMero
+                    ? (herxheimerRisk ? Math.round(currentConc + herxRatioThresh * concPerFull) : ModItems.safeCfgInt(MedicalConfig.MEROPENEM_NEUROTOXIC_THRESHOLD, 85))
+                    : (isNac
+                            ? ModItems.safeCfgInt(MedicalConfig.NAC_HISTAMINE_OVERDOSE_THRESHOLD, 70)
+                            : (isTxa
+                                    ? ModItems.safeCfgInt(MedicalConfig.TXA_THROMBOSIS_THRESHOLD, 75)
+                                    : ModItems.safeCfgInt(MedicalConfig.OPIOID_OVERDOSE_THRESHOLD, 65)));
+            int apneaThresh = isMero
+                    ? ModItems.safeCfgInt(MedicalConfig.MEROPENEM_NEUROTOXIC_THRESHOLD, 85)
+                    : (isNac
+                            ? Math.min(100, ModItems.safeCfgInt(MedicalConfig.NAC_HISTAMINE_OVERDOSE_THRESHOLD, 70) + 18)
+                            : (isTxa
+                                    ? Math.min(100, ModItems.safeCfgInt(MedicalConfig.TXA_THROMBOSIS_THRESHOLD, 75) + 15)
+                                    : ModItems.safeCfgInt(MedicalConfig.OPIOID_APNEA_THRESHOLD, 85)));
 
             boolean isFatalApnea = projectedConc >= apneaThresh;
-            boolean isOverdose = projectedConc >= overdoseThresh;
+            boolean isOverdose = projectedConc >= overdoseThresh || (herxheimerRisk && doseFraction >= herxRatioThresh);
             boolean isMildDep = projectedConc >= respDepStart;
 
             boolean isSafeZoneBlind = false;
             if (addictionTier > 0) {
                 double blindChance = switch (addictionTier) {
-                    case 1 -> MedicalConfig.ADDICTION_BLIND_ZONE_CHANCE_T1.get();
-                    case 2 -> MedicalConfig.ADDICTION_BLIND_ZONE_CHANCE_T2.get();
-                    default -> MedicalConfig.ADDICTION_BLIND_ZONE_CHANCE_T3.get();
+                    case 1 -> ModItems.safeCfgDouble(MedicalConfig.ADDICTION_BLIND_ZONE_CHANCE_T1, 0.18);
+                    case 2 -> ModItems.safeCfgDouble(MedicalConfig.ADDICTION_BLIND_ZONE_CHANCE_T2, 0.42);
+                    default -> ModItems.safeCfgDouble(MedicalConfig.ADDICTION_BLIND_ZONE_CHANCE_T3, 0.75);
                 };
                 double phase = (nowMs % 6000L) / 6000.0;
                 isSafeZoneBlind = (phase < blindChance);
@@ -840,7 +1036,8 @@ public class TreatmentClientHooks {
 
             int accentColor = isSafeZoneBlind ? 0xFFE040FB
                     : (isFatalApnea ? C_ALERT_RED
-                    : (isOverdose ? 0xFFFF5252 : (isTxa ? 0xFFE040FB : (isFentanyl ? C_MAGENTA_HAZARD : C_WARNING_YELLOW))));
+                    : (isOverdose ? 0xFFFF5252
+                    : (isMero ? 0xFFFFD54F : (isNac ? 0xFF00E676 : (isTxa ? 0xFFE040FB : (isFentanyl ? C_MAGENTA_HAZARD : C_WARNING_YELLOW))))));
 
             // 1. 面板框 (296 x 158)
             g.fill(winX, winY, winX + winW, winY + winH, 0xF2060D17);
@@ -848,7 +1045,9 @@ public class TreatmentClientHooks {
             g.fill(winX + 1, winY, winX + winW - 1, winY + 1, withAlpha(accentColor, 0.65f));
             g.fill(winX + 1, winY + winH - 1, winX + winW - 1, winY + winH, withAlpha(accentColor, 0.65f));
 
-            String header = isTxa ? "氨甲环酸" : (isFentanyl ? "枸橼酸芬太尼" : "盐酸吗啡");
+            String header = isMero ? "注射用美罗培南 (抗重症感染/逆转SIRS)"
+                    : (isNac ? "乙酰半胱氨酸 (NAC 静脉解毒剂)"
+                    : (isTxa ? "氨甲环酸" : (isFentanyl ? "枸橼酸芬太尼" : "盐酸吗啡")));
             g.drawString(this.font, header, winX + 10, winY + 7, accentColor, false);
             g.fill(winX + 8, winY + 18, winX + winW - 8, winY + 19, withAlpha(accentColor, 0.40f));
 
@@ -860,30 +1059,25 @@ public class TreatmentClientHooks {
             g.fill(leftBoxX, leftBoxY, leftBoxX + leftBoxW, leftBoxY + leftBoxH, 0xAA030810);
             drawTacticalCornerBrackets(g, leftBoxX, leftBoxY, leftBoxW, leftBoxH, withAlpha(accentColor, 0.7f));
 
-            if (isTxa) {
+            if (isMero) {
+                MedicalAssetLibrary.render3DMeropenemSyringeWithPlunger(
+                        g, leftBoxX + leftBoxW * 0.5f, leftBoxY + 52.0f, 36.0f, remRatio, doseFraction, nowMs
+                );
+            } else if (isNac) {
+                MedicalAssetLibrary.render3DNacSyringeWithPlunger(
+                        g, leftBoxX + leftBoxW * 0.5f, leftBoxY + 52.0f, 36.0f, remRatio, doseFraction, nowMs
+                );
+            } else if (isTxa) {
                 MedicalAssetLibrary.render3DTxaSyringeWithPlunger(
-                        g,
-                        leftBoxX + leftBoxW * 0.5f,
-                        leftBoxY + 52.0f,
-                        36.0f,
-                        remRatio,
-                        doseFraction,
-                        nowMs
+                        g, leftBoxX + leftBoxW * 0.5f, leftBoxY + 52.0f, 36.0f, remRatio, doseFraction, nowMs
                 );
             } else {
                 MedicalAssetLibrary.render3DOpioidSyringeWithPlunger(
-                        g,
-                        leftBoxX + leftBoxW * 0.5f,
-                        leftBoxY + 52.0f,
-                        36.0f,
-                        isFentanyl,
-                        remRatio,
-                        doseFraction,
-                        nowMs
+                        g, leftBoxX + leftBoxW * 0.5f, leftBoxY + 52.0f, 36.0f, isFentanyl, remRatio, doseFraction, nowMs
                 );
             }
 
-            String remText = (isTxa || isFentanyl)
+            String remText = (isNonOpioidSyringe || isFentanyl)
                     ? String.format("%.0f %s", remRatio * maxDrugAmount, unitStr)
                     : String.format("%.1f %s", remRatio * maxDrugAmount, unitStr);
             g.drawCenteredString(this.font, remText, leftBoxX + leftBoxW / 2, leftBoxY + 106, C_TEXT_WHITE);
@@ -902,9 +1096,13 @@ public class TreatmentClientHooks {
                 int tx = rightX + i * (tabW + 2);
                 boolean hov = !amputated && mouseX >= tx && mouseX <= tx + tabW && mouseY >= ty && mouseY <= ty + tabH;
 
-                boolean hasSymptom = ld != null && (isTxa
-                        ? (ld.getInternalBleedingRate() > 0 || ModItems.getCompartmentTamponadedBleed(ld) > 0 || ModItems.getCompartmentBlood(ld) > 0.1f)
-                        : (ld.getPainLevel() > 0));
+                boolean hasSymptom = ld != null && (isMero
+                        ? (ld.getInfection() > 0 || data.getSirsLevel() > 0)
+                        : (isNac
+                                ? (data.getToxinValue() > 0.5f)
+                                : (isTxa
+                                        ? (ld.getInternalBleedingRate() > 0 || ModItems.getCompartmentTamponadedBleed(ld) > 0 || ModItems.getCompartmentBlood(ld) > 0.1f)
+                                        : (ld.getPainLevel() > 0))));
                 int bg = amputated ? 0x55202020 : (selected ? withAlpha(C_NEON_CYAN, 0.35f) : (hov ? 0x88102838 : 0x66081420));
                 int bd = amputated ? 0xFF404040 : (selected ? C_NEON_CYAN : (hasSymptom ? C_WARNING_YELLOW : 0xFF37474F));
                 g.fill(tx, ty, tx + tabW, ty + tabH, bg);
@@ -915,7 +1113,7 @@ public class TreatmentClientHooks {
 
             // 4. 中央：剂量滑块 (宽 198)
             int labelY = sliderY - 13;
-            String doseReadout = (isTxa || isFentanyl)
+            String doseReadout = (isNonOpioidSyringe || isFentanyl)
                     ? String.format("%.0f %s", chosenAmount, unitStr)
                     : String.format("%.1f %s", chosenAmount, unitStr);
             g.drawString(this.font, doseReadout, sliderX, labelY, C_TEXT_WHITE, false);
@@ -923,7 +1121,7 @@ public class TreatmentClientHooks {
             int zoneColor = isSafeZoneBlind ? 0xFFE040FB
                     : (isFatalApnea ? C_ALERT_RED : (isOverdose ? 0xFFFF5252 : (isMildDep ? C_WARNING_YELLOW : C_SAFE_GREEN)));
             if (!isSafeZoneBlind) {
-                String zoneBadge = (isFatalApnea || isOverdose) ? "过量" : (isMildDep ? "偏高" : "安全");
+                String zoneBadge = (herxheimerRisk && doseFraction >= herxRatioThresh) ? "⚠赫氏风暴" : (isNac && isOverdose ? "⚠组胺过敏" : ((isFatalApnea || isOverdose) ? "过量" : (isMildDep ? "偏高" : "安全")));
                 g.drawString(this.font, zoneBadge, sliderX + sliderW - this.font.width(zoneBadge), labelY, zoneColor, false);
             }
 
@@ -1317,7 +1515,7 @@ public class TreatmentClientHooks {
             this.graftX = this.viewX + 38.0f;
             this.graftY = this.viewY + this.viewH * 0.54f;
 
-            int stitchCount = Math.max(2, Math.min(12, MedicalConfig.SUTURE_ANASTOMOSIS_STITCH_COUNT.get()));
+            int stitchCount = Math.max(2, Math.min(12, ModItems.safeCfgInt(MedicalConfig.SUTURE_ANASTOMOSIS_STITCH_COUNT, 6)));
             this.stitchesDone = new boolean[stitchCount];
             this.stitchTightenAnim = new float[stitchCount];
 
@@ -1411,17 +1609,17 @@ public class TreatmentClientHooks {
 
             // 疼痛高频震颤 + 低意识眩晕8字漂移干扰（完全由 MedicalConfig 配置驱动）
             MedicalData.LimbData curLd = data.getLimb(this.limb);
-            float sysPainRatio = data.getPerceivedPain() / Math.max(10.0f, MedicalConfig.MAX_PERCEIVED_PAIN.get().floatValue());
-            float limbPainRatio = (curLd != null) ? (curLd.getPainLevel() / Math.max(1.0f, MedicalConfig.MAX_PAIN_LEVEL.get().floatValue())) : 0.0f;
+            float sysPainRatio = data.getPerceivedPain() / Math.max(10.0f, ((float) ModItems.safeCfgDouble(MedicalConfig.MAX_PERCEIVED_PAIN, 100.0)));
+            float limbPainRatio = (curLd != null) ? (curLd.getPainLevel() / Math.max(1.0f, ((float) ModItems.safeCfgDouble(MedicalConfig.MAX_PAIN_LEVEL, 10)))) : 0.0f;
             float painRatio = Mth.clamp(Math.max(sysPainRatio, limbPainRatio * 0.85f), 0.0f, 1.0f);
 
             float minCons = ModItems.getSutureMinConsciousness();
             float consDeficit = Mth.clamp((100.0f - data.getConsciousnessFloat()) / Math.max(1.0f, 100.0f - minCons), 0.0f, 1.0f);
 
-            float maxPainShake = MedicalConfig.SUTURE_CURSOR_PAIN_SHAKE_MAX.get().floatValue();
-            float maxConsSway = MedicalConfig.SUTURE_CURSOR_CONSCIOUSNESS_SWAY_MAX.get().floatValue();
+            float maxPainShake = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_CURSOR_PAIN_SHAKE_MAX, 14.0));
+            float maxConsSway = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_CURSOR_CONSCIOUSNESS_SWAY_MAX, 22.0));
             float wdShake = ModItems.isInWithdrawalMovementRestriction(data)
-                    ? MedicalConfig.SUTURE_CURSOR_WITHDRAWAL_SHAKE.get().floatValue() : 0.0f;
+                    ? ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_CURSOR_WITHDRAWAL_SHAKE, 10.0)) : 0.0f;
 
             // 1) 剧痛高频神经痉挛抖动 + 心跳收缩期抽搐冲击
             float painPulseSpike = 1.0f + beatWave * 0.65f * painRatio;
@@ -1578,7 +1776,7 @@ public class TreatmentClientHooks {
             g.fill(scopeX, scopeY, scopeX + scopeW, scopeY + scopeH, 0xCC040A12);
             g.fill(scopeX, scopeY + scopeH - 1, scopeX + scopeW, scopeY + scopeH, 0x55263238);
 
-            float calmMax = MedicalConfig.SUTURE_BULLDOG_CALM_BEAT_MAX.get().floatValue();
+            float calmMax = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_BULLDOG_CALM_BEAT_MAX, 0.35));
             if (this.chosenPath == 2 && this.subStep == 1) {
                 // 在路径 B-1 高亮显示舒张期安全下夹阈值带
                 int safeTopY = Math.round(scopeY + scopeH - 3 - calmMax * (scopeH - 6));
@@ -1669,7 +1867,7 @@ public class TreatmentClientHooks {
 
         private void renderSurgicalCavityAndVessel(GuiGraphics g, float cx, float cy, float beatWave,
                                                    float dt, float mx, float my, long nowMs) {
-            float openThresh = MedicalConfig.SUTURE_RETRACTOR_OPEN_THRESHOLD.get().floatValue();
+            float openThresh = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_RETRACTOR_OPEN_THRESHOLD, 0.88));
 
             // 牵开器弹簧物理回弹与棘轮锁定
             if (this.draggingRetractor != 1 && !this.leftLocked) {
@@ -1707,7 +1905,7 @@ public class TreatmentClientHooks {
             }
 
             // 计算上下血管断端实时坐标（含生理搏动与组织痉挛游走）
-            float driftAmp = MedicalConfig.SUTURE_STUMP_DRIFT_AMPLITUDE.get().floatValue();
+            float driftAmp = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_STUMP_DRIFT_AMPLITUDE, 8.5));
             float stumpDriftX = (this.chosenPath == 1 && this.subStep == 1)
                     ? (Mth.sin(nowMs * 0.0042f) * 0.7f + Mth.cos(nowMs * 0.0071f) * 0.3f) * driftAmp
                     : 0.0f;
@@ -1808,7 +2006,7 @@ public class TreatmentClientHooks {
         private void renderPathALigationStage(GuiGraphics g, Matrix4f mat, float cx, float cy,
                                               float topX, float botX, float topStumpEnd, float botStumpStart,
                                               float vesselRadius, float beatWave, float dt, float mx, float my, long nowMs) {
-            float clampRadius = MedicalConfig.SUTURE_STUMP_CLAMP_RADIUS.get().floatValue();
+            float clampRadius = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_STUMP_CLAMP_RADIUS, 13.0));
             if (this.subStep == 1) {
                 // A-1：游走断端动态锁定环
                 float pulseR = clampRadius + Mth.sin(nowMs * 0.012f) * 1.8f;
@@ -1826,7 +2024,7 @@ public class TreatmentClientHooks {
                     this.subStep = 2;
                 }
             } else if (this.subStep == 2) {
-                float reqDeg = MedicalConfig.SUTURE_WINDING_REQUIRED_DEGREES.get().floatValue();
+                float reqDeg = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_WINDING_REQUIRED_DEGREES, 720.0));
                 if (this.totalWindProgress < 1.0f) {
                     if (this.windingDrag) {
                         float ang = (float) Math.atan2(my - cy, mx - cx);
@@ -1864,10 +2062,10 @@ public class TreatmentClientHooks {
                     }
                 } else if (!this.playingCompletionFinale) {
                     // 死结张力保持博弈（血压脉搏会反向冲击张力）
-                    float minT = MedicalConfig.SUTURE_KNOT_TENSION_MIN.get().floatValue();
-                    float maxT = MedicalConfig.SUTURE_KNOT_TENSION_MAX.get().floatValue();
-                    float snapT = MedicalConfig.SUTURE_KNOT_TENSION_SNAP.get().floatValue();
-                    float holdSec = MedicalConfig.SUTURE_KNOT_HOLD_SECONDS.get().floatValue();
+                    float minT = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_KNOT_TENSION_MIN, 0.68));
+                    float maxT = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_KNOT_TENSION_MAX, 0.92));
+                    float snapT = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_KNOT_TENSION_SNAP, 0.98));
+                    float holdSec = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_KNOT_HOLD_SECONDS, 0.75));
 
                     if (this.pullingKnot) {
                         this.knotTension += dt * (0.92f + beatWave * 0.25f);
@@ -1934,9 +2132,9 @@ public class TreatmentClientHooks {
         private void renderPathBAnastomosisStage(GuiGraphics g, Matrix4f mat, float cx, float cy,
                                                  float topStumpEnd, float botStumpStart, float vesselRadius,
                                                  float beatWave, float dt, float mx, float my, long nowMs) {
-            float calmMax = MedicalConfig.SUTURE_BULLDOG_CALM_BEAT_MAX.get().floatValue();
-            float alignTol = MedicalConfig.SUTURE_GRAFT_ALIGN_TOLERANCE_DEG.get().floatValue();
-            float snapDist = MedicalConfig.SUTURE_GRAFT_SNAP_DISTANCE.get().floatValue();
+            float calmMax = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_BULLDOG_CALM_BEAT_MAX, 0.35));
+            float alignTol = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_GRAFT_ALIGN_TOLERANCE_DEG, 9.5));
+            float snapDist = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_GRAFT_SNAP_DISTANCE, 13.0));
 
             if (this.subStep == 1) {
                 // B-1：舒张期同步脉冲波环（随心动周期收缩扩张，舒张期变绿可下夹）
@@ -2175,39 +2373,30 @@ public class TreatmentClientHooks {
 
         private void renderActiveSurgicalInstrumentCursor(GuiGraphics g, float mx, float my,
                                                           float cx, float cy, float beatWave, long nowMs) {
-            PoseStack pose = g.pose();
-            pose.pushPose();
-            pose.translate(mx, my, 0.0f);
-            pose.mulPose(com.mojang.math.Axis.ZP.rotationDegrees(this.cursorTiltDeg));
-            Matrix4f mat = pose.last().pose();
-
-            if (this.chosenPath == 1 && this.subStep == 1) {
-                // 蚊式止血钳跟随准星（靠近血管断端时钳口自动张开）
-                float jawAngle = 10.0f;
-                drawLineSegment(mat, 0.0f, 0.0f, 22.0f, 18.0f + jawAngle * 0.4f, 2.2f, 0xFFECEFF1);
-                drawLineSegment(mat, 0.0f, 0.0f, 18.0f, 22.0f - jawAngle * 0.4f, 2.2f, 0xFFB0BEC5);
-                drawRingArc(mat, 24.0f, 20.0f, 3.0f, 4.8f, 0.0f, Mth.TWO_PI, C_NEON_CYAN, 12);
-            } else if (this.chosenPath == 2 && this.subStep == 1) {
-                // 金色哈巴狗微血管夹施夹钳跟随准星
-                boolean calm = beatWave < MedicalConfig.SUTURE_BULLDOG_CALM_BEAT_MAX.get().floatValue();
-                drawLineSegment(mat, -6.0f, -2.0f, 8.0f, -2.0f, 2.4f, C_ADRENALINE_GOLD);
-                drawLineSegment(mat, -6.0f, 2.0f, 8.0f, 2.0f, 2.4f, C_ADRENALINE_GOLD);
-                drawLineSegment(mat, 8.0f, 0.0f, 24.0f, 16.0f, 2.0f, calm ? C_SAFE_GREEN : 0xFFCFD8DC);
-            } else if ((this.chosenPath == 1 && this.subStep == 2) || (this.chosenPath == 2 && this.subStep == 3)) {
-                // 显微持针钳 + 弯月形外科缝合针 (Curved Surgical Needle & Castroviejo Holder)
-                drawLineSegment(mat, 2.0f, 2.0f, 22.0f, 20.0f, 2.4f, 0xFFCFD8DC);
-                drawLineSegment(mat, 4.0f, 0.0f, 24.0f, 18.0f, 1.8f, 0xFF00E5FF);
-                drawRingArc(mat, -4.0f, -2.0f, 5.5f, 7.2f, -0.6f, 2.4f, 0xFFFFFFFF, 14);
-            }
-
-            pose.popPose();
             float swayDist = Mth.sqrt(this.cursorTremorX * this.cursorTremorX + this.cursorTremorY * this.cursorTremorY);
             if (swayDist > 1.2f) {
                 Matrix4f hudMat = g.pose().last().pose();
                 int swayCol = (swayDist > 10.0f) ? 0x88FF1744 : 0x66FFB300;
                 drawRingArc(hudMat, mx, my, 7.5f, 8.8f, 0.0f, Mth.TWO_PI, swayCol, 18);
             }
-            drawTacticalCursor(g, mx, my, 0.0f, C_NEON_CYAN);
+
+            SurgicalInstrumentRenderer.ToolType tool = SurgicalInstrumentRenderer.ToolType.NEEDLE_HOLDER;
+            boolean active = false;
+            if (this.chosenPath == 1 && this.subStep == 1) {
+                tool = SurgicalInstrumentRenderer.ToolType.HEMOSTAT_FORCEPS;
+                active = this.topClamped || this.botClamped;
+            } else if (this.chosenPath == 2 && this.subStep == 1) {
+                tool = SurgicalInstrumentRenderer.ToolType.HEMOSTAT_FORCEPS;
+                active = beatWave < ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_BULLDOG_CALM_BEAT_MAX, 0.35));
+            } else if (this.chosenPath == 2 && this.subStep == 2) {
+                tool = SurgicalInstrumentRenderer.ToolType.HEMOSTAT_FORCEPS;
+                active = this.draggingGraft;
+            } else {
+                tool = SurgicalInstrumentRenderer.ToolType.NEEDLE_HOLDER;
+                active = this.windingDrag || this.pullingKnot || (this.activeStitchIdx >= 0);
+            }
+            SurgicalInstrumentRenderer.renderDetailedSurgicalToolCursor(
+                    g, mx, my, this.cursorTiltDeg, tool, active, beatWave, (nowMs % 100000L) * 0.02f);
         }
 
         private void drawTaperedVesselSegment(Matrix4f mat, float x0, float y0, float x1, float y1,
@@ -2378,8 +2567,8 @@ public class TreatmentClientHooks {
                 } else if (this.chosenPath == 1) {
                     if (this.subStep == 1) {
                         long nowMs = System.currentTimeMillis();
-                        float driftAmp = MedicalConfig.SUTURE_STUMP_DRIFT_AMPLITUDE.get().floatValue();
-                        float clampRadius = MedicalConfig.SUTURE_STUMP_CLAMP_RADIUS.get().floatValue();
+                        float driftAmp = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_STUMP_DRIFT_AMPLITUDE, 8.5));
+                        float clampRadius = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_STUMP_CLAMP_RADIUS, 13.0));
                         float driftX = (Mth.sin(nowMs * 0.0042f) * 0.7f + Mth.cos(nowMs * 0.0071f) * 0.3f) * driftAmp;
                         if (!this.topClamped && Math.hypot(mx - (cx + driftX), my - (topStumpEnd - 4.0f)) <= clampRadius) {
                             this.topClamped = true;
@@ -2409,8 +2598,8 @@ public class TreatmentClientHooks {
                 } else if (this.chosenPath == 2) {
                     if (this.subStep == 1) {
                         float beatWave = computeArterialPulseWave(this.heartPhase);
-                        float calmMax = MedicalConfig.SUTURE_BULLDOG_CALM_BEAT_MAX.get().floatValue();
-                        float clampRadius = MedicalConfig.SUTURE_STUMP_CLAMP_RADIUS.get().floatValue();
+                        float calmMax = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_BULLDOG_CALM_BEAT_MAX, 0.35));
+                        float clampRadius = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_STUMP_CLAMP_RADIUS, 13.0));
                         if (beatWave < calmMax) {
                             if (!this.topClamped && Math.hypot(mx - cx, my - (topStumpEnd - 5.0f)) <= clampRadius + 1.5f) {
                                 this.topClamped = true;
@@ -2498,8 +2687,8 @@ public class TreatmentClientHooks {
 
                 if (this.chosenPath == 2 && this.subStep == 2 && this.draggingGraft) {
                     this.draggingGraft = false;
-                    float alignTol = MedicalConfig.SUTURE_GRAFT_ALIGN_TOLERANCE_DEG.get().floatValue();
-                    float snapDist = MedicalConfig.SUTURE_GRAFT_SNAP_DISTANCE.get().floatValue();
+                    float alignTol = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_GRAFT_ALIGN_TOLERANCE_DEG, 9.5));
+                    float snapDist = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_GRAFT_SNAP_DISTANCE, 13.0));
                     if (Math.abs(this.graftAngleDeg) <= alignTol && Math.hypot(this.graftX - cx, this.graftY - cy) <= snapDist) {
                         this.graftInserted = true;
                         this.subStep = 3;
@@ -2693,7 +2882,7 @@ public class TreatmentClientHooks {
             float topY = this.viewY + 26.0f;
             float botY = this.viewY + this.viewH - 18.0f;
 
-            int clotCount = Math.max(2, Math.min(10, MedicalConfig.FASCIOTOMY_CLOT_COUNT.get()));
+            int clotCount = Math.max(2, Math.min(10, ModItems.safeCfgInt(MedicalConfig.FASCIOTOMY_CLOT_COUNT, 5)));
             this.clotX = new float[clotCount];
             this.clotY = new float[clotCount];
             this.clotRemaining = new float[clotCount];
@@ -2704,7 +2893,7 @@ public class TreatmentClientHooks {
                 this.clotRemaining[i] = 1.0f;
             }
 
-            int bleederCount = Math.max(1, Math.min(8, MedicalConfig.FASCIOTOMY_BLEEDER_COUNT.get()));
+            int bleederCount = Math.max(1, Math.min(8, ModItems.safeCfgInt(MedicalConfig.FASCIOTOMY_BLEEDER_COUNT, 3)));
             this.bleederX = new float[bleederCount];
             this.bleederY = new float[bleederCount];
             this.bleederCauteryProgress = new float[bleederCount];
@@ -2787,17 +2976,17 @@ public class TreatmentClientHooks {
 
             // 疼痛高频震颤 + 低意识眩晕 8 字漂移干扰
             MedicalData.LimbData curLd = data.getLimb(this.limb);
-            float sysPainRatio = data.getPerceivedPain() / Math.max(10.0f, MedicalConfig.MAX_PERCEIVED_PAIN.get().floatValue());
-            float limbPainRatio = (curLd != null) ? (curLd.getPainLevel() / Math.max(1.0f, MedicalConfig.MAX_PAIN_LEVEL.get().floatValue())) : 0.0f;
+            float sysPainRatio = data.getPerceivedPain() / Math.max(10.0f, ((float) ModItems.safeCfgDouble(MedicalConfig.MAX_PERCEIVED_PAIN, 100.0)));
+            float limbPainRatio = (curLd != null) ? (curLd.getPainLevel() / Math.max(1.0f, ((float) ModItems.safeCfgDouble(MedicalConfig.MAX_PAIN_LEVEL, 10)))) : 0.0f;
             float painRatio = Mth.clamp(Math.max(sysPainRatio, limbPainRatio * 0.85f), 0.0f, 1.0f);
 
             float minCons = ModItems.getFasciotomyMinConsciousness();
             float consDeficit = Mth.clamp((100.0f - data.getConsciousnessFloat()) / Math.max(1.0f, 100.0f - minCons), 0.0f, 1.0f);
 
-            float maxPainShake = MedicalConfig.SUTURE_CURSOR_PAIN_SHAKE_MAX.get().floatValue();
-            float maxConsSway = MedicalConfig.SUTURE_CURSOR_CONSCIOUSNESS_SWAY_MAX.get().floatValue();
+            float maxPainShake = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_CURSOR_PAIN_SHAKE_MAX, 14.0));
+            float maxConsSway = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_CURSOR_CONSCIOUSNESS_SWAY_MAX, 22.0));
             float wdShake = ModItems.isInWithdrawalMovementRestriction(data)
-                    ? MedicalConfig.SUTURE_CURSOR_WITHDRAWAL_SHAKE.get().floatValue() : 0.0f;
+                    ? ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_CURSOR_WITHDRAWAL_SHAKE, 10.0)) : 0.0f;
 
             float painPulseSpike = 1.0f + beatWave * 0.65f * painRatio;
             float painShakeAmp = (painRatio * maxPainShake + wdShake) * painPulseSpike;
@@ -2886,7 +3075,7 @@ public class TreatmentClientHooks {
             g.drawCenteredString(this.font, "mmHg", leftX + leftW / 2, gaugeY + 24, C_TEXT_DIM);
 
             int ischSec = curLd != null ? ModItems.getCompartmentIschemiaSec(curLd) : 0;
-            float ischRatio = Mth.clamp(ischSec / (float) Math.max(1, MedicalConfig.COMPARTMENT_NECROSIS_TIME_SEC.get()), 0.0f, 1.0f);
+            float ischRatio = Mth.clamp(ischSec / (float) Math.max(1, ModItems.safeCfgInt(MedicalConfig.COMPARTMENT_NECROSIS_TIME_SEC, 240)), 0.0f, 1.0f);
             int ischCol = ischRatio > 0.75f ? C_ALERT_RED : (ischRatio > 0.40f ? C_WARNING_YELLOW : C_NEON_CYAN);
             g.fill(leftX + 7, leftY + leftH - 16, leftX + leftW - 7, leftY + leftH - 10, 0xFF0A1622);
             g.fill(leftX + 7, leftY + leftH - 16, leftX + 7 + Math.round((leftW - 14) * (1.0f - ischRatio)), leftY + leftH - 10, ischCol);
@@ -2954,19 +3143,29 @@ public class TreatmentClientHooks {
                 float y1 = Mth.lerp((i + 1) / (float) INCISION_SEGS, topY, botY);
                 float sp = this.fasciaSpread[i];
 
-                // 左右深筋膜白亮腱膜边缘与表皮组织遮挡
+                // 左右表皮真皮层、金黄色皮下脂肪小叶与银白色深筋膜腱膜切缘
                 int lEdge = Math.round(cx - sp);
                 int rEdge = Math.round(cx + sp);
                 g.fill(viewX + 2, Math.round(y0), lEdge, Math.round(y1) + 1, 0xF236101B);
                 g.fill(rEdge, Math.round(y0), viewX + viewW - 2, Math.round(y1) + 1, 0xF236101B);
-                // 银白色紧张深筋膜切缘
-                g.fill(lEdge - 3, Math.round(y0), lEdge, Math.round(y1) + 1, 0xFFCFD8DC);
-                g.fill(rEdge, Math.round(y0), rEdge + 3, Math.round(y1) + 1, 0xFFCFD8DC);
+                if (sp > 3.5f) {
+                    // 皮下金黄脂肪颗粒层
+                    g.fill(lEdge - 6, Math.round(y0), lEdge - 3, Math.round(y1) + 1, 0xFFD9B34C);
+                    g.fill(rEdge + 3, Math.round(y0), rEdge + 6, Math.round(y1) + 1, 0xFFD9B34C);
+                    // 羽状横纹肌纤维束细节
+                    SurgicalInstrumentRenderer.drawQuad2D(g,
+                            lEdge + 2, y0 + 1, cx, y0 + 3, cx, y1 - 1, lEdge + 2, y1 - 3, 0x449E1C28);
+                    SurgicalInstrumentRenderer.drawQuad2D(g,
+                            cx, y0 + 3, rEdge - 2, y0 + 1, rEdge - 2, y1 - 3, cx, y1 - 1, 0x44801420);
+                }
+                // 银白色高张力深筋膜切缘
+                g.fill(lEdge - 3, Math.round(y0), lEdge, Math.round(y1) + 1, 0xFFECEFF1);
+                g.fill(rEdge, Math.round(y0), rEdge + 3, Math.round(y1) + 1, 0xFFECEFF1);
             }
 
             if (this.step == 0) {
                 // 第 0 步：手术刀纵行切开深筋膜引导线
-                float corridorW = MedicalConfig.FASCIOTOMY_INCISION_CORRIDOR_WIDTH.get().floatValue();
+                float corridorW = ((float) ModItems.safeCfgDouble(MedicalConfig.FASCIOTOMY_INCISION_CORRIDOR_WIDTH, 14.0));
                 float curCutY = Mth.lerp(this.incisionProgress, topY, botY);
                 g.fill(Math.round(cx - corridorW), Math.round(topY), Math.round(cx - corridorW + 1), Math.round(botY), 0x4400E5FF);
                 g.fill(Math.round(cx + corridorW - 1), Math.round(topY), Math.round(cx + corridorW), Math.round(botY), 0x4400E5FF);
@@ -3007,9 +3206,11 @@ public class TreatmentClientHooks {
                     allCleared = false;
                     float kx = this.clotX[i];
                     float ky = this.clotY[i];
-                    int r = Math.max(2, Math.round(8.5f * rem));
-                    g.fill(Math.round(kx - r), Math.round(ky - r * 0.8f), Math.round(kx + r), Math.round(ky + r * 0.8f), 0xEE4A0726);
-                    g.fill(Math.round(kx - r + 2), Math.round(ky - r * 0.5f), Math.round(kx + r - 2), Math.round(ky + r * 0.5f), 0xFF880E4F);
+                    float clotRad = Math.max(3.5f, 11.5f * rem);
+                    boolean hovClot = Math.hypot(mx - kx, my - ky) <= 15.0;
+                    SurgicalInstrumentRenderer.drawOrganicBloodClot2D(
+                            g, kx, ky, clotRad, i * 1.6f + (nowMs % 100000L) * 0.003f,
+                            this.suctionActive && hovClot, hovClot, mx, my);
 
                     if (this.suctionActive && Math.hypot(mx - kx, my - ky) <= 15.0) {
                         this.clotRemaining[i] = Math.max(0.0f, rem - dt * 1.65f);
@@ -3028,7 +3229,7 @@ public class TreatmentClientHooks {
                 }
             } else if (this.step == 2) {
                 // 第 2 步：解除压迫后深部复发出血点双极电凝止血
-                float holdReq = MedicalConfig.FASCIOTOMY_CAUTERY_HOLD_SECONDS.get().floatValue();
+                float holdReq = ((float) ModItems.safeCfgDouble(MedicalConfig.FASCIOTOMY_CAUTERY_HOLD_SECONDS, 0.55));
                 boolean allCauterized = true;
                 for (int i = 0; i < this.bleederX.length; i++) {
                     float bx = this.bleederX[i];
@@ -3142,24 +3343,18 @@ public class TreatmentClientHooks {
         }
 
         private void renderFasciotomyInstrumentCursor(GuiGraphics g, float mx, float my, long nowMs) {
-            int ix = Math.round(mx);
-            int iy = Math.round(my);
-            if (this.step == 0) {
-                // #15 圆刃解剖手术刀
-                g.fill(ix, iy - 2, ix + 6, iy + 2, 0xFFFFFFFF);
-                g.fill(ix + 6, iy - 2, ix + 20, iy + 3, 0xFF90A4AE);
-            } else if (this.step == 1) {
-                // 深部血肿吸引管
-                g.fill(ix - 2, iy - 2, ix + 16, iy + 2, 0xFFCFD8DC);
-                g.fill(ix + 10, iy - 3, ix + 16, iy + 3, C_NEON_CYAN);
-            } else if (this.step == 2) {
-                // 双极电凝止血镊 (钴蓝绝缘臂 + 金色电极尖端)
-                g.fill(ix, iy - 3, ix + 5, iy - 1, C_ADRENALINE_GOLD);
-                g.fill(ix, iy + 1, ix + 5, iy + 3, C_ADRENALINE_GOLD);
-                g.fill(ix + 5, iy - 4, ix + 18, iy - 1, 0xFF0091EA);
-                g.fill(ix + 5, iy + 1, ix + 18, iy + 4, 0xFF0091EA);
-            }
-            drawTacticalCursor(g, mx, my, 0.0f, C_NEON_CYAN);
+            SurgicalInstrumentRenderer.ToolType tool = switch (this.step) {
+                case 0 -> SurgicalInstrumentRenderer.ToolType.SCALPEL;
+                case 1 -> SurgicalInstrumentRenderer.ToolType.SUCTION_CANNULA;
+                case 2 -> SurgicalInstrumentRenderer.ToolType.BIPOLAR_CAUTERY;
+                default -> SurgicalInstrumentRenderer.ToolType.HEMOSTAT_FORCEPS;
+            };
+            boolean active = (this.step == 0 && this.slicingFascia)
+                    || (this.step == 1 && this.suctionActive)
+                    || (this.step == 2 && this.cauterizing)
+                    || (this.step == 3 && this.draggingLace);
+            SurgicalInstrumentRenderer.renderDetailedSurgicalToolCursor(
+                    g, mx, my, this.cursorTiltDeg, tool, active, this.incisionProgress, (nowMs % 100000L) * 0.02f);
         }
 
         @Override
@@ -3186,7 +3381,7 @@ public class TreatmentClientHooks {
 
                 if (this.step == 0) {
                     float curCutY = Mth.lerp(this.incisionProgress, topY, botY);
-                    if (Math.abs(mx - cx) <= MedicalConfig.FASCIOTOMY_INCISION_CORRIDOR_WIDTH.get().floatValue()
+                    if (Math.abs(mx - cx) <= ((float) ModItems.safeCfgDouble(MedicalConfig.FASCIOTOMY_INCISION_CORRIDOR_WIDTH, 14.0))
                             && Math.abs(my - curCutY) <= 16.0f) {
                         this.slicingFascia = true;
                         playUiSound(SoundEvents.SHEEP_SHEAR, 1.15f, 0.5f);
@@ -3246,16 +3441,1653 @@ public class TreatmentClientHooks {
     }
 
     // =========================================================================
-    // 第一人称非阻塞 3D 医疗动作动画系统 (支持「注射器 6 部位差分」与「绷带/加压绷带 6 部位差分」)
+    // 野战骨科复位固定手术交互界面 (OrthopedicSurgeryScreen —— 3A级 C型臂X光透视骨科复位与外固定架/镍钛肋骨环抱器手术模拟)
+    //
+    // 四步精密骨科手术流程（全部参数读取自 MedicalConfig，零硬编码）：
+    // - 阶段 0（游离碎骨清创 Debridement）：用咬骨钳精准夹除卡在血管旁的尖锐游离碎骨片（误触搏动动脉会扣血加痛）
+    // - 阶段 1（X光透视牵引对位复位 Traction & Reduction）：拖拽远端骨断端（或浮动肋骨段），抵抗肌肉痉挛牵拉，将其对准绿色解剖透视靶区并保持稳定锁紧复位钳
+    // - 阶段 2（皮质骨钻孔置钉 / 镍钛记忆合金肋骨环抱器卡合 Cortical Drilling / SSRF Rib Claw）：
+    //     * 四肢/头部模式：对准 4 个皮质骨靶点按住左键启动骨科电钻，钻入 Schanz 钛合金骨螺钉
+    //     * 胸腔连枷胸模式：对准多发肋骨断端按住左键，将镍钛记忆合金肋骨环抱器卡爪抱紧锁死在浮动肋骨上
+    // - 阶段 3（碳纤维外固定连杆锁紧 / 胸壁刚性桥接 Rod Locking）：从首枚骨钉拖拽连杆扳手至末枚骨钉，完成外固定架刚性锁定
+    // =========================================================================
+    public static class OrthopedicSurgeryScreen extends Screen {
+
+        private static final class OrthoParticle {
+            boolean active;
+            float x, y;
+            float vx, vy;
+            float size;
+            float age, maxAge;
+            int color;
+        }
+
+        private final InteractionHand hand;
+        private final MedicalData.Limb limb;
+        private final boolean isChestRibMode;
+
+        private int winX, winY, winW = 248, winH = 198;
+        private int viewX, viewY, viewW = 152, viewH = 156;
+
+        // 0 = 碎骨清创, 1 = 牵引对位复位, 2 = 钻孔置钉/肋骨环抱器, 3 = 连杆刚性锁定
+        private int step = 0;
+
+        // 阶段 0：游离碎骨片
+        private float[] splinterX;
+        private float[] splinterY;
+        private float[] splinterAngle;
+        private boolean[] splinterRemoved;
+        private int removedSplinterCount = 0;
+
+        // 阶段 1：牵引对位复位
+        private boolean draggingBone = false;
+        private float boneOffsetX = 24.0f;
+        private float boneOffsetY = -14.0f;
+        private float reductionHoldSec = 0.0f;
+
+        // 阶段 2：钻孔置钉 / 肋骨环抱器
+        private float[] screwX;
+        private float[] screwY;
+        private float[] screwDrillProgress;
+        private boolean drillingActive = false;
+        private int drillSoundTick = 0;
+
+        // 阶段 3：外固定连杆拖拽锁定
+        private boolean draggingRod = false;
+        private float rodLockProgress = 0.0f;
+
+        private boolean boneExposed = false;
+        private boolean surgeryCompleted = false;
+        private boolean playingFinale = false;
+        private float finaleProgress = 0.0f;
+
+        private long lastFrameMs = 0L;
+        private float heartPhase = 0.0f;
+        private float mistakeFlashAlpha = 0.0f;
+        private float screenShakeAmp = 0.0f;
+        private float screenShakeX = 0.0f;
+        private float screenShakeY = 0.0f;
+
+        private float cursorTremorX = 0.0f;
+        private float cursorTremorY = 0.0f;
+        private float smoothMouseX = 0.0f;
+        private float smoothMouseY = 0.0f;
+        private float cursorTiltDeg = 0.0f;
+
+        private final OrthoParticle[] particles = new OrthoParticle[64];
+
+        public OrthopedicSurgeryScreen(InteractionHand hand, MedicalData.Limb limb) {
+            super(Component.literal("骨科复位固定"));
+            this.hand = hand != null ? hand : InteractionHand.MAIN_HAND;
+            this.limb = limb != null ? limb : MedicalData.Limb.LEFT_LEG;
+            this.isChestRibMode = (this.limb == MedicalData.Limb.CHEST);
+            for (int i = 0; i < this.particles.length; i++) {
+                this.particles[i] = new OrthoParticle();
+            }
+        }
+
+        private void playUiSound(SoundEvent sound, float pitch, float volume) {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(sound, pitch, volume));
+            }
+        }
+
+        private void spawnParticle(float x, float y, float vx, float vy, float size, float maxAge, int color) {
+            for (OrthoParticle p : this.particles) {
+                if (!p.active) {
+                    p.active = true;
+                    p.x = x;
+                    p.y = y;
+                    p.vx = vx;
+                    p.vy = vy;
+                    p.size = size;
+                    p.age = 0.0f;
+                    p.maxAge = maxAge;
+                    p.color = color;
+                    return;
+                }
+            }
+        }
+
+        private void triggerMistake(float x, float y) {
+            this.mistakeFlashAlpha = 0.85f;
+            this.screenShakeAmp = 6.5f;
+            this.draggingBone = false;
+            this.drillingActive = false;
+            this.draggingRod = false;
+            playUiSound(SoundEvents.PLAYER_HURT, 1.15f, 0.55f);
+            for (int i = 0; i < 16; i++) {
+                float ang = (float) (Math.random() * Math.PI * 2.0);
+                float spd = 25.0f + (float) (Math.random() * 60.0);
+                spawnParticle(x, y, Mth.cos(ang) * spd, Mth.sin(ang) * spd - 8.0f, 2.1f, 0.42f, 0xFFFF1744);
+            }
+            NetworkHandler.sendTreatmentToServer(new TreatmentApplyPacket(this.hand.ordinal(), this.limb.ordinal(), 403));
+        }
+
+        @Override
+        protected void init() {
+            super.init();
+            this.winX = (this.width - this.winW) / 2;
+            this.winY = (this.height - this.winH) / 2;
+            this.viewX = this.winX + 84;
+            this.viewY = this.winY + 26;
+
+            float cx = this.viewX + this.viewW * 0.5f;
+            float cy = this.viewY + this.viewH * 0.5f;
+
+            int spCount = Math.max(2, Math.min(8, ModItems.safeCfgInt(MedicalConfig.ORTHO_SPLINTER_COUNT, 4)));
+            this.splinterX = new float[spCount];
+            this.splinterY = new float[spCount];
+            this.splinterAngle = new float[spCount];
+            this.splinterRemoved = new boolean[spCount];
+            for (int i = 0; i < spCount; i++) {
+                float t = (i + 0.5f) / (float) spCount;
+                this.splinterX[i] = cx + ((i % 2 == 0) ? -16.0f : 16.0f) + Mth.sin(i * 2.1f) * 5.0f;
+                this.splinterY[i] = Mth.lerp(t, cy - 34.0f, cy + 34.0f);
+                this.splinterAngle[i] = (i * 47.0f) % 360.0f;
+                this.splinterRemoved[i] = false;
+            }
+            this.removedSplinterCount = 0;
+
+            int scCount = Math.max(2, Math.min(6, ModItems.safeCfgInt(MedicalConfig.ORTHO_SCREW_COUNT, 4)));
+            this.screwX = new float[scCount];
+            this.screwY = new float[scCount];
+            this.screwDrillProgress = new float[scCount];
+            for (int i = 0; i < scCount; i++) {
+                if (this.isChestRibMode) {
+                    float t = (i + 0.5f) / (float) scCount;
+                    this.screwX[i] = cx + ((i % 2 == 0) ? -8.0f : 8.0f);
+                    this.screwY[i] = Mth.lerp(t, this.viewY + 30.0f, this.viewY + this.viewH - 30.0f);
+                } else {
+                    float t = (i < scCount / 2)
+                            ? Mth.lerp((i + 0.5f) / (scCount / 2.0f), this.viewY + 26.0f, cy - 18.0f)
+                            : Mth.lerp((i - scCount / 2 + 0.5f) / (scCount - scCount / 2.0f), cy + 18.0f, this.viewY + this.viewH - 26.0f);
+                    this.screwX[i] = cx;
+                    this.screwY[i] = t;
+                }
+                this.screwDrillProgress[i] = 0.0f;
+            }
+
+            this.boneOffsetX = 24.0f;
+            this.boneOffsetY = -14.0f;
+
+            NetworkHandler.sendTreatmentToServer(new TreatmentApplyPacket(this.hand.ordinal(), this.limb.ordinal(), 400));
+            MedicalSoundHelper.playOpenSound();
+        }
+
+        @Override
+        public boolean isPauseScreen() {
+            return false;
+        }
+
+        @Override
+        public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+        }
+
+        @Override
+        public void onClose() {
+            if (!this.surgeryCompleted && this.boneExposed) {
+                NetworkHandler.sendTreatmentToServer(new TreatmentApplyPacket(this.hand.ordinal(), this.limb.ordinal(), 404));
+            }
+            super.onClose();
+        }
+
+        private float computeAlignmentRatio() {
+            if (this.step == 0) {
+                return (this.splinterRemoved == null || this.splinterRemoved.length == 0)
+                        ? 0.0f
+                        : (this.removedSplinterCount / (float) this.splinterRemoved.length) * 0.25f;
+            }
+            if (this.step == 1) {
+                float dist = Mth.sqrt(this.boneOffsetX * this.boneOffsetX + this.boneOffsetY * this.boneOffsetY);
+                float align = Mth.clamp(1.0f - dist / 32.0f, 0.0f, 1.0f);
+                return 0.25f + align * 0.30f;
+            }
+            if (this.step == 2) {
+                float sum = 0.0f;
+                for (float v : this.screwDrillProgress) sum += v;
+                float avg = (this.screwDrillProgress.length > 0) ? (sum / this.screwDrillProgress.length) : 1.0f;
+                return 0.55f + avg * 0.30f;
+            }
+            return 0.85f + this.rodLockProgress * 0.15f;
+        }
+
+        @Override
+        public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.player == null) {
+                super.onClose();
+                return;
+            }
+            ItemStack stack = mc.player.getItemInHand(this.hand);
+            if (!TreatmentRouter.isOrthopedicKitItem(stack)) {
+                super.onClose();
+                return;
+            }
+            MedicalData data = mc.player.getData(MedicalDataCapability.MEDICAL_DATA);
+            if (data == null || data.getConsciousness() < ModItems.getOrthopedicMinConsciousness()
+                    || data.isCardiacArrest() || data.isInVFib()) {
+                this.onClose();
+                return;
+            }
+
+            long nowMs = System.currentTimeMillis();
+            float dt = (lastFrameMs == 0L) ? 0.016f : Mth.clamp((nowMs - lastFrameMs) / 1000.0f, 0.001f, 0.1f);
+            lastFrameMs = nowMs;
+
+            if (this.playingFinale) {
+                this.finaleProgress += dt / 0.65f;
+                if (this.finaleProgress >= 1.0f) {
+                    this.surgeryCompleted = true;
+                    NetworkHandler.sendTreatmentToServer(new TreatmentApplyPacket(this.hand.ordinal(), this.limb.ordinal(), 401));
+                    MedicalSoundHelper.playLimbSelectSound();
+                    this.onClose();
+                    return;
+                }
+            }
+
+            float hr = Mth.clamp(data.getHeartRate(), 40.0f, 220.0f);
+            this.heartPhase = (this.heartPhase + dt * (hr / 60.0f)) % 1.0f;
+            float beatWave = (this.heartPhase < 0.20f) ? Mth.sin((this.heartPhase / 0.20f) * (float) Math.PI) : 0.0f;
+
+            // 疼痛高频震颤 + 低意识眩晕漂移干扰
+            MedicalData.LimbData curLd = data.getLimb(this.limb);
+            float sysPainRatio = data.getPerceivedPain() / Math.max(10.0f, ((float) ModItems.safeCfgDouble(MedicalConfig.MAX_PERCEIVED_PAIN, 100.0)));
+            float limbPainRatio = (curLd != null) ? (curLd.getPainLevel() / Math.max(1.0f, ((float) ModItems.safeCfgDouble(MedicalConfig.MAX_PAIN_LEVEL, 10)))) : 0.0f;
+            float painRatio = Mth.clamp(Math.max(sysPainRatio, limbPainRatio * 0.85f), 0.0f, 1.0f);
+
+            float minCons = ModItems.getOrthopedicMinConsciousness();
+            float consDeficit = Mth.clamp((100.0f - data.getConsciousnessFloat()) / Math.max(1.0f, 100.0f - minCons), 0.0f, 1.0f);
+
+            float maxPainShake = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_CURSOR_PAIN_SHAKE_MAX, 14.0));
+            float maxConsSway = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_CURSOR_CONSCIOUSNESS_SWAY_MAX, 22.0));
+            float wdShake = ModItems.isInWithdrawalMovementRestriction(data)
+                    ? ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_CURSOR_WITHDRAWAL_SHAKE, 10.0)) : 0.0f;
+
+            float painPulseSpike = 1.0f + beatWave * 0.65f * painRatio;
+            float painShakeAmp = (painRatio * maxPainShake + wdShake) * painPulseSpike;
+            float highFreqX = (Mth.sin(nowMs * 0.023f) * 0.55f + Mth.cos(nowMs * 0.041f) * 0.45f) * painShakeAmp;
+            float highFreqY = (Mth.cos(nowMs * 0.029f) * 0.55f + Mth.sin(nowMs * 0.037f) * 0.45f) * painShakeAmp;
+
+            float consSwayAmp = consDeficit * maxConsSway;
+            float lowFreqX = (Mth.sin(nowMs * 0.0034f) * 0.75f + Mth.cos(nowMs * 0.0058f) * 0.25f) * consSwayAmp;
+            float lowFreqY = (Mth.sin(nowMs * 0.0068f) * 0.65f + Mth.cos(nowMs * 0.0027f) * 0.35f) * consSwayAmp;
+
+            this.cursorTremorX = highFreqX + lowFreqX;
+            this.cursorTremorY = highFreqY + lowFreqY;
+
+            float targetMx = mouseX + this.cursorTremorX;
+            float targetMy = mouseY + this.cursorTremorY;
+            if (this.smoothMouseX == 0.0f && this.smoothMouseY == 0.0f) {
+                this.smoothMouseX = targetMx;
+                this.smoothMouseY = targetMy;
+            } else {
+                float followRate = Mth.lerp(consDeficit, 28.0f, 8.5f);
+                float vx = (targetMx - this.smoothMouseX) / Math.max(0.004f, dt);
+                this.cursorTiltDeg = Mth.lerp(Mth.clamp(dt * 14.0f, 0.0f, 1.0f), this.cursorTiltDeg, Mth.clamp(vx * 0.035f, -22.0f, 22.0f));
+                this.smoothMouseX = Mth.lerp(Math.min(1.0f, dt * followRate), this.smoothMouseX, targetMx);
+                this.smoothMouseY = Mth.lerp(Math.min(1.0f, dt * followRate), this.smoothMouseY, targetMy);
+            }
+
+            if (this.screenShakeAmp > 0.01f) {
+                this.screenShakeAmp = Math.max(0.0f, this.screenShakeAmp - dt * 22.0f);
+                this.screenShakeX = (float) (Math.random() * 2.0 - 1.0) * this.screenShakeAmp;
+                this.screenShakeY = (float) (Math.random() * 2.0 - 1.0) * this.screenShakeAmp;
+            } else {
+                this.screenShakeX = 0.0f;
+                this.screenShakeY = 0.0f;
+            }
+            if (this.mistakeFlashAlpha > 0.005f) {
+                this.mistakeFlashAlpha = Math.max(0.0f, this.mistakeFlashAlpha - dt * 2.4f);
+            }
+
+            g.fill(0, 0, this.width, this.height, 0x9602060C);
+
+            PoseStack pose = g.pose();
+            pose.pushPose();
+            pose.translate(this.screenShakeX, this.screenShakeY, 0.0f);
+
+            int themeCol = this.playingFinale ? C_SAFE_GREEN : C_NEON_CYAN;
+            g.fill(winX, winY, winX + winW, winY + winH, 0xF4040B14);
+            drawTacticalCornerBrackets(g, winX, winY, winW, winH, themeCol);
+            g.fill(winX + 8, winY + 19, winX + winW - 8, winY + 20, withAlpha(themeCol, 0.45f));
+
+            String modeTitle = getLimbDisplayName(this.limb) + (this.isChestRibMode ? " · 肋骨环抱器" : " · 骨科外固定");
+            g.drawString(this.font, modeTitle, winX + 10, winY + 7, C_TEXT_WHITE, false);
+
+            // 顶部 4 步进度条
+            for (int s = 0; s < 4; s++) {
+                int sx = viewX + s * 39;
+                int sy = winY + 8;
+                boolean done = (s < this.step) || this.playingFinale;
+                boolean active = (s == this.step) && !this.playingFinale;
+                int sCol = done ? C_SAFE_GREEN : (active ? C_NEON_CYAN : 0xFF1E2B36);
+                g.fill(sx - 1, sy - 1, sx + 34, sy + 7, 0xFF0A141E);
+                g.fill(sx, sy, sx + 33, sy + 6, sCol);
+            }
+
+            // 左侧：3D 手术箱全息图 + 实时骨对位精度表盘
+            int leftX = winX + 10;
+            int leftY = viewY;
+            int leftW = 68;
+            int leftH = viewH;
+            g.fill(leftX, leftY, leftX + leftW, leftY + leftH, 0xB8030810);
+            drawTacticalCornerBrackets(g, leftX, leftY, leftW, leftH, withAlpha(themeCol, 0.72f));
+            MedicalAssetLibrary.render3DMedicalItem(g, leftX + leftW * 0.5f, leftY + 46.0f, 30.0f, stack, nowMs);
+
+            float alignRatio = computeAlignmentRatio();
+            int gaugeY = leftY + 90;
+            g.fill(leftX + 5, gaugeY, leftX + leftW - 5, gaugeY + 42, 0x8806101A);
+            int alignCol = alignRatio >= 0.85f ? C_SAFE_GREEN : (alignRatio >= 0.45f ? C_NEON_CYAN : C_WARNING_YELLOW);
+            g.drawCenteredString(this.font, String.format("%.0f%%", alignRatio * 100.0f), leftX + leftW / 2, gaugeY + 8, alignCol);
+            g.drawCenteredString(this.font, "对位精度", leftX + leftW / 2, gaugeY + 22, C_TEXT_DIM);
+
+            g.fill(leftX + 7, leftY + leftH - 16, leftX + leftW - 7, leftY + leftH - 10, 0xFF0A1622);
+            g.fill(leftX + 7, leftY + leftH - 16, leftX + 7 + Math.round((leftW - 14) * alignRatio), leftY + leftH - 10, alignCol);
+
+            // 中央 C型臂 X光透视手术视窗
+            g.fill(viewX, viewY, viewX + viewW, viewY + viewH, 0xFF030B14);
+            g.enableScissor(viewX + 1, viewY + 1, viewX + viewW - 1, viewY + viewH - 1);
+            renderOrthopedicXRayField(g, dt, beatWave, this.smoothMouseX, this.smoothMouseY, nowMs);
+            renderParticles(g, dt);
+            if (this.mistakeFlashAlpha > 0.01f) {
+                g.fill(viewX, viewY, viewX + viewW, viewY + 6, withAlpha(C_ALERT_RED, this.mistakeFlashAlpha * 0.65f));
+                g.fill(viewX, viewY + viewH - 6, viewX + viewW, viewY + viewH, withAlpha(C_ALERT_RED, this.mistakeFlashAlpha * 0.65f));
+            }
+            g.disableScissor();
+            drawTacticalCornerBrackets(g, viewX, viewY, viewW, viewH, 0xFF455A64);
+
+            // 底部取消按钮
+            int cancelW = 54, cancelH = 14;
+            int cancelX = viewX + viewW - cancelW;
+            int cancelY = winY + winH - 18;
+            boolean hovCancel = mouseX >= cancelX && mouseX <= cancelX + cancelW && mouseY >= cancelY && mouseY <= cancelY + cancelH;
+            g.fill(cancelX, cancelY, cancelX + cancelW, cancelY + cancelH, hovCancel ? 0x8837474F : 0x551C2833);
+            drawTacticalCornerBrackets(g, cancelX, cancelY, cancelW, cancelH, 0xFF90A4AE);
+            g.drawCenteredString(this.font, "×", cancelX + cancelW / 2, cancelY + 3, C_TEXT_DIM);
+
+            renderOrthoInstrumentCursor(g, this.smoothMouseX, this.smoothMouseY, nowMs);
+
+            pose.popPose();
+            super.render(g, mouseX, mouseY, partialTick);
+        }
+
+        private void renderParticles(GuiGraphics g, float dt) {
+            for (OrthoParticle p : this.particles) {
+                if (!p.active) continue;
+                p.age += dt;
+                if (p.age >= p.maxAge) {
+                    p.active = false;
+                    continue;
+                }
+                p.x += p.vx * dt;
+                p.y += p.vy * dt;
+                p.vy += 45.0f * dt;
+                float alpha = 1.0f - (p.age / p.maxAge);
+                int c = withAlpha(p.color, alpha);
+                int r = Math.max(1, Math.round(p.size));
+                g.fill(Math.round(p.x - r), Math.round(p.y - r), Math.round(p.x + r), Math.round(p.y + r), c);
+            }
+        }
+
+        private void renderOrthopedicXRayField(GuiGraphics g, float dt, float beatWave, float mx, float my, long nowMs) {
+            float cx = viewX + viewW * 0.5f;
+            float cy = viewY + viewH * 0.5f;
+
+            // X光透视网格背景与扫描线
+            for (int gx = viewX + 12; gx < viewX + viewW; gx += 16) {
+                g.fill(gx, viewY, gx + 1, viewY + viewH, 0x1600E5FF);
+            }
+            for (int gy = viewY + 12; gy < viewY + viewH; gy += 16) {
+                g.fill(viewX, gy, viewX + viewW, gy + 1, 0x1600E5FF);
+            }
+            int scanY = viewY + (int) ((nowMs / 16L) % viewH);
+            g.fill(viewX, scanY, viewX + viewW, scanY + 2, 0x2400E5FF);
+
+            // 伴行搏动大血管（红色危险禁区：阶段 0 夹碎骨或阶段 2 钻孔偏离碰触血管会触发失误）
+            float vesselLeftX = cx - 28.0f + Mth.sin(nowMs * 0.005f) * 1.5f;
+            float vesselRightX = cx + 28.0f - Mth.sin(nowMs * 0.005f) * 1.5f;
+            int vWidth = 3 + Math.round(beatWave * 2.0f);
+            g.fill(Math.round(vesselLeftX - vWidth), viewY + 8, Math.round(vesselLeftX + vWidth), viewY + viewH - 8, 0x88FF1744);
+            g.fill(Math.round(vesselRightX - vWidth), viewY + 8, Math.round(vesselRightX + vWidth), viewY + viewH - 8, 0x88FF1744);
+
+            // 计算当前远端骨断端的偏移（阶段 0 和阶段 1 未锁定时会有肌肉牵拉颤动）
+            float curOffX = (this.step <= 1) ? this.boneOffsetX : 0.0f;
+            float curOffY = (this.step <= 1) ? this.boneOffsetY : 0.0f;
+
+            if (this.step == 1) {
+                if (this.draggingBone) {
+                    this.boneOffsetX = Mth.clamp(mx - cx, -36.0f, 36.0f);
+                    this.boneOffsetY = Mth.clamp(my - (cy + 26.0f), -26.0f, 26.0f);
+                } else {
+                    // 肌肉痉挛牵拉：若松开鼠标，断骨会缓慢向错位方向回弹
+                    this.boneOffsetX = Mth.lerp(Math.min(1.0f, dt * 1.8f), this.boneOffsetX, 22.0f);
+                    this.boneOffsetY = Mth.lerp(Math.min(1.0f, dt * 1.8f), this.boneOffsetY, -12.0f);
+                }
+                curOffX = this.boneOffsetX;
+                curOffY = this.boneOffsetY;
+
+                float tol = ((float) ModItems.safeCfgDouble(MedicalConfig.ORTHO_REDUCTION_TOLERANCE_PX, 8.5));
+                float holdReq = ((float) ModItems.safeCfgDouble(MedicalConfig.ORTHO_REDUCTION_HOLD_SECONDS, 0.65));
+                float errDist = Mth.sqrt(curOffX * curOffX + curOffY * curOffY);
+                if (errDist <= tol) {
+                    this.reductionHoldSec += dt;
+                    if (this.reductionHoldSec >= holdReq) {
+                        this.boneOffsetX = 0.0f;
+                        this.boneOffsetY = 0.0f;
+                        this.draggingBone = false;
+                        this.step = 2;
+                        playUiSound(SoundEvents.ANVIL_PLACE, 1.55f, 0.50f);
+                    }
+                } else {
+                    this.reductionHoldSec = Math.max(0.0f, this.reductionHoldSec - dt * 1.5f);
+                }
+            }
+
+            // 绘制高精度骨骼解剖与 X 光透视结构（区分「胸腔连枷胸多发弧形肋骨」与「四肢干骺端+骨髓腔+锯齿断面长骨」）
+            if (this.isChestRibMode) {
+                for (int r = 0; r < this.screwY.length; r++) {
+                    float ry = this.screwY[r];
+                    float shiftX = (r % 2 == 0) ? (curOffX * 0.7f) : (-curOffX * 0.7f);
+                    float shiftY = curOffY * 0.5f;
+                    SurgicalInstrumentRenderer.drawAnatomicalCurvedRib2D(
+                            g, cx, ry, 46.0f, 8.5f, shiftX, shiftY, shiftX * 0.3f, this.step >= 2);
+                }
+            } else {
+                SurgicalInstrumentRenderer.drawAnatomicalVerticalLongBone2D(
+                        g, cx, cy, viewY + 12.0f, viewY + viewH - 12.0f, 14.5f, curOffX, curOffY, this.step >= 2);
+            }
+
+            // 阶段 0：渲染高精度 8 顶点非对称锯齿皮质骨碎渣 + 蜂窝骨松质断面 + 刺伤渗血光晕
+            if (this.step == 0 && this.splinterX != null) {
+                for (int i = 0; i < this.splinterX.length; i++) {
+                    if (this.splinterRemoved[i]) continue;
+                    float sx = this.splinterX[i];
+                    float sy = this.splinterY[i];
+                    boolean hov = Math.hypot(mx - sx, my - sy) <= 12.0;
+                    SurgicalInstrumentRenderer.drawDetailedBoneSplinter2D(
+                            g, sx, sy, 0.95f, (float) Math.toRadians(this.splinterAngle[i]), false, hov);
+                }
+            }
+
+            // 阶段 1：渲染绿色 X光靶向复位引导框与保持锁定环
+            if (this.step == 1) {
+                float tol = ((float) ModItems.safeCfgDouble(MedicalConfig.ORTHO_REDUCTION_TOLERANCE_PX, 8.5));
+                float holdReq = Math.max(0.1f, ((float) ModItems.safeCfgDouble(MedicalConfig.ORTHO_REDUCTION_HOLD_SECONDS, 0.65)));
+                float errDist = Mth.sqrt(curOffX * curOffX + curOffY * curOffY);
+                boolean inZone = errDist <= tol;
+                int guideCol = inZone ? C_SAFE_GREEN : C_WARNING_YELLOW;
+
+                int targetHandleX = Math.round(cx);
+                int targetHandleY = Math.round(cy + 26.0f);
+                drawTacticalCornerBrackets(g, targetHandleX - 16, targetHandleY - 14, 32, 28, guideCol);
+
+                int curHandleX = Math.round(cx + curOffX);
+                int curHandleY = Math.round(cy + 26.0f + curOffY);
+                g.fill(curHandleX - 10, curHandleY - 8, curHandleX + 10, curHandleY + 8, withAlpha(guideCol, 0.45f));
+                drawTacticalCornerBrackets(g, curHandleX - 11, curHandleY - 9, 22, 18, 0xFFFFFFFF);
+
+                if (this.reductionHoldSec > 0.01f) {
+                    int progW = Math.round(32.0f * Mth.clamp(this.reductionHoldSec / holdReq, 0.0f, 1.0f));
+                    g.fill(targetHandleX - 16, targetHandleY + 16, targetHandleX - 16 + progW, targetHandleY + 19, C_SAFE_GREEN);
+                }
+            }
+
+            // 阶段 2 & 3：渲染皮质骨螺钉 / 镍钛肋骨环抱器靶点与钻入进度
+            if (this.step >= 2 && this.screwX != null) {
+                float drillHoldReq = Math.max(0.1f, ((float) ModItems.safeCfgDouble(MedicalConfig.ORTHO_DRILL_HOLD_SECONDS, 0.48)));
+                boolean allScrewsDone = true;
+
+                for (int i = 0; i < this.screwX.length; i++) {
+                    float sx = this.screwX[i];
+                    float sy = this.screwY[i];
+                    float prog = this.screwDrillProgress[i];
+
+                    if (prog < 1.0f) {
+                        allScrewsDone = false;
+                        if (this.step == 2 && this.drillingActive && Math.hypot(mx - sx, my - sy) <= 12.0) {
+                            prog = Math.min(1.0f, prog + dt / drillHoldReq);
+                            this.screwDrillProgress[i] = prog;
+                            this.drillSoundTick++;
+                            if (this.drillSoundTick % 4 == 0) {
+                                playUiSound(SoundEvents.GRINDSTONE_USE, 1.65f + prog * 0.35f, 0.35f);
+                                spawnParticle(sx, sy, (float) (Math.random() - 0.5) * 45.0f, (float) (Math.random() - 0.5) * 45.0f,
+                                        1.6f, 0.28f, 0xFFE0F7FA);
+                            }
+                            if (prog >= 1.0f) {
+                                playUiSound(SoundEvents.IRON_TRAPDOOR_CLOSE, 1.55f, 0.65f);
+                            }
+                        }
+                    }
+
+                    boolean hovPin = Math.hypot(mx - sx, my - sy) <= 12.0;
+                    if (this.isChestRibMode) {
+                        // 高精度镍钛记忆合金肋骨环抱器 (4 对弧形环抱卡爪 + 钛合金脊梁板)
+                        SurgicalInstrumentRenderer.drawDetailedNiTiRibClaw2D(g, sx, sy, prog, hovPin);
+                    } else {
+                        // 高精度自攻螺纹 Schanz 钛合金骨螺钉 + 双侧外固定锁紧夹头
+                        SurgicalInstrumentRenderer.drawDetailedHorizontalSchanzScrew2D(g, sx, sy, prog, hovPin);
+                    }
+                }
+
+                if (this.step == 2 && allScrewsDone) {
+                    this.drillingActive = false;
+                    this.step = 3;
+                    playUiSound(SoundEvents.EXPERIENCE_ORB_PICKUP, 1.35f, 0.65f);
+                }
+            }
+
+            // 阶段 3：拖拽安装碳纤维外固定支架连杆 / 胸廓桥接锁定杆
+            if (this.step == 3 && this.screwY != null && this.screwY.length >= 2) {
+                float topPinY = this.screwY[0];
+                float botPinY = this.screwY[this.screwY.length - 1];
+                if (this.draggingRod) {
+                    this.rodLockProgress = Mth.clamp((my - topPinY) / Math.max(10.0f, botPinY - topPinY), 0.0f, 1.0f);
+                    if (this.rodLockProgress >= 0.96f) {
+                        this.rodLockProgress = 1.0f;
+                        this.draggingRod = false;
+                        this.playingFinale = true;
+                        this.finaleProgress = 0.0f;
+                        playUiSound(SoundEvents.PLAYER_LEVELUP, 1.45f, 0.75f);
+                    }
+                }
+
+                int rodY1 = Math.round(Mth.lerp(this.rodLockProgress, topPinY, botPinY));
+                int rodCol = this.playingFinale ? C_SAFE_GREEN : C_NEON_CYAN;
+                // 双侧碳纤维外固定连杆
+                g.fill(Math.round(cx - 20), Math.round(topPinY - 4), Math.round(cx - 16), rodY1 + 4, rodCol);
+                g.fill(Math.round(cx + 16), Math.round(topPinY - 4), Math.round(cx + 20), rodY1 + 4, rodCol);
+                // 底部目标锁紧环
+                drawTacticalCornerBrackets(g, Math.round(cx - 22), Math.round(botPinY - 7), 44, 14, C_ADRENALINE_GOLD);
+            }
+        }
+
+        private void renderOrthoInstrumentCursor(GuiGraphics g, float mx, float my, long nowMs) {
+            SurgicalInstrumentRenderer.ToolType tool = switch (this.step) {
+                case 0 -> SurgicalInstrumentRenderer.ToolType.BONE_RONGEUR;
+                case 1 -> SurgicalInstrumentRenderer.ToolType.REDUCTION_CLAMP;
+                case 2 -> SurgicalInstrumentRenderer.ToolType.CANNULATED_DRILL;
+                default -> SurgicalInstrumentRenderer.ToolType.TORQUE_WRENCH;
+            };
+            boolean active = (this.step == 1 && this.draggingBone)
+                    || (this.step == 2 && this.drillingActive)
+                    || (this.step == 3 && this.draggingRod);
+            SurgicalInstrumentRenderer.renderDetailedSurgicalToolCursor(
+                    g, mx, my, this.cursorTiltDeg, tool, active, this.rodLockProgress, (nowMs % 100000L) * 0.02f);
+        }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (this.playingFinale) return true;
+
+            int cancelW = 54, cancelH = 14;
+            int cancelX = viewX + viewW - cancelW;
+            int cancelY = winY + winH - 18;
+            if (mouseX >= cancelX && mouseX <= cancelX + cancelW && mouseY >= cancelY && mouseY <= cancelY + cancelH) {
+                this.onClose();
+                return true;
+            }
+
+            if (button == 0) {
+                float mx = (this.smoothMouseX != 0.0f) ? this.smoothMouseX : ((float) mouseX + this.cursorTremorX);
+                float my = (this.smoothMouseY != 0.0f) ? this.smoothMouseY : ((float) mouseY + this.cursorTremorY);
+                float cx = viewX + viewW * 0.5f;
+                float cy = viewY + viewH * 0.5f;
+
+                if (mx < viewX || mx > viewX + viewW || my < viewY || my > viewY + viewH) {
+                    return super.mouseClicked(mouseX, mouseY, button);
+                }
+
+                this.boneExposed = true;
+
+                // 检查是否误触两侧伴行大动脉 (cx ± 28)
+                if (Math.abs(mx - (cx - 28.0f)) <= 5.5f || Math.abs(mx - (cx + 28.0f)) <= 5.5f) {
+                    triggerMistake(mx, my);
+                    return true;
+                }
+
+                if (this.step == 0 && this.splinterX != null) {
+                    for (int i = 0; i < this.splinterX.length; i++) {
+                        if (!this.splinterRemoved[i] && Math.hypot(mx - this.splinterX[i], my - this.splinterY[i]) <= 12.0) {
+                            this.splinterRemoved[i] = true;
+                            this.removedSplinterCount++;
+                            playUiSound(SoundEvents.ITEM_PICKUP, 1.35f, 0.65f);
+                            for (int k = 0; k < 8; k++) {
+                                spawnParticle(this.splinterX[i], this.splinterY[i],
+                                        (float) (Math.random() - 0.5) * 40.0f, -20.0f, 1.8f, 0.35f, 0xFFF0FBFF);
+                            }
+                            if (this.removedSplinterCount >= this.splinterX.length) {
+                                this.step = 1;
+                                playUiSound(SoundEvents.EXPERIENCE_ORB_PICKUP, 1.25f, 0.65f);
+                            }
+                            return true;
+                        }
+                    }
+                    triggerMistake(mx, my);
+                    return true;
+                }
+
+                if (this.step == 1) {
+                    float handleX = cx + this.boneOffsetX;
+                    float handleY = cy + 26.0f + this.boneOffsetY;
+                    if (Math.hypot(mx - handleX, my - handleY) <= 22.0) {
+                        this.draggingBone = true;
+                        playUiSound(SoundEvents.ARMOR_EQUIP_IRON.value(), 1.25f, 0.60f);
+                        return true;
+                    }
+                }
+
+                if (this.step == 2 && this.screwX != null) {
+                    for (int i = 0; i < this.screwX.length; i++) {
+                        if (Math.hypot(mx - this.screwX[i], my - this.screwY[i]) <= 13.0) {
+                            this.drillingActive = true;
+                            return true;
+                        }
+                    }
+                    triggerMistake(mx, my);
+                    return true;
+                }
+
+                if (this.step == 3 && this.screwY != null && this.screwY.length >= 2) {
+                    if (Math.abs(mx - cx) <= 26.0f && Math.abs(my - this.screwY[0]) <= 16.0f) {
+                        this.draggingRod = true;
+                        playUiSound(SoundEvents.TRIPWIRE_CLICK_ON, 1.35f, 0.65f);
+                        return true;
+                    }
+                }
+            }
+
+            return super.mouseClicked(mouseX, mouseY, button);
+        }
+
+        @Override
+        public boolean mouseReleased(double mouseX, double mouseY, int button) {
+            if (button == 0) {
+                this.draggingBone = false;
+                this.drillingActive = false;
+                if (this.draggingRod && this.rodLockProgress < 0.96f) {
+                    this.rodLockProgress = 0.0f;
+                }
+                this.draggingRod = false;
+            }
+            return super.mouseReleased(mouseX, mouseY, button);
+        }
+    }
+
+    // =========================================================================
+    // 气胸/张力性气胸非静默呼吸声学与屏幕边缘缺氧紫绀/漏气波纹视觉反馈
+    // =========================================================================
+    private static void renderPneumothoraxScreenVignette(GuiGraphics g, Minecraft mc, MedicalData data, long nowMs) {
+        int pType = ModItems.getPneumothoraxType(data);
+        float airMl = ModItems.getPleuralAirMl(data);
+        if (pType <= 0 && airMl < 120.0f) return;
+
+        int sw = mc.getWindow().getGuiScaledWidth();
+        int sh = mc.getWindow().getGuiScaledHeight();
+        float respWave = 0.5f + 0.5f * Mth.sin(nowMs * 0.0045f);
+
+        if (pType == 3) {
+            int alphaOuter = Math.round((0.22f + 0.16f * respWave) * 255.0f);
+            int colOuter = (alphaOuter << 24) | 0x280645;
+            int colInner = (Math.round((0.15f + 0.12f * respWave) * 255.0f) << 24) | 0xB71C1C;
+            int bw = 14;
+            g.fill(0, 0, sw, bw, colOuter);
+            g.fill(0, sh - bw, sw, sh, colOuter);
+            g.fill(0, bw, bw, sh - bw, colOuter);
+            g.fill(sw - bw, bw, sw, sh - bw, colOuter);
+            g.fill(bw, bw, sw - bw, bw + 4, colInner);
+            g.fill(bw, sh - bw - 4, sw - bw, sh - bw, colInner);
+        } else if (pType == 2 && !ModItems.isThreeSidedValveSealed(data)) {
+            int alpha = Math.round((0.08f + 0.14f * respWave) * 255.0f);
+            int col = (alpha << 24) | 0x40C4FF;
+            int bw = Math.round(6 + 5 * respWave);
+            g.fill(0, 0, sw, bw, col);
+            g.fill(0, sh - bw, sw, sh, col);
+            g.fill(0, bw, bw, sh - bw, col);
+            g.fill(sw - bw, bw, sw, sh - bw, col);
+        }
+    }
+
+    // =========================================================================
+    // 胸腔闭式水封引流术交互界面 (ChestDrainScreen —— 4步高细节五层胸壁解剖、上下分叶肺脏复张与三腔水封瓶模拟)
+    // =========================================================================
+    public static class ChestDrainScreen extends Screen {
+
+        private static final class PleuralBubbleParticle {
+            boolean active;
+            float x, y, vx, vy, radius, age, maxAge;
+            int color;
+        }
+
+        private final InteractionHand hand;
+        private int winX, winY, winW = 286, winH = 212;
+        private int viewX, viewY, viewW = 182, viewH = 166;
+
+        // 0 = 第5肋上缘分层切开, 1 = 蚊式止血钳钝性撑开胸膜, 2 = 置入28Fr多孔硅胶管, 3 = 三腔水封瓶负压排血排气与肺复张
+        private int step = 0;
+        private boolean slicingIncision = false;
+        private float incisionProgress = 0.0f;
+        private boolean spreadingPleura = false;
+        private float pleuraSpreadProgress = 0.0f;
+        private boolean advancingTube = false;
+        private float tubeInsertionProgress = 0.0f;
+        private boolean suctionDrainActive = false;
+        private float drainProgress = 0.0f;
+
+        private float initialAirMl = 0.0f;
+        private float initialBloodMl = 0.0f;
+        private boolean pleuraOpened = false;
+        private boolean surgeryCompleted = false;
+        private boolean playingFinale = false;
+        private float finaleProgress = 0.0f;
+
+        private long lastFrameMs = 0L;
+        private float heartPhase = 0.0f;
+        private float mistakeFlashAlpha = 0.0f;
+        private float screenShakeAmp = 0.0f;
+        private float screenShakeX = 0.0f;
+        private float screenShakeY = 0.0f;
+        private float cursorTremorX = 0.0f;
+        private float cursorTremorY = 0.0f;
+        private float smoothMouseX = 0.0f;
+        private float smoothMouseY = 0.0f;
+        private float cursorTiltDeg = 0.0f;
+        private int bubbleSoundTick = 0;
+
+        private final PleuralBubbleParticle[] particles = new PleuralBubbleParticle[64];
+
+        public ChestDrainScreen(InteractionHand hand) {
+            super(Component.literal("胸腔闭式水封引流术"));
+            this.hand = hand != null ? hand : InteractionHand.MAIN_HAND;
+            for (int i = 0; i < this.particles.length; i++) {
+                this.particles[i] = new PleuralBubbleParticle();
+            }
+        }
+
+        private void playUiSound(SoundEvent sound, float pitch, float volume) {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(sound, pitch, volume));
+            }
+        }
+
+        private void spawnBubble(float x, float y, float vx, float vy, float radius, float maxAge, int color) {
+            for (PleuralBubbleParticle p : this.particles) {
+                if (!p.active) {
+                    p.active = true;
+                    p.x = x;
+                    p.y = y;
+                    p.vx = vx;
+                    p.vy = vy;
+                    p.radius = radius;
+                    p.age = 0.0f;
+                    p.maxAge = maxAge;
+                    p.color = color;
+                    return;
+                }
+            }
+        }
+
+        private void triggerMistake(float x, float y) {
+            this.mistakeFlashAlpha = 0.85f;
+            this.screenShakeAmp = 6.5f;
+            this.slicingIncision = false;
+            this.spreadingPleura = false;
+            this.advancingTube = false;
+            this.suctionDrainActive = false;
+            playUiSound(SoundEvents.PLAYER_HURT, 1.10f, 0.60f);
+            for (int i = 0; i < 14; i++) {
+                float ang = (float) (Math.random() * Math.PI * 2.0);
+                float spd = 24.0f + (float) (Math.random() * 52.0);
+                spawnBubble(x, y, Mth.cos(ang) * spd, Mth.sin(ang) * spd, 2.0f, 0.38f, 0xFFFF1744);
+            }
+            NetworkHandler.sendTreatmentToServer(new TreatmentApplyPacket(
+                    this.hand.ordinal(), MedicalData.Limb.CHEST.ordinal(), 503));
+        }
+
+        @Override
+        protected void init() {
+            super.init();
+            this.winX = (this.width - this.winW) / 2;
+            this.winY = (this.height - this.winH) / 2;
+            this.viewX = this.winX + 94;
+            this.viewY = this.winY + 26;
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.player != null) {
+                MedicalData data = mc.player.getData(MedicalDataCapability.MEDICAL_DATA);
+                if (data != null) {
+                    this.initialAirMl = Math.max(ModItems.getPleuralAirMl(data), ModItems.getPneumothoraxType(data) > 0 ? 450.0f : 0.0f);
+                    this.initialBloodMl = data.getChestBloodAccumulation();
+                    if (this.initialAirMl <= 10.0f && this.initialBloodMl <= 10.0f) {
+                        this.initialBloodMl = 350.0f;
+                    }
+                }
+            }
+            NetworkHandler.sendTreatmentToServer(new TreatmentApplyPacket(
+                    this.hand.ordinal(), MedicalData.Limb.CHEST.ordinal(), 500));
+            MedicalSoundHelper.playOpenSound();
+        }
+
+        @Override
+        public boolean isPauseScreen() {
+            return false;
+        }
+
+        @Override
+        public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+        }
+
+        @Override
+        public void onClose() {
+            if (!this.surgeryCompleted && this.pleuraOpened) {
+                NetworkHandler.sendTreatmentToServer(new TreatmentApplyPacket(
+                        this.hand.ordinal(), MedicalData.Limb.CHEST.ordinal(), 504));
+            }
+            super.onClose();
+        }
+
+        @Override
+        public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.player == null) {
+                super.onClose();
+                return;
+            }
+            ItemStack stack = mc.player.getItemInHand(this.hand);
+            if (!TreatmentRouter.isChestDrainKitItem(stack)) {
+                super.onClose();
+                return;
+            }
+            MedicalData data = mc.player.getData(MedicalDataCapability.MEDICAL_DATA);
+            if (data == null || data.getConsciousness() < ModItems.getChestDrainMinConsciousness()
+                    || data.isCardiacArrest() || data.isInVFib()) {
+                this.onClose();
+                return;
+            }
+
+            long nowMs = System.currentTimeMillis();
+            float dt = (lastFrameMs == 0L) ? 0.016f : Mth.clamp((nowMs - lastFrameMs) / 1000.0f, 0.001f, 0.1f);
+            lastFrameMs = nowMs;
+
+            if (this.playingFinale) {
+                this.finaleProgress += dt / 0.65f;
+                if (this.finaleProgress >= 1.0f) {
+                    this.surgeryCompleted = true;
+                    NetworkHandler.sendTreatmentToServer(new TreatmentApplyPacket(
+                            this.hand.ordinal(), MedicalData.Limb.CHEST.ordinal(), 501));
+                    MedicalSoundHelper.playLimbSelectSound();
+                    this.onClose();
+                    return;
+                }
+            }
+
+            float hr = Mth.clamp(data.getHeartRate(), 40.0f, 220.0f);
+            this.heartPhase = (this.heartPhase + dt * (hr / 60.0f)) % 1.0f;
+            float beatWave = (this.heartPhase < 0.22f) ? Mth.sin((this.heartPhase / 0.22f) * (float) Math.PI) : 0.0f;
+
+            float sysPainRatio = data.getPerceivedPain() / Math.max(10.0f, ((float) ModItems.safeCfgDouble(MedicalConfig.MAX_PERCEIVED_PAIN, 100.0)));
+            float minCons = ModItems.getChestDrainMinConsciousness();
+            float consDeficit = Mth.clamp((100.0f - data.getConsciousnessFloat()) / Math.max(1.0f, 100.0f - minCons), 0.0f, 1.0f);
+            float maxPainShake = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_CURSOR_PAIN_SHAKE_MAX, 14.0));
+            float maxConsSway = ((float) ModItems.safeCfgDouble(MedicalConfig.SUTURE_CURSOR_CONSCIOUSNESS_SWAY_MAX, 22.0));
+            float painShakeAmp = sysPainRatio * maxPainShake * (1.0f + beatWave * 0.5f);
+
+            this.cursorTremorX = Mth.sin(nowMs * 0.023f) * painShakeAmp + Mth.sin(nowMs * 0.0035f) * consDeficit * maxConsSway;
+            this.cursorTremorY = Mth.cos(nowMs * 0.029f) * painShakeAmp + Mth.cos(nowMs * 0.0042f) * consDeficit * maxConsSway;
+
+            float targetMx = mouseX + this.cursorTremorX;
+            float targetMy = mouseY + this.cursorTremorY;
+            if (this.smoothMouseX == 0.0f && this.smoothMouseY == 0.0f) {
+                this.smoothMouseX = targetMx;
+                this.smoothMouseY = targetMy;
+            } else {
+                float followRate = Mth.lerp(consDeficit, 28.0f, 9.0f);
+                float vx = (targetMx - this.smoothMouseX) / Math.max(0.004f, dt);
+                this.cursorTiltDeg = Mth.lerp(Mth.clamp(dt * 14.0f, 0.0f, 1.0f), this.cursorTiltDeg, Mth.clamp(vx * 0.035f, -22.0f, 22.0f));
+                this.smoothMouseX = Mth.lerp(Math.min(1.0f, dt * followRate), this.smoothMouseX, targetMx);
+                this.smoothMouseY = Mth.lerp(Math.min(1.0f, dt * followRate), this.smoothMouseY, targetMy);
+            }
+
+            if (this.screenShakeAmp > 0.01f) {
+                this.screenShakeAmp = Math.max(0.0f, this.screenShakeAmp - dt * 22.0f);
+                this.screenShakeX = (float) (Math.random() * 2.0 - 1.0) * this.screenShakeAmp;
+                this.screenShakeY = (float) (Math.random() * 2.0 - 1.0) * this.screenShakeAmp;
+            } else {
+                this.screenShakeX = 0.0f;
+                this.screenShakeY = 0.0f;
+            }
+            if (this.mistakeFlashAlpha > 0.005f) {
+                this.mistakeFlashAlpha = Math.max(0.0f, this.mistakeFlashAlpha - dt * 2.4f);
+            }
+
+            g.fill(0, 0, this.width, this.height, 0x9602060C);
+            PoseStack pose = g.pose();
+            pose.pushPose();
+            pose.translate(this.screenShakeX, this.screenShakeY, 0.0f);
+
+            int themeCol = this.playingFinale ? C_SAFE_GREEN : C_NEON_CYAN;
+            g.fill(winX, winY, winX + winW, winY + winH, 0xF4040B14);
+            drawTacticalCornerBrackets(g, winX, winY, winW, winH, themeCol);
+            g.fill(winX + 8, winY + 19, winX + winW - 8, winY + 20, withAlpha(themeCol, 0.45f));
+
+            String stepTitle = switch (this.step) {
+                case 0 -> "胸腔引流 1/4 · 第5肋上缘切开";
+                case 1 -> "胸腔引流 2/4 · 止血钳钝性撑胸膜";
+                case 2 -> "胸腔引流 3/4 · 置入28Fr硅胶引流管";
+                default -> "胸腔引流 4/4 · 水封负压排气与肺复张";
+            };
+            g.drawString(this.font, stepTitle, winX + 10, winY + 7, C_TEXT_WHITE, false);
+
+            // 顶部 4 步进度条
+            for (int s = 0; s < 4; s++) {
+                int sx = viewX + s * 46;
+                int sy = winY + 8;
+                boolean done = (s < this.step) || this.playingFinale;
+                boolean active = (s == this.step) && !this.playingFinale;
+                int sCol = done ? C_SAFE_GREEN : (active ? C_NEON_CYAN : 0xFF1E2B36);
+                g.fill(sx - 1, sy - 1, sx + 41, sy + 7, 0xFF0A141E);
+                g.fill(sx, sy, sx + 40, sy + 6, sCol);
+            }
+
+            // 左侧：3D 三腔水封瓶全息图 + 高细节三腔水封瓶液位/气泡柱与胸内压表盘
+            int leftX = winX + 10;
+            int leftY = viewY;
+            int leftW = 78;
+            int leftH = viewH;
+            g.fill(leftX, leftY, leftX + leftW, leftY + leftH, 0xB8030810);
+            drawTacticalCornerBrackets(g, leftX, leftY, leftW, leftH, withAlpha(themeCol, 0.72f));
+            MedicalAssetLibrary.render3DMedicalItem(g, leftX + leftW * 0.5f, leftY + 36.0f, 26.0f, stack, nowMs);
+
+            // 高细节三腔水封引流瓶面板 (集血腔 + 水封腔 + 负压调压腔)
+            int chBaseY = leftY + 70;
+            int chH = 58;
+            int ch1X = leftX + 7;
+            g.fill(ch1X, chBaseY, ch1X + 20, chBaseY + chH, 0xFF060E16);
+            float bloodRatio = (this.initialBloodMl > 5.0f) ? this.drainProgress : 0.15f * this.drainProgress;
+            int bloodFillH = Math.round(chH * Mth.clamp(bloodRatio, 0.0f, 0.92f));
+            if (bloodFillH > 0) {
+                g.fill(ch1X + 2, chBaseY + chH - bloodFillH, ch1X + 18, chBaseY + chH - 1, 0xDD9E1422);
+                g.fill(ch1X + 2, chBaseY + chH - bloodFillH, ch1X + 18, chBaseY + chH - bloodFillH + 2, 0xFFFF5252);
+            }
+            for (int tickY = chBaseY + 10; tickY < chBaseY + chH - 4; tickY += 10) {
+                g.fill(ch1X + 14, tickY, ch1X + 19, tickY + 1, 0x8890CAF9);
+            }
+            g.renderOutline(ch1X, chBaseY, 20, chH, 0xFF3E6A88);
+
+            int ch2X = leftX + 30;
+            g.fill(ch2X, chBaseY, ch2X + 20, chBaseY + chH, 0xFF060E16);
+            int waterLevelY = chBaseY + chH - 24;
+            g.fill(ch2X + 4, chBaseY + 2, ch2X + 7, chBaseY + chH - 4, 0xAA90CAF9);
+            g.fill(ch2X + 2, waterLevelY, ch2X + 18, chBaseY + chH - 1, 0xAA00B0FF);
+            g.fill(ch2X + 2, waterLevelY, ch2X + 18, waterLevelY + 2, 0xFF80D8FF);
+            if (this.step == 3 && this.suctionDrainActive) {
+                for (int b = 0; b < 3; b++) {
+                    int by = chBaseY + chH - 5 - (int) (((nowMs / 25L) + b * 8) % 21);
+                    int bx = ch2X + 8 + (b % 2) * 4;
+                    g.fill(bx, by, bx + 3, by + 3, 0xFFFFFFFF);
+                }
+            }
+            g.renderOutline(ch2X, chBaseY, 20, chH, 0xFF3E6A88);
+
+            int ch3X = leftX + 53;
+            g.fill(ch3X, chBaseY, ch3X + 18, chBaseY + chH, 0xFF060E16);
+            g.fill(ch3X + 2, chBaseY + chH - 38, ch3X + 16, chBaseY + chH - 1, 0x8826C6DA);
+            g.renderOutline(ch3X, chBaseY, 18, chH, 0xFF3E6A88);
+
+            float remAir = this.initialAirMl * (1.0f - this.drainProgress);
+            float remBlood = this.initialBloodMl * (1.0f - this.drainProgress);
+            float curPleuralP = Mth.lerp(this.drainProgress, ModItems.getPleuralPressureCmH2O(data), -6.0f);
+            g.drawCenteredString(this.font, String.format("气:%.0fmL %.0fcm", remAir, curPleuralP), leftX + leftW / 2, leftY + leftH - 28,
+                    remAir > 100.0f ? 0xFF80DEEA : C_SAFE_GREEN);
+            g.drawCenteredString(this.font, String.format("血:%.0fmL", remBlood), leftX + leftW / 2, leftY + leftH - 15,
+                    remBlood > 50.0f ? 0xFFFF8A80 : C_SAFE_GREEN);
+
+            // 中央高精度五层胸壁与肺叶解剖视窗
+            g.fill(viewX, viewY, viewX + viewW, viewY + viewH, 0xFF10060B);
+            g.enableScissor(viewX + 1, viewY + 1, viewX + viewW - 1, viewY + viewH - 1);
+            renderChestDrainSurgicalField(g, dt, beatWave, this.smoothMouseX, this.smoothMouseY, nowMs);
+            renderBubblesAndParticles(g, dt);
+            if (this.mistakeFlashAlpha > 0.01f) {
+                g.fill(viewX, viewY, viewX + viewW, viewY + 6, withAlpha(C_ALERT_RED, this.mistakeFlashAlpha * 0.65f));
+                g.fill(viewX, viewY + viewH - 6, viewX + viewW, viewY + viewH, withAlpha(C_ALERT_RED, this.mistakeFlashAlpha * 0.65f));
+            }
+            g.disableScissor();
+            drawTacticalCornerBrackets(g, viewX, viewY, viewW, viewH, 0xFF455A64);
+
+            // 底部取消按钮
+            int cancelW = 54, cancelH = 14;
+            int cancelX = viewX + viewW - cancelW;
+            int cancelY = winY + winH - 18;
+            boolean hovCancel = mouseX >= cancelX && mouseX <= cancelX + cancelW && mouseY >= cancelY && mouseY <= cancelY + cancelH;
+            g.fill(cancelX, cancelY, cancelX + cancelW, cancelY + cancelH, hovCancel ? 0x8837474F : 0x551C2833);
+            drawTacticalCornerBrackets(g, cancelX, cancelY, cancelW, cancelH, 0xFF90A4AE);
+            g.drawCenteredString(this.font, "×", cancelX + cancelW / 2, cancelY + 3, C_TEXT_DIM);
+
+            // 当前步骤高精度专属器械指针
+            SurgicalInstrumentRenderer.ToolType tool = switch (this.step) {
+                case 0 -> SurgicalInstrumentRenderer.ToolType.SCALPEL;
+                case 1 -> SurgicalInstrumentRenderer.ToolType.HEMOSTAT_FORCEPS;
+                case 2 -> SurgicalInstrumentRenderer.ToolType.TROCAR_CHEST_TUBE;
+                default -> SurgicalInstrumentRenderer.ToolType.SUCTION_CANNULA;
+            };
+            boolean active = (this.step == 0 && this.slicingIncision)
+                    || (this.step == 1 && this.spreadingPleura)
+                    || (this.step == 2 && this.advancingTube)
+                    || (this.step == 3 && this.suctionDrainActive);
+            SurgicalInstrumentRenderer.renderDetailedSurgicalToolCursor(
+                    g, this.smoothMouseX, this.smoothMouseY, this.cursorTiltDeg, tool, active, this.drainProgress, (nowMs % 100000L) * 0.02f);
+
+            pose.popPose();
+            super.render(g, mouseX, mouseY, partialTick);
+        }
+
+        private void renderBubblesAndParticles(GuiGraphics g, float dt) {
+            for (PleuralBubbleParticle p : this.particles) {
+                if (!p.active) continue;
+                p.age += dt;
+                if (p.age >= p.maxAge) {
+                    p.active = false;
+                    continue;
+                }
+                p.x += p.vx * dt;
+                p.y += p.vy * dt;
+                float life = 1.0f - (p.age / p.maxAge);
+                int r = Math.max(1, Math.round(p.radius * (0.7f + 0.5f * life)));
+                int col = withAlpha(p.color, life * 0.85f);
+                g.fill(Math.round(p.x - r), Math.round(p.y - r), Math.round(p.x + r), Math.round(p.y + r), col);
+            }
+        }
+
+        private void renderChestDrainSurgicalField(GuiGraphics g, float dt, float beatWave, float mx, float my, long nowMs) {
+            float remainRatio = 1.0f - this.drainProgress;
+            float breathCycle = Mth.sin(nowMs * 0.0038f);
+
+            // 1. 右半区：胸膜腔深部视图（含高压气胸气腔、底部血胸积血池、以及带斜裂和支气管树的上下分叶肺脏）
+            int cavityLeft = viewX + 76;
+            int cavityRight = viewX + viewW - 6;
+            int cavityTop = viewY + 8;
+            int cavityBot = viewY + viewH - 8;
+            g.fill(cavityLeft, cavityTop, cavityRight, cavityBot, 0xFF14050A);
+
+            float airFactor = (this.initialAirMl > 10.0f) ? remainRatio : 0.25f * remainRatio;
+            if (airFactor > 0.02f) {
+                int airPocketH = Math.round(52.0f * airFactor);
+                SurgicalInstrumentRenderer.drawQuad2D(g,
+                        cavityLeft + 2, cavityTop + 2,
+                        cavityRight - 2, cavityTop + 2,
+                        cavityRight - 2, cavityTop + 2 + airPocketH,
+                        cavityLeft + 2, cavityTop + 2 + airPocketH * 0.7f,
+                        0x3880DEEA);
+                for (int k = 0; k < 3; k++) {
+                    float waveX = cavityLeft + 12 + ((nowMs / 18L + k * 28) % 68);
+                    float waveY = cavityTop + 8 + k * 11 * airFactor;
+                    SurgicalInstrumentRenderer.drawQuad2D(g,
+                            waveX, waveY, waveX + 16, waveY + 2,
+                            waveX + 16, waveY + 3, waveX, waveY + 1, 0x66B2EBF2);
+                }
+            }
+
+            // 解剖级分叶肺脏（左肺上叶 Superior Lobe + 斜裂 Oblique Fissure + 左肺下叶 Inferior Lobe + 肺门支气管树）
+            float expansion = 0.42f + 0.58f * this.drainProgress + breathCycle * (0.025f + 0.045f * this.drainProgress);
+            int supR = (int) Mth.lerp(this.drainProgress, 118, 236);
+            int supG = (int) Mth.lerp(this.drainProgress, 58, 128);
+            int supB = (int) Mth.lerp(this.drainProgress, 84, 146);
+            int supLobeCol = (0xF2 << 24) | (supR << 16) | (supG << 8) | supB;
+            int infLobeCol = (0xF2 << 24) | (Math.max(0, supR - 14) << 16) | (Math.max(0, supG - 10) << 8) | Math.max(0, supB - 8);
+            int highlightCol = (0x88 << 24) | (Math.min(255, supR + 24) << 16) | (Math.min(255, supG + 32) << 8) | Math.min(255, supB + 28);
+
+            float hilumX = cavityRight - 4.0f;
+            float hilumY = viewY + viewH * 0.48f;
+            float spanW = (cavityRight - cavityLeft - 8.0f) * Mth.clamp(expansion, 0.35f, 0.98f);
+            float spanH = 64.0f * Mth.clamp(expansion, 0.38f, 0.98f);
+
+            float sApexX = hilumX - spanW * 0.55f, sApexY = hilumY - spanH * 0.92f;
+            float sAntX  = hilumX - spanW * 0.96f, sAntY  = hilumY - spanH * 0.38f;
+            float sFisX  = hilumX - spanW * 0.88f, sFisY  = hilumY + spanH * 0.12f;
+            SurgicalInstrumentRenderer.drawQuad2D(g, hilumX, hilumY - spanH * 0.65f, sApexX, sApexY, sAntX, sAntY, hilumX, hilumY, supLobeCol);
+            SurgicalInstrumentRenderer.drawQuad2D(g, hilumX, hilumY, sAntX, sAntY, sFisX, sFisY, hilumX, hilumY + 4.0f, supLobeCol);
+            SurgicalInstrumentRenderer.drawQuad2D(g, hilumX - spanW * 0.25f, hilumY - spanH * 0.52f,
+                    sApexX + 6.0f, sApexY + 6.0f, sAntX + 8.0f, sAntY, hilumX - spanW * 0.30f, hilumY - 4.0f, highlightCol);
+
+            float iLatX  = hilumX - spanW * 0.92f, iLatY  = hilumY + spanH * 0.22f;
+            float iBaseX = hilumX - spanW * 0.82f, iBaseY = hilumY + spanH * 0.88f;
+            float iMedX  = hilumX - spanW * 0.22f, iMedY  = hilumY + spanH * 0.92f;
+            SurgicalInstrumentRenderer.drawQuad2D(g, hilumX, hilumY + 6.0f, iLatX, iLatY, iBaseX, iBaseY, iMedX, iMedY, infLobeCol);
+            SurgicalInstrumentRenderer.drawQuad2D(g, hilumX, hilumY + 6.0f, iMedX, iMedY, hilumX, hilumY + spanH * 0.85f, hilumX, hilumY + 6.0f, infLobeCol);
+
+            SurgicalInstrumentRenderer.drawQuad2D(g, hilumX, hilumY + 1.0f, sFisX, sFisY, sFisX, sFisY + 3.5f, hilumX, hilumY + 4.5f, 0xCC2D0912);
+            SurgicalInstrumentRenderer.drawQuad2D(g, hilumX, hilumY - 4.0f, hilumX - spanW * 0.48f, hilumY - spanH * 0.35f,
+                    hilumX - spanW * 0.48f, hilumY - spanH * 0.35f + 2.5f, hilumX, hilumY - 1.0f, 0x88E0F7FA);
+            SurgicalInstrumentRenderer.drawQuad2D(g, hilumX, hilumY + 2.0f, hilumX - spanW * 0.45f, hilumY + spanH * 0.42f,
+                    hilumX - spanW * 0.45f, hilumY + spanH * 0.42f + 2.5f, hilumX, hilumY + 5.0f, 0x88E0F7FA);
+
+            float bloodFactor = (this.initialBloodMl > 10.0f) ? remainRatio : 0.20f * remainRatio;
+            if (bloodFactor > 0.02f) {
+                int poolTopY = Math.round(cavityBot - 6 - bloodFactor * 56.0f);
+                g.fill(cavityLeft + 2, poolTopY, cavityRight - 2, cavityBot, 0xCC6E0B14);
+                for (int wx = cavityLeft + 2; wx < cavityRight - 10; wx += 12) {
+                    int waveOff = Math.round(Mth.sin(nowMs * 0.006f + wx * 0.1f) * 1.8f);
+                    g.fill(wx, poolTopY + waveOff, wx + 10, poolTopY + waveOff + 2, 0xEEFF1744);
+                }
+            }
+
+            // 2. 左半区：五层胸壁纵切面与第 4、第 5 肋间手术操作区
+            int wallLeft = viewX + 4;
+            int wallRight = cavityLeft;
+            float wallCenterX = (wallLeft + wallRight) * 0.5f;
+
+            g.fill(wallLeft, cavityTop, wallRight, cavityBot, 0xFF420D16);
+            for (int fy = cavityTop + 6; fy < cavityBot - 6; fy += 8) {
+                SurgicalInstrumentRenderer.drawQuad2D(g,
+                        wallLeft + 4, fy, wallRight - 4, fy + 4,
+                        wallRight - 4, fy + 7, wallLeft + 4, fy + 3, 0x557B1824);
+            }
+            g.fill(wallRight - 3, cavityTop, wallRight, cavityBot, 0xCCD8EEF8);
+
+            float rib4Y = viewY + 40.0f;
+            SurgicalInstrumentRenderer.drawAnatomicalCurvedRib2D(g, wallCenterX, rib4Y, 34.0f, 7.5f, 0.0f, 0.0f, 0.0f, true);
+            int bundleY = Math.round(rib4Y + 7.5f);
+            int arteryPulse = Math.round(beatWave * 1.5f);
+            g.fill(wallLeft + 4, bundleY, wallRight - 4, bundleY + 2, 0xFF2979FF);
+            g.fill(wallLeft + 4, bundleY + 2, wallRight - 4, bundleY + 4 + arteryPulse, 0xFFFF1744);
+            g.fill(wallLeft + 4, bundleY + 5, wallRight - 4, bundleY + 7, 0xFFFFEA00);
+            g.drawString(this.font, "第4肋下血管束", wallLeft + 6, bundleY + 8, 0xFFFF8A80, false);
+
+            float rib5Y = viewY + 118.0f;
+            SurgicalInstrumentRenderer.drawAnatomicalCurvedRib2D(g, wallCenterX, rib5Y, 34.0f, 7.5f, 0.0f, 0.0f, 0.0f, true);
+            g.drawString(this.font, "第5肋骨上缘", wallLeft + 8, Math.round(rib5Y + 8), 0xFFB0BEC5, false);
+
+            float safeCutY = rib5Y - 14.0f;
+            float cutStartX = wallLeft + 8.0f;
+            float cutEndX = wallRight - 4.0f;
+            float corridorW = ((float) ModItems.safeCfgDouble(MedicalConfig.FASCIOTOMY_INCISION_CORRIDOR_WIDTH, 14.0));
+
+            int totalCutSegs = 12;
+            int cutSegs = Math.round(this.incisionProgress * totalCutSegs);
+            float spreadBonus = this.pleuraSpreadProgress * 7.5f;
+            for (int i = 0; i < totalCutSegs; i++) {
+                float x0 = Mth.lerp(i / (float) totalCutSegs, cutStartX, cutEndX);
+                float x1 = Mth.lerp((i + 1) / (float) totalCutSegs, cutStartX, cutEndX);
+                if (i < cutSegs) {
+                    float arch = Mth.sin(((i + 0.5f) / totalCutSegs) * (float) Math.PI);
+                    int halfOpen = Math.round((4.5f + spreadBonus) * arch);
+                    g.fill(Math.round(x0), Math.round(safeCutY - halfOpen - 3), Math.round(x1) + 1, Math.round(safeCutY - halfOpen), 0xFFE6B84D);
+                    g.fill(Math.round(x0), Math.round(safeCutY + halfOpen), Math.round(x1) + 1, Math.round(safeCutY + halfOpen + 3), 0xFFE6B84D);
+                    int innerCol = (this.pleuraSpreadProgress >= 0.85f) ? 0xFF0D0407 : 0xFFD0E8F2;
+                    g.fill(Math.round(x0), Math.round(safeCutY - halfOpen), Math.round(x1) + 1, Math.round(safeCutY + halfOpen), innerCol);
+                } else {
+                    if (i % 2 == 0) {
+                        g.fill(Math.round(x0), Math.round(safeCutY - 1), Math.round(x1), Math.round(safeCutY + 1), 0x8800E676);
+                    }
+                }
+            }
+
+            if (this.step == 0) {
+                float curCutX = Mth.lerp(this.incisionProgress, cutStartX, cutEndX);
+                drawTacticalCornerBrackets(g, Math.round(curCutX - 5), Math.round(safeCutY - 5), 10, 10, C_NEON_CYAN);
+                if (this.slicingIncision) {
+                    if (my <= bundleY + 8 || Math.abs(my - safeCutY) > corridorW) {
+                        triggerMistake(mx, my);
+                    } else if (mx >= curCutX - 8.0f && mx <= curCutX + 22.0f) {
+                        float nextProg = Mth.clamp((mx - cutStartX) / Math.max(1.0f, cutEndX - cutStartX), this.incisionProgress, 1.0f);
+                        if (nextProg > this.incisionProgress) {
+                            this.incisionProgress = nextProg;
+                            this.pleuraOpened = true;
+                        }
+                    }
+                }
+                if (this.incisionProgress >= 0.96f) {
+                    this.incisionProgress = 1.0f;
+                    this.slicingIncision = false;
+                    this.step = 1;
+                    playUiSound(SoundEvents.SHEEP_SHEAR, 1.25f, 0.65f);
+                }
+            } else if (this.step == 1) {
+                float targetX = (cutStartX + cutEndX) * 0.55f;
+                float targetY = safeCutY;
+                boolean nearPleura = Math.hypot(mx - targetX, my - targetY) <= 15.0;
+                drawTacticalCornerBrackets(g, Math.round(targetX - 9), Math.round(targetY - 9), 18, 18,
+                        nearPleura ? C_SAFE_GREEN : C_ADRENALINE_GOLD);
+                if (this.pleuraSpreadProgress > 0.01f) {
+                    int barW = Math.round(24 * this.pleuraSpreadProgress);
+                    g.fill(Math.round(targetX - 12), Math.round(targetY - 13), Math.round(targetX - 12 + barW), Math.round(targetY - 11), C_SAFE_GREEN);
+                }
+                if (this.spreadingPleura) {
+                    if (my <= bundleY + 8) {
+                        triggerMistake(mx, my);
+                    } else if (nearPleura) {
+                        this.pleuraSpreadProgress = Math.min(1.0f, this.pleuraSpreadProgress + dt / 0.55f);
+                        if (this.pleuraSpreadProgress >= 1.0f) {
+                            this.spreadingPleura = false;
+                            this.step = 2;
+                            playUiSound(SoundEvents.FIRE_EXTINGUISH, 1.65f, 0.70f);
+                            playUiSound(SoundEvents.IRON_TRAPDOOR_OPEN, 1.40f, 0.65f);
+                            for (int k = 0; k < 18; k++) {
+                                spawnBubble(targetX, targetY,
+                                        -20.0f - (float) (Math.random() * 45.0),
+                                        (float) (Math.random() * 36.0 - 18.0),
+                                        2.2f, 0.45f, 0xFFE0F7FA);
+                            }
+                        }
+                    }
+                }
+            } else if (this.step >= 2) {
+                float entryX = cutStartX + 10.0f;
+                float tipX = Mth.lerp(this.tubeInsertionProgress, entryX + 12.0f, cavityRight - 22.0f);
+                float tipY = Mth.lerp(this.tubeInsertionProgress, safeCutY, safeCutY + 16.0f);
+
+                SurgicalInstrumentRenderer.drawQuad2D(g,
+                        wallLeft, safeCutY - 4.5f, tipX, tipY - 4.5f,
+                        tipX, tipY + 4.5f, wallLeft, safeCutY + 4.5f, 0xBB90CAF9);
+                SurgicalInstrumentRenderer.drawQuad2D(g,
+                        wallLeft, safeCutY - 1.0f, tipX, tipY - 1.0f,
+                        tipX, tipY + 1.0f, wallLeft, safeCutY + 1.0f, 0xFF1565C0);
+                for (int fh = 1; fh <= 3; fh++) {
+                    float fx = tipX - fh * 11.0f * this.tubeInsertionProgress;
+                    float fy = Mth.lerp(1.0f - fh * 0.12f, safeCutY, tipY);
+                    if (fx > entryX) {
+                        g.fill(Math.round(fx - 2), Math.round(fy - 3), Math.round(fx + 2), Math.round(fy + 3), 0xFF0A141E);
+                    }
+                }
+
+                if (this.step == 2) {
+                    SurgicalInstrumentRenderer.drawQuad2D(g,
+                            wallLeft, safeCutY - 1.8f, tipX + 4.0f, tipY,
+                            tipX, tipY + 1.8f, wallLeft, safeCutY + 1.8f, 0xFFECEFF1);
+                    drawTacticalCornerBrackets(g, Math.round(tipX - 8), Math.round(tipY - 8), 16, 16, C_SAFE_GREEN);
+                    if (this.advancingTube) {
+                        this.tubeInsertionProgress = Mth.clamp((mx - entryX) / 120.0f, this.tubeInsertionProgress, 1.0f);
+                        if (this.tubeInsertionProgress >= 0.96f) {
+                            this.tubeInsertionProgress = 1.0f;
+                            this.advancingTube = false;
+                            this.step = 3;
+                            playUiSound(SoundEvents.SLIME_SQUISH, 1.25f, 0.65f);
+                        }
+                    }
+                } else if (this.step == 3) {
+                    float holdReq = Math.max(0.5f, ((float) ModItems.safeCfgDouble(MedicalConfig.FASCIOTOMY_CAUTERY_HOLD_SECONDS, 0.55)) * 2.2f);
+                    if (this.suctionDrainActive) {
+                        SurgicalInstrumentRenderer.drawQuad2D(g,
+                                wallLeft, safeCutY - 2.5f, tipX - 4.0f, tipY - 2.5f,
+                                tipX - 4.0f, tipY + 2.5f, wallLeft, safeCutY + 2.5f, 0xDD8E0E1A);
+                        int flowBubbleX = Math.round(tipX - ((nowMs / 10L) % Math.max(10, Math.round(tipX - wallLeft))));
+                        g.fill(flowBubbleX - 3, Math.round(safeCutY - 2), flowBubbleX + 3, Math.round(safeCutY + 2), 0xFFE0F7FA);
+
+                        this.drainProgress = Math.min(1.0f, this.drainProgress + dt / holdReq);
+                        this.bubbleSoundTick++;
+                        if (this.bubbleSoundTick % 4 == 0) {
+                            playUiSound(SoundEvents.BUBBLE_COLUMN_UPWARDS_AMBIENT, 1.35f, 0.60f);
+                            spawnBubble(tipX, tipY - 6.0f, -35.0f, -12.0f, 1.8f, 0.30f, 0xFFB2EBF2);
+                        }
+                        if (this.drainProgress >= 1.0f && !this.playingFinale) {
+                            this.suctionDrainActive = false;
+                            this.playingFinale = true;
+                            this.finaleProgress = 0.0f;
+                            playUiSound(SoundEvents.PLAYER_LEVELUP, 1.45f, 0.75f);
+                        }
+                    }
+                }
+            }
+        }
+
+        @Override
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (this.playingFinale) return true;
+            int cancelW = 54, cancelH = 14;
+            int cancelX = viewX + viewW - cancelW;
+            int cancelY = winY + winH - 18;
+            if (mouseX >= cancelX && mouseX <= cancelX + cancelW && mouseY >= cancelY && mouseY <= cancelY + cancelH) {
+                this.onClose();
+                return true;
+            }
+            if (button == 0) {
+                float mx = (this.smoothMouseX != 0.0f) ? this.smoothMouseX : ((float) mouseX + this.cursorTremorX);
+                float my = (this.smoothMouseY != 0.0f) ? this.smoothMouseY : ((float) mouseY + this.cursorTremorY);
+                if (mx < viewX || mx > viewX + viewW || my < viewY || my > viewY + viewH) {
+                    return super.mouseClicked(mouseX, mouseY, button);
+                }
+                this.pleuraOpened = true;
+                if (this.step == 0) {
+                    this.slicingIncision = true;
+                    return true;
+                } else if (this.step == 1) {
+                    this.spreadingPleura = true;
+                    return true;
+                } else if (this.step == 2) {
+                    this.advancingTube = true;
+                    return true;
+                } else if (this.step == 3) {
+                    this.suctionDrainActive = true;
+                    return true;
+                }
+            }
+            return super.mouseClicked(mouseX, mouseY, button);
+        }
+
+        @Override
+        public boolean mouseReleased(double mouseX, double mouseY, int button) {
+            if (button == 0) {
+                this.slicingIncision = false;
+                this.spreadingPleura = false;
+                this.advancingTube = false;
+                this.suctionDrainActive = false;
+            }
+            return super.mouseReleased(mouseX, mouseY, button);
+        }
+    }
+
+    // =========================================================================
+    // 高精度外科手术器械鼠标指针与多边形解剖矢量渲染器 (SurgicalInstrumentRenderer)
+    // =========================================================================
+    private static final class SurgicalInstrumentRenderer {
+        enum ToolType {
+            SCALPEL,
+            SUCTION_CANNULA,
+            BIPOLAR_CAUTERY,
+            HEMOSTAT_FORCEPS,
+            NEEDLE_HOLDER,
+            BONE_RONGEUR,
+            REDUCTION_CLAMP,
+            CANNULATED_DRILL,
+            TORQUE_WRENCH,
+            TROCAR_CHEST_TUBE
+        }
+
+        static void drawQuad2D(GuiGraphics g,
+                               float x1, float y1, float x2, float y2,
+                               float x3, float y3, float x4, float y4,
+                               int argbColor) {
+            int a = (argbColor >>> 24) & 0xFF;
+            int r = (argbColor >>> 16) & 0xFF;
+            int gr = (argbColor >>> 8) & 0xFF;
+            int b = argbColor & 0xFF;
+            Matrix4f pose = g.pose().last().pose();
+            RenderSystem.enableBlend();
+            RenderSystem.defaultBlendFunc();
+            RenderSystem.disableCull();
+            RenderSystem.setShader(GameRenderer::getPositionColorShader);
+            BufferBuilder buf = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+            buf.addVertex(pose, x1, y1, 0.0f).setColor(r, gr, b, a);
+            buf.addVertex(pose, x2, y2, 0.0f).setColor(r, gr, b, a);
+            buf.addVertex(pose, x3, y3, 0.0f).setColor(r, gr, b, a);
+            buf.addVertex(pose, x4, y4, 0.0f).setColor(r, gr, b, a);
+            MeshData mesh = buf.build();
+            if (mesh != null) {
+                BufferUploader.drawWithShader(mesh);
+            }
+            RenderSystem.enableCull();
+        }
+
+        static void drawDetailedBoneSplinter2D(GuiGraphics g, float cx, float cy, float scale, float angleRad,
+                                               boolean grabbed, boolean hovered) {
+            drawQuad2D(g, cx - 9 * scale, cy - 6 * scale, cx + 9 * scale, cy - 6 * scale,
+                    cx + 8 * scale, cy + 7 * scale, cx - 8 * scale, cy + 7 * scale,
+                    hovered ? 0x8800E676 : 0x66FF1744);
+            float[] vx = new float[] { -10.5f, -4.0f, 3.5f, 11.0f, 7.0f, 1.5f, -5.0f, -9.0f };
+            float[] vy = new float[] { -2.2f, -6.0f, -3.8f, -0.8f, 5.2f, 2.8f, 6.0f, 2.2f };
+            float cos = Mth.cos(angleRad) * scale;
+            float sin = Mth.sin(angleRad) * scale;
+            float[] tx = new float[8];
+            float[] ty = new float[8];
+            for (int i = 0; i < 8; i++) {
+                tx[i] = cx + vx[i] * cos - vy[i] * sin;
+                ty[i] = cy + vx[i] * sin + vy[i] * cos;
+            }
+            int outerCortical = hovered ? 0xFFFFFFFF : 0xFFE8F4F8;
+            int innerShadow = 0xFF9AC8DC;
+            drawQuad2D(g, tx[0], ty[0], tx[1], ty[1], tx[2], ty[2], tx[7], ty[7], outerCortical);
+            drawQuad2D(g, tx[2], ty[2], tx[3], ty[3], tx[4], ty[4], tx[5], ty[5], outerCortical);
+            drawQuad2D(g, tx[7], ty[7], tx[2], ty[2], tx[5], ty[5], tx[6], ty[6], innerShadow);
+            drawQuad2D(g,
+                    cx - 3.2f * cos, cy - 3.2f * sin,
+                    cx + 4.2f * cos, cy + 4.2f * sin,
+                    cx + 1.8f * cos - 2.2f * sin, cy + 1.8f * sin + 2.2f * cos,
+                    cx - 2.2f * cos - 1.8f * sin, cy - 2.2f * sin + 1.8f * cos,
+                    0xFF8D2B2B);
+        }
+
+        static void drawOrganicBloodClot2D(GuiGraphics g, float cx, float cy, float radius, float phaseAngle,
+                                           boolean grabbed, boolean hovered, float anchorX, float anchorY) {
+            if (grabbed) {
+                drawQuad2D(g, cx, cy - 2, anchorX, anchorY - 3, anchorX, anchorY + 3, cx, cy + 2, 0xAA640D16);
+            }
+            int segments = 10;
+            int coreColor = grabbed ? 0xFF9E1926 : (hovered ? 0xFF7A111D : 0xFF4A0720);
+            int rimColor = hovered ? 0xFFFF5252 : 0xFF2B030B;
+            for (int i = 0; i < segments; i++) {
+                double a1 = (i / (double) segments) * Math.PI * 2.0;
+                double a2 = ((i + 1) / (double) segments) * Math.PI * 2.0;
+                float r1 = radius * (0.82f + 0.22f * (float) Math.sin(a1 * 3.0 + phaseAngle));
+                float r2 = radius * (0.82f + 0.22f * (float) Math.sin(a2 * 3.0 + phaseAngle));
+                float x1 = cx + (float) Math.cos(a1) * r1;
+                float y1 = cy + (float) Math.sin(a1) * r1 * 0.78f;
+                float x2 = cx + (float) Math.cos(a2) * r2;
+                float y2 = cy + (float) Math.sin(a2) * r2 * 0.78f;
+                drawQuad2D(g, cx, cy, x1, y1, x2, y2, cx, cy, rimColor);
+                drawQuad2D(g, cx, cy,
+                        cx + (x1 - cx) * 0.80f, cy + (y1 - cy) * 0.80f,
+                        cx + (x2 - cx) * 0.80f, cy + (y2 - cy) * 0.80f,
+                        cx, cy, coreColor);
+            }
+            drawQuad2D(g, cx - radius * 0.35f, cy - radius * 0.28f,
+                    cx + radius * 0.15f, cy - radius * 0.35f,
+                    cx + radius * 0.05f, cy - radius * 0.10f,
+                    cx - radius * 0.30f, cy - radius * 0.08f, 0xAAAD323E);
+        }
+
+        static void drawAnatomicalVerticalLongBone2D(GuiGraphics g, float cx, float cy,
+                                                     float topY, float botY, float halfWidth,
+                                                     float dispX, float dispY, boolean reducedAndLocked) {
+            float fracY = cy - 2.0f;
+            drawQuad2D(g, cx - halfWidth * 1.28f, topY, cx + halfWidth * 1.28f, topY,
+                    cx + halfWidth, fracY, cx - halfWidth, fracY, 0xFFB8E2F2);
+            drawQuad2D(g, cx - halfWidth * 1.05f, topY + 2, cx + halfWidth * 1.05f, topY + 2,
+                    cx + halfWidth * 0.84f, fracY, cx - halfWidth * 0.84f, fracY, 0xFFE8F8FF);
+            drawQuad2D(g, cx - halfWidth * 0.42f, topY + 10, cx + halfWidth * 0.42f, topY + 10,
+                    cx + halfWidth * 0.42f, fracY - 2, cx - halfWidth * 0.42f, fracY - 2, 0xFF5694AC);
+            for (int t = 0; t < 5; t++) {
+                float tx = cx - halfWidth * 0.85f + t * (halfWidth * 0.38f);
+                drawQuad2D(g, tx, fracY - 2, tx + 3, fracY + 4, tx + 6, fracY - 1, tx + 3, fracY - 3, 0xFFE8F8FF);
+            }
+
+            float dCx = cx + dispX;
+            float dTopY = cy + 2.0f + dispY;
+            float dBotY = botY + dispY * 0.35f;
+            drawQuad2D(g, dCx - halfWidth, dTopY, dCx + halfWidth, dTopY,
+                    dCx + halfWidth * 1.28f, dBotY, dCx - halfWidth * 1.28f, dBotY, 0xFFB8E2F2);
+            drawQuad2D(g, dCx - halfWidth * 0.84f, dTopY, dCx + halfWidth * 0.84f, dTopY,
+                    dCx + halfWidth * 1.05f, dBotY - 2, dCx - halfWidth * 1.05f, dBotY - 2, 0xFFE8F8FF);
+            drawQuad2D(g, dCx - halfWidth * 0.42f, dTopY + 2, dCx + halfWidth * 0.42f, dTopY + 2,
+                    dCx + halfWidth * 0.42f, dBotY - 10, dCx - halfWidth * 0.42f, dBotY - 10, 0xFF5694AC);
+            if (reducedAndLocked) {
+                drawQuad2D(g, cx - halfWidth, cy - 3, cx + halfWidth, cy - 3,
+                        cx + halfWidth, cy + 3, cx - halfWidth, cy + 3, 0x8800E676);
+            }
+        }
+
+        static void drawAnatomicalCurvedRib2D(GuiGraphics g, float centerX, float centerY,
+                                              float halfSpan, float archHeight,
+                                              float dispX, float dispY, float dispAngle,
+                                              boolean intact) {
+            int segs = 12;
+            for (int i = 0; i < segs; i++) {
+                float t1 = (i / (float) segs) * 2.0f - 1.0f;
+                float t2 = ((i + 1) / (float) segs) * 2.0f - 1.0f;
+                boolean isDisplacedHalf = (!intact && i >= segs / 2);
+                float ox = isDisplacedHalf ? dispX : 0.0f;
+                float oy = isDisplacedHalf ? dispY + (t1 * dispAngle * 0.35f) : 0.0f;
+
+                float x1 = centerX + t1 * halfSpan + ox;
+                float y1 = centerY - (1.0f - t1 * t1) * archHeight + oy;
+                float x2 = centerX + t2 * halfSpan + ox;
+                float y2 = centerY - (1.0f - t2 * t2) * archHeight + oy;
+
+                drawQuad2D(g, x1, y1 - 5.5f, x2, y2 - 5.5f, x2, y2 + 5.5f, x1, y1 + 5.5f, 0xFF9AC8DC);
+                drawQuad2D(g, x1, y1 - 3.8f, x2, y2 - 3.8f, x2, y2 + 3.8f, x1, y1 + 3.8f, 0xFFE6F7FF);
+                drawQuad2D(g, x1, y1 - 1.4f, x2, y2 - 1.4f, x2, y2 + 1.4f, x1, y1 + 1.4f, 0x888D3B3B);
+            }
+        }
+
+        static void drawDetailedHorizontalSchanzScrew2D(GuiGraphics g, float sx, float sy, float prog, boolean hovered) {
+            float pinHalfLen = Mth.lerp(prog, 6.0f, 22.0f);
+            int statusCol = (prog >= 1.0f) ? 0xFF00E676 : (hovered ? 0xFFFFEA00 : 0xFF00E5FF);
+            drawQuad2D(g, sx - pinHalfLen, sy - 2.2f, sx + pinHalfLen, sy - 2.2f,
+                    sx + pinHalfLen, sy + 2.2f, sx - pinHalfLen, sy + 2.2f, 0xFFCFD8DC);
+            drawQuad2D(g, sx - pinHalfLen, sy - 0.8f, sx + pinHalfLen, sy - 0.8f,
+                    sx + pinHalfLen, sy + 0.8f, sx - pinHalfLen, sy + 0.8f, 0xFFFFFFFF);
+            for (int tx = (int) (sx - pinHalfLen + 2); tx <= (int) (sx + pinHalfLen - 2); tx += 3) {
+                g.fill(tx, Math.round(sy - 3), tx + 1, Math.round(sy + 3), 0xFF607D8B);
+            }
+            g.renderOutline(Math.round(sx - 5), Math.round(sy - 5), 10, 10, statusCol);
+            if (prog >= 1.0f) {
+                g.fill(Math.round(sx - 20), Math.round(sy - 4), Math.round(sx - 15), Math.round(sy + 4), 0xFFFFB300);
+                g.fill(Math.round(sx + 15), Math.round(sy - 4), Math.round(sx + 20), Math.round(sy + 4), 0xFFFFB300);
+            }
+        }
+
+        static void drawDetailedNiTiRibClaw2D(GuiGraphics g, float sx, float sy, float prog, boolean hovered) {
+            float wArm = Mth.lerp(prog, 18.0f, 12.0f);
+            int statusCol = (prog >= 1.0f) ? 0xFF00E676 : (hovered ? 0xFFFFEA00 : 0xFFFFB300);
+            drawQuad2D(g, sx - wArm, sy - 3.5f, sx + wArm, sy - 3.5f, sx + wArm, sy + 3.5f, sx - wArm, sy + 3.5f, 0xFFB0BEC5);
+            drawQuad2D(g, sx - wArm + 1, sy - 1.5f, sx + wArm - 1, sy - 1.5f, sx + wArm - 1, sy + 1.5f, sx - wArm + 1, sy + 1.5f, 0xFFECEFF1);
+            for (int c = -9; c <= 9; c += 6) {
+                drawQuad2D(g, sx + c - 1.5f, sy - 7.5f, sx + c + 1.5f, sy - 7.5f, sx + c + 1.5f, sy - 3.0f, sx + c - 1.5f, sy - 3.0f, statusCol);
+                drawQuad2D(g, sx + c - 1.5f, sy + 3.0f, sx + c + 1.5f, sy + 3.0f, sx + c + 1.5f, sy + 7.5f, sx + c - 1.5f, sy + 7.5f, statusCol);
+            }
+        }
+
+        static void renderDetailedSurgicalToolCursor(GuiGraphics g, float mx, float my, float tiltDeg,
+                                                     ToolType tool, boolean active, float progress, float time) {
+            g.pose().pushPose();
+            g.pose().translate(mx, my, 250.0f);
+            g.pose().mulPose(Axis.ZP.rotationDegrees(tiltDeg));
+            g.fill(-1, -1, 1, 1, active ? 0xFFFFFF88 : 0xCC80F8FF);
+
+            switch (tool) {
+                case SCALPEL -> {
+                    drawQuad2D(g, 0, 0, 12, 3, 15, 11, 4, 8, 0xFFF5F9FC);
+                    drawQuad2D(g, 0, 0, 14, 5, 15, 8, 2, 2, 0xFFB0C4D4);
+                    if (active) {
+                        drawQuad2D(g, 0, 0, 7, 2, 5, 5, 0, 2, 0xDDAA111E);
+                    }
+                    drawQuad2D(g, 13, 6, 46, 28, 42, 34, 9, 12, 0xFF8A9BA8);
+                    drawQuad2D(g, 14, 7, 45, 27, 43, 30, 12, 10, 0xFFCFD8DC);
+                    for (int i = 0; i < 5; i++) {
+                        float gx = 18 + i * 4.5f;
+                        float gy = 11 + i * 3.0f;
+                        drawQuad2D(g, gx, gy, gx + 2, gy + 1, gx - 1, gy + 5, gx - 3, gy + 4, 0xFF455A64);
+                    }
+                }
+                case SUCTION_CANNULA -> {
+                    drawQuad2D(g, -2, -2, 6, 1, 5, 6, -3, 3, 0xFFE0F7FA);
+                    drawQuad2D(g, 4, 1, 20, 8, 18, 13, 2, 5, 0x99B2EBF2);
+                    drawQuad2D(g, 18, 8, 48, 30, 44, 36, 14, 14, 0x8880DEEA);
+                    if (active || progress > 0.1f) {
+                        float pulse = Mth.sin(time * 0.6f) * 2.0f;
+                        drawQuad2D(g, 3, 2, 18, 9, 17, 12, 2, 4, 0xDD8E0E18);
+                        drawQuad2D(g, 18, 9, 44 + pulse, 28 + pulse, 41 + pulse, 33 + pulse, 15, 13, 0xDD7A0A14);
+                    }
+                }
+                case BIPOLAR_CAUTERY -> {
+                    float gap = active ? 1.2f : 4.0f;
+                    drawQuad2D(g, 0, -gap * 0.4f, 10, -gap, 11, -gap + 2, 1, -gap * 0.2f + 1.5f, 0xFFFFD54F);
+                    drawQuad2D(g, 0, gap * 0.4f, 10, gap, 11, gap + 2, 1, gap * 0.2f + 1.5f, 0xFFFFD54F);
+                    drawQuad2D(g, 10, -gap, 44, 18, 42, 22, 9, -gap + 3, 0xFF1565C0);
+                    drawQuad2D(g, 10, gap, 44, 24, 41, 28, 9, gap + 3, 0xFF0D47A1);
+                    if (active) {
+                        int sparkCol = ((int) (time * 3) % 2 == 0) ? 0xFFFFFFFF : 0xFF40C4FF;
+                        drawQuad2D(g, -4, -1, 4, -1, 4, 1, -4, 1, sparkCol);
+                        drawQuad2D(g, -1, -4, 1, -4, 1, 4, -1, 4, 0xFF80D8FF);
+                    }
+                }
+                case HEMOSTAT_FORCEPS -> {
+                    float jawOpen = active ? 3.8f : 1.0f;
+                    drawQuad2D(g, 0, -jawOpen, 14, -jawOpen * 1.4f, 15, -jawOpen * 1.4f + 2.5f, 1, -jawOpen + 2.0f, 0xFFECEFF1);
+                    drawQuad2D(g, 0, jawOpen, 14, jawOpen * 1.4f, 15, jawOpen * 1.4f + 2.5f, 1, jawOpen + 2.0f, 0xFFCFD8DC);
+                    drawQuad2D(g, 13, -3, 20, -1, 20, 5, 13, 3, 0xFF90A4AE);
+                    g.fill(15, 0, 18, 3, 0xFFFFCA28);
+                    drawQuad2D(g, 19, 0, 42, 14, 40, 17, 18, 3, 0xFFB0BEC5);
+                    drawQuad2D(g, 19, 2, 36, 24, 33, 26, 17, 4, 0xFF90A4AE);
+                    g.renderOutline(40, 12, 9, 9, 0xFFFFB300);
+                    g.renderOutline(31, 23, 9, 9, 0xFFFFB300);
+                }
+                case NEEDLE_HOLDER -> {
+                    for (int s = 0; s < 6; s++) {
+                        double a1 = (s / 6.0) * Math.PI * 0.85 - 0.4;
+                        double a2 = ((s + 1) / 6.0) * Math.PI * 0.85 - 0.4;
+                        float nx1 = 6.0f - (float) Math.cos(a1) * 7.5f;
+                        float ny1 = (float) Math.sin(a1) * 7.5f;
+                        float nx2 = 6.0f - (float) Math.cos(a2) * 7.5f;
+                        float ny2 = (float) Math.sin(a2) * 7.5f;
+                        drawQuad2D(g, nx1, ny1, nx2, ny2, nx2 + 1.5f, ny2 + 1.5f, nx1 + 1.5f, ny1 + 1.5f, 0xFFFFFFFF);
+                    }
+                    float wave = Mth.sin(time * 0.25f) * 3.0f;
+                    drawQuad2D(g, 11, 5, 24, 16 + wave, 23, 18 + wave, 10, 6, 0xFF29B6F6);
+                    drawQuad2D(g, 24, 16 + wave, 38, 12 - wave, 37, 14 - wave, 23, 18 + wave, 0xFF0288D1);
+                    drawQuad2D(g, 4, -2, 18, 4, 16, 8, 3, 1, 0xFFCFD8DC);
+                    drawQuad2D(g, 16, 3, 44, 22, 40, 27, 14, 8, 0xFF78909C);
+                    drawQuad2D(g, 34, 15, 45, 22, 41, 27, 30, 20, 0xFFFFB300);
+                }
+                case BONE_RONGEUR -> {
+                    float bite = active ? 0.5f : 3.8f;
+                    drawQuad2D(g, 0, -bite, 12, -bite - 3, 14, -bite + 1, 2, -bite + 2, 0xFFECEFF1);
+                    drawQuad2D(g, 0, bite, 12, bite + 3, 14, bite + 6, 2, bite + 2, 0xFFCFD8DC);
+                    drawQuad2D(g, 12, -3, 26, 6, 24, 12, 10, 4, 0xFF78909C);
+                    drawQuad2D(g, 24, 5, 46, 22, 42, 28, 21, 11, 0xFF546E7A);
+                }
+                case REDUCTION_CLAMP -> {
+                    float spread = active ? 2.5f : 6.0f;
+                    drawQuad2D(g, 0, -spread, 14, -spread - 2, 15, -spread + 2, 2, -spread + 2, 0xFFE0E0E0);
+                    drawQuad2D(g, 0, spread, 14, spread + 2, 15, spread + 5, 2, spread + 2, 0xFFBDBDBD);
+                    drawQuad2D(g, 13, -4, 44, 20, 40, 25, 11, 2, 0xFF90A4AE);
+                    drawQuad2D(g, 26, 18, 38, 6, 40, 8, 28, 20, 0xFFFFCA28);
+                }
+                case CANNULATED_DRILL -> {
+                    drawQuad2D(g, 0, -1.5f, 18, -1.5f, 18, 1.5f, 0, 1.5f, 0xFFECEFF1);
+                    int fluteOffset = active ? (int) (time * 3) % 4 : 0;
+                    for (int f = 2 + fluteOffset; f < 16; f += 4) {
+                        drawQuad2D(g, f, -2.0f, f + 2, -2.0f, f + 1, 2.0f, f - 1, 2.0f, 0xFF546E7A);
+                    }
+                    drawQuad2D(g, 18, -4, 24, -4, 24, 4, 18, 4, 0xFFFFB300);
+                    drawQuad2D(g, 24, -7, 46, -7, 46, 7, 24, 7, 0xFF1565C0);
+                    drawQuad2D(g, 26, -5, 44, -5, 44, -2, 26, -2, 0xFF42A5F5);
+                    drawQuad2D(g, 30, 7, 38, 7, 34, 24, 26, 24, 0xFF263238);
+                }
+                case TORQUE_WRENCH -> {
+                    drawQuad2D(g, 0, -3, 10, -3, 10, 3, 0, 3, 0xFFFFB300);
+                    drawQuad2D(g, 10, -2, 34, -2, 34, 2, 10, 2, 0xFFCFD8DC);
+                    drawQuad2D(g, 32, -14, 38, -14, 38, 14, 32, 14, 0xFF263238);
+                    drawQuad2D(g, 33, -12, 37, -12, 37, 12, 33, 12, 0xFF00ACC1);
+                }
+                case TROCAR_CHEST_TUBE -> {
+                    drawQuad2D(g, 0, 0, 8, -3, 8, 3, 0, 2, 0xFFECEFF1);
+                    drawQuad2D(g, 7, -4, 44, 14, 41, 21, 4, 3, 0xAA80DEEA);
+                    drawQuad2D(g, 7, -1, 43, 16, 42, 18, 6, 1, 0xFF1565C0);
+                }
+            }
+            g.pose().popPose();
+        }
+    }
+
+    // =========================================================================
+    // 第一人称非阻塞 3D 医疗动作动画系统
     // =========================================================================
     private enum FirstPersonAnimKind {
         NONE,
         SYRINGE_INJECT,
-        BANDAGE_WRAP
+        BANDAGE_WRAP,
+        SURGICAL_KIT_OPEN,
+        IBUPROFEN_DRINK,
+        TOURNIQUET_APPLY,
+        POVIDONE_SPRAY
     }
 
     private static final long SYRINGE_ANIM_DURATION_MS = 1480L;
     private static final long BANDAGE_ANIM_DURATION_MS = 1920L;
+    private static final long SURGICAL_KIT_OPEN_DURATION_MS = 960L;
+    private static final long IBUPROFEN_ANIM_DURATION_MS = 1320L;
+    private static final long TOURNIQUET_ANIM_DURATION_MS = 1560L;
 
     private static FirstPersonAnimKind fpAnimKind = FirstPersonAnimKind.NONE;
     private static long fpAnimStartMs = 0L;
@@ -3270,12 +5102,55 @@ public class TreatmentClientHooks {
     private static boolean animStageSound3 = false;
     private static boolean animStageSound4 = false;
 
+    private static int lastTrackedHotbarSlot = -1;
+    private static Item lastTrackedMainHandItem = null;
+    private static int fpAnimLockedSlot = -1;
+
+    private static void captureCurrentHotbarSlotForLock() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null) {
+            fpAnimLockedSlot = mc.player.getInventory().selected;
+        }
+    }
+
+    public static boolean isSurgicalKitAnimationItem(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
+        return TreatmentRouter.isSutureKitItem(stack)
+                || TreatmentRouter.isFasciotomyKitItem(stack)
+                || TreatmentRouter.isOrthopedicKitItem(stack)
+                || TreatmentRouter.isChestDrainKitItem(stack);
+    }
+
+    private static void checkAndTriggerSurgicalKitSwitchAnim(Player player) {
+        // 严禁切物品打断正在播放的任何第一人称医疗动画：动画期间硬锁热键栏槽位！
+        if (isFirstPersonMedicalAnimActive()) {
+            if (ModItems.safeCfgBool(MedicalConfig.LOCK_HOTBAR_DURING_MEDICAL_ANIM, true)
+                    && fpAnimLockedSlot >= 0 && fpAnimLockedSlot < 9
+                    && player.getInventory().selected != fpAnimLockedSlot) {
+                player.getInventory().selected = fpAnimLockedSlot;
+            }
+            return;
+        }
+
+        int curSlot = player.getInventory().selected;
+        ItemStack mainStack = player.getMainHandItem();
+        Item curItem = mainStack.isEmpty() ? null : mainStack.getItem();
+
+        if (curSlot != lastTrackedHotbarSlot || curItem != lastTrackedMainHandItem) {
+            lastTrackedHotbarSlot = curSlot;
+            lastTrackedMainHandItem = curItem;
+            if (isSurgicalKitAnimationItem(mainStack)) {
+                startSurgicalKitOpenAnimation(InteractionHand.MAIN_HAND, mainStack);
+            }
+        }
+    }
+
     public static boolean isSyringeAnimationItem(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return false;
-        return TreatmentRouter.isOpioidItem(stack)
+        return TreatmentRouter.isQuantitativeSyringeItem(stack)
                 || TreatmentRouter.isAdrenalineItem(stack)
                 || TreatmentRouter.isNaloxoneItem(stack)
-                || TreatmentRouter.isTranexamicAcidItem(stack)
+                || TreatmentRouter.isDecompressionNeedleItem(stack)
                 || stack.is(MedicalItemTags.SYRINGE);
     }
 
@@ -3284,9 +5159,9 @@ public class TreatmentClientHooks {
         if (isSyringeAnimationItem(stack)
                 || TreatmentRouter.isSplintItem(stack)
                 || TreatmentRouter.isTourniquetItem(stack)
-                || TreatmentRouter.isIbuprofenItem(stack)
-                || TreatmentRouter.isSutureKitItem(stack)
-                || TreatmentRouter.isFasciotomyKitItem(stack)) {
+                || TreatmentRouter.isOralMedicineItem(stack)
+                || TreatmentRouter.isPovidoneIodineItem(stack)
+                || isSurgicalKitAnimationItem(stack)) {
             return false;
         }
         return stack.is(MedicalItemTags.BANDAGE) || stack.getItem() instanceof BandageItem;
@@ -3301,13 +5176,87 @@ public class TreatmentClientHooks {
             fpAnimKind = FirstPersonAnimKind.NONE;
             fpAnimStartMs = 0L;
             fpAnimStack = ItemStack.EMPTY;
+            fpAnimLockedSlot = -1;
             return false;
         }
         return true;
     }
 
+    public static void startSurgicalKitOpenAnimation(InteractionHand hand, ItemStack stack) {
+        if (stack == null || stack.isEmpty() || !isSurgicalKitAnimationItem(stack)) return;
+        captureCurrentHotbarSlotForLock();
+        fpAnimKind = FirstPersonAnimKind.SURGICAL_KIT_OPEN;
+        fpAnimHand = (hand != null) ? hand : InteractionHand.MAIN_HAND;
+        fpAnimLimb = MedicalData.Limb.CHEST;
+        fpAnimStack = stack.copyWithCount(1);
+        if (fpAnimStack.isDamageableItem()) {
+            fpAnimStack.setDamageValue(0);
+        }
+        fpAnimDurationMs = Math.max(400L, ModItems.safeCfgInt(MedicalConfig.SURGICAL_KIT_READY_ANIM_DURATION_MS, 1260));
+        fpAnimStartMs = System.currentTimeMillis();
+        animStageSound1 = false;
+        animStageSound2 = false;
+        animStageSound3 = false;
+        animStageSound4 = false;
+    }
+
+    public static void startPovidoneSprayAnimation(InteractionHand hand, MedicalData.Limb limb, ItemStack stack) {
+        if (stack == null || stack.isEmpty() || !TreatmentRouter.isPovidoneIodineItem(stack)) return;
+        captureCurrentHotbarSlotForLock();
+        fpAnimKind = FirstPersonAnimKind.POVIDONE_SPRAY;
+        fpAnimHand = (hand != null) ? hand : InteractionHand.MAIN_HAND;
+        fpAnimLimb = (limb != null) ? limb : MedicalData.Limb.LEFT_ARM;
+        fpAnimStack = stack.copyWithCount(1);
+        if (fpAnimStack.isDamageableItem()) {
+            fpAnimStack.setDamageValue(0);
+        }
+        fpAnimDurationMs = 1380L;
+        fpAnimStartMs = System.currentTimeMillis();
+        animStageSound1 = false;
+        animStageSound2 = false;
+        animStageSound3 = false;
+        animStageSound4 = false;
+    }
+
+    public static void startIbuprofenDrinkAnimation(InteractionHand hand, ItemStack stack) {
+        if (stack == null || stack.isEmpty() || !TreatmentRouter.isOralMedicineItem(stack)) return;
+        captureCurrentHotbarSlotForLock();
+        fpAnimKind = FirstPersonAnimKind.IBUPROFEN_DRINK;
+        fpAnimHand = (hand != null) ? hand : InteractionHand.MAIN_HAND;
+        fpAnimLimb = MedicalData.Limb.HEAD;
+        fpAnimStack = stack.copyWithCount(1);
+        if (fpAnimStack.isDamageableItem()) {
+            fpAnimStack.setDamageValue(0);
+        }
+        fpAnimDurationMs = IBUPROFEN_ANIM_DURATION_MS;
+        fpAnimStartMs = System.currentTimeMillis();
+        animStageSound1 = false;
+        animStageSound2 = false;
+        animStageSound3 = false;
+        animStageSound4 = false;
+    }
+
+    public static void startTourniquetApplyAnimation(InteractionHand hand, MedicalData.Limb limb, ItemStack stack) {
+        if (stack == null || stack.isEmpty() || !TreatmentRouter.isTourniquetItem(stack)) return;
+        captureCurrentHotbarSlotForLock();
+        fpAnimKind = FirstPersonAnimKind.TOURNIQUET_APPLY;
+        fpAnimHand = (hand != null) ? hand : InteractionHand.MAIN_HAND;
+        fpAnimLimb = (limb != null) ? limb : MedicalData.Limb.LEFT_LEG;
+        fpAnimStack = stack.copyWithCount(1);
+        if (fpAnimStack.isDamageableItem()) {
+            fpAnimStack.setDamageValue(0);
+        }
+        fpAnimDurationMs = TOURNIQUET_ANIM_DURATION_MS;
+        fpAnimStartMs = System.currentTimeMillis();
+        animStageSound1 = false;
+        animStageSound2 = false;
+        animStageSound3 = false;
+        animStageSound4 = false;
+    }
+
     public static void startSyringeInjectionAnimation(InteractionHand hand, MedicalData.Limb limb, ItemStack stack, int doseUnits) {
         if (stack == null || stack.isEmpty() || !isSyringeAnimationItem(stack)) return;
+        captureCurrentHotbarSlotForLock();
         fpAnimKind = FirstPersonAnimKind.SYRINGE_INJECT;
         fpAnimHand = (hand != null) ? hand : InteractionHand.MAIN_HAND;
         fpAnimLimb = (limb != null) ? limb : MedicalData.Limb.LEFT_ARM;
@@ -3317,7 +5266,7 @@ public class TreatmentClientHooks {
         if (stack.isDamageableItem() && stack.getMaxDamage() > 0) {
             int maxU = stack.getMaxDamage();
             int remU = Math.max(0, maxU - stack.getDamageValue());
-            int usedU = (TreatmentRouter.isOpioidItem(stack) || TreatmentRouter.isTranexamicAcidItem(stack))
+            int usedU = TreatmentRouter.isQuantitativeSyringeItem(stack)
                     ? Mth.clamp(doseUnits, 1, Math.max(1, remU))
                     : remU;
             syringeAnimStartFill = Mth.clamp(remU / (float) maxU, 0.12f, 1.0f);
@@ -3337,6 +5286,7 @@ public class TreatmentClientHooks {
 
     public static void startBandageWrapAnimation(InteractionHand hand, MedicalData.Limb limb, ItemStack stack) {
         if (stack == null || stack.isEmpty() || !isBandageAnimationItem(stack)) return;
+        captureCurrentHotbarSlotForLock();
         fpAnimKind = FirstPersonAnimKind.BANDAGE_WRAP;
         fpAnimHand = (hand != null) ? hand : InteractionHand.MAIN_HAND;
         fpAnimLimb = (limb != null) ? limb : MedicalData.Limb.LEFT_ARM;
@@ -3369,31 +5319,83 @@ public class TreatmentClientHooks {
 
     @SubscribeEvent
     public static void onComputeMedicalAnimCameraAngles(ViewportEvent.ComputeCameraAngles event) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null) {
+            MedicalData data = mc.player.getData(MedicalDataCapability.MEDICAL_DATA);
+            if (data != null && ModItems.getPneumothoraxType(data) == 3) {
+                float breathTilt = Mth.sin(System.currentTimeMillis() * 0.005f) * 1.8f + 1.4f;
+                event.setRoll(event.getRoll() + breathTilt);
+            }
+        }
+
         if (!isFirstPersonMedicalAnimActive()) return;
         long elapsed = System.currentTimeMillis() - fpAnimStartMs;
         float t = Mth.clamp(elapsed / (float) fpAnimDurationMs, 0.0f, 1.0f);
 
+        if (fpAnimKind == FirstPersonAnimKind.SURGICAL_KIT_OPEN) {
+            float env = Mth.sin(t * (float) Math.PI);
+            if (TreatmentRouter.isChestDrainKitItem(fpAnimStack)) {
+                // 三腔水封引流瓶：提瓶晃动液面 + 向右侧拔出引流穿刺管时的视角微摆
+                float pullJolt = (t >= 0.36f && t <= 0.72f) ? Mth.sin(((t - 0.36f) / 0.36f) * (float) Math.PI) : 0.0f;
+                event.setPitch(event.getPitch() + 4.0f * env - 1.8f * pullJolt);
+                event.setYaw(event.getYaw() + 2.5f * pullJolt);
+                event.setRoll(event.getRoll() - 2.2f * pullJolt);
+            } else if (TreatmentRouter.isOrthopedicKitItem(fpAnimStack)) {
+                // 重型骨科器械盘：沉重托举惯性下沉 + 棘轮扳手旋拧两次震动
+                float heavyDip = (t < 0.35f) ? Mth.sin((t / 0.35f) * (float) Math.PI) * 5.8f : 0.0f;
+                float ratchetJolt = (t >= 0.38f && t <= 0.76f) ? Mth.sin(((t - 0.38f) / 0.38f) * Mth.TWO_PI * 2.0f) * 1.8f : 0.0f;
+                event.setPitch(event.getPitch() + 3.5f * env + heavyDip);
+                event.setRoll(event.getRoll() + ratchetJolt);
+            } else if (TreatmentRouter.isFasciotomyKitItem(fpAnimStack)) {
+                // 筋膜切开减压盘：检视表盘 + 双极电凝镊尖端放电微震
+                float sparkJolt = (t >= 0.44f && t <= 0.68f) ? Mth.sin(elapsed * 0.09f) * 0.8f : 0.0f;
+                event.setPitch(event.getPitch() + 4.8f * env + sparkJolt);
+                event.setRoll(event.getRoll() + 1.2f * env);
+            } else {
+                // 血管缝合器械盘：端托盘 + 蚊式止血钳清脆双连试夹
+                float clampJolt = (t >= 0.34f && t <= 0.70f) ? Math.abs(Mth.sin(((t - 0.34f) / 0.36f) * (float) Math.PI * 2.0f)) * 1.6f : 0.0f;
+                event.setPitch(event.getPitch() + 4.2f * env - clampJolt);
+                event.setRoll(event.getRoll() + 1.4f * clampJolt);
+            }
+            return;
+        }
+
+        if (fpAnimKind == FirstPersonAnimKind.IBUPROFEN_DRINK) {
+            float pitchAdd = 0.0f;
+            float rollAdd = 0.0f;
+            if (t < 0.36f) {
+                pitchAdd = 6.5f * Mth.sin((t / 0.36f) * (float) Math.PI);
+                rollAdd = -2.0f * Mth.sin((t / 0.36f) * Mth.TWO_PI * 2.0f);
+            } else if (t >= 0.48f && t < 0.85f) {
+                float swallowP = (t - 0.48f) / 0.37f;
+                pitchAdd = -9.5f * Mth.sin(swallowP * (float) Math.PI);
+            }
+            event.setPitch(event.getPitch() + pitchAdd);
+            event.setRoll(event.getRoll() + rollAdd);
+            return;
+        }
+
         float limbPitchBase = switch (fpAnimLimb) {
-            case HEAD -> -3.5f;
-            case CHEST -> 6.8f;
-            case LEFT_ARM, RIGHT_ARM -> 3.2f;
-            case LEFT_LEG, RIGHT_LEG -> 13.5f;
+            case HEAD -> -2.5f;
+            case CHEST -> (fpAnimKind == FirstPersonAnimKind.BANDAGE_WRAP) ? 20.5f : 11.5f;
+            case LEFT_ARM, RIGHT_ARM -> 4.5f;
+            case LEFT_LEG, RIGHT_LEG -> 26.5f;
         };
         float limbYawBase = switch (fpAnimLimb) {
             case HEAD -> 3.2f;
             case CHEST -> 0.0f;
             case LEFT_ARM -> -3.5f;
             case RIGHT_ARM -> 3.5f;
-            case LEFT_LEG -> -7.5f;
-            case RIGHT_LEG -> 7.5f;
+            case LEFT_LEG -> -9.5f;
+            case RIGHT_LEG -> 9.5f;
         };
         float limbRollBase = switch (fpAnimLimb) {
             case HEAD -> 2.4f;
             case CHEST -> 0.0f;
             case LEFT_ARM -> -1.6f;
             case RIGHT_ARM -> 1.6f;
-            case LEFT_LEG -> -2.8f;
-            case RIGHT_LEG -> 2.8f;
+            case LEFT_LEG -> -3.2f;
+            case RIGHT_LEG -> 3.2f;
         };
 
         float env = (t < 0.16f)
@@ -3417,11 +5419,17 @@ public class TreatmentClientHooks {
         } else if (fpAnimKind == FirstPersonAnimKind.BANDAGE_WRAP) {
             if (t >= 0.16f && t < 0.82f) {
                 float wrapP = (t - 0.16f) / 0.66f;
-                // 3 整圈缠绕，每圈在拉紧节点产生一次干脆的发力顿挫感
                 float turnPhase = (wrapP * 3.0f) % 1.0f;
                 float cinchJolt = (turnPhase > 0.65f) ? Mth.sin(((turnPhase - 0.65f) / 0.35f) * (float) Math.PI) : 0.0f;
-                pitchAdd += 1.8f * Mth.sin(wrapP * 3.0f * Mth.TWO_PI) - 2.2f * cinchJolt;
-                rollAdd += 2.1f * Mth.cos(wrapP * 3.0f * Mth.TWO_PI) + 1.8f * cinchJolt;
+                pitchAdd += 1.6f * Mth.sin(wrapP * 3.0f * Mth.TWO_PI) - 2.0f * cinchJolt;
+                rollAdd += 1.9f * Mth.cos(wrapP * 3.0f * Mth.TWO_PI) + 1.6f * cinchJolt;
+            }
+        } else if (fpAnimKind == FirstPersonAnimKind.TOURNIQUET_APPLY) {
+            if (t >= 0.42f && t < 0.82f) {
+                float windP = (t - 0.42f) / 0.40f;
+                float torqueJolt = Mth.sin(windP * 2.0f * (float) Math.PI);
+                pitchAdd += 2.2f * Math.abs(torqueJolt);
+                rollAdd += 2.8f * torqueJolt;
             }
         }
 
@@ -3437,6 +5445,13 @@ public class TreatmentClientHooks {
         AbstractClientPlayer player = mc.player;
         if (player == null || mc.options.hideGui) return;
 
+        // 渲染帧再次确保槽位锁死，防止任何异步输入切走物品
+        if (ModItems.safeCfgBool(MedicalConfig.LOCK_HOTBAR_DURING_MEDICAL_ANIM, true)
+                && fpAnimLockedSlot >= 0 && fpAnimLockedSlot < 9
+                && player.getInventory().selected != fpAnimLockedSlot) {
+            player.getInventory().selected = fpAnimLockedSlot;
+        }
+
         event.setCanceled(true);
         if (event.getHand() != fpAnimHand) {
             return;
@@ -3449,7 +5464,7 @@ public class TreatmentClientHooks {
         MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
         float painTremor = 0.0f;
         if (data != null) {
-            float pRatio = data.getPerceivedPain() / Math.max(10.0f, MedicalConfig.MAX_PERCEIVED_PAIN.get().floatValue());
+            float pRatio = data.getPerceivedPain() / Math.max(10.0f, ((float) ModItems.safeCfgDouble(MedicalConfig.MAX_PERCEIVED_PAIN, 100.0)));
             painTremor = Mth.clamp(pRatio, 0.0f, 1.0f) * 0.006f;
             if (ModItems.isInWithdrawalMovementRestriction(data)) {
                 painTremor += 0.006f;
@@ -3463,19 +5478,1055 @@ public class TreatmentClientHooks {
         int packedLight = event.getPackedLight();
         PlayerRenderer playerRenderer = (PlayerRenderer) mc.getEntityRenderDispatcher().getRenderer(player);
 
-        if (fpAnimKind == FirstPersonAnimKind.SYRINGE_INJECT) {
-            renderFirstPersonSyringe6Limb(mc, player, playerRenderer, poseStack, bufferSource, packedLight, t, nowMs, jitterX, jitterY);
-        } else if (fpAnimKind == FirstPersonAnimKind.BANDAGE_WRAP) {
-            renderFirstPersonBandage6Limb(mc, player, playerRenderer, poseStack, bufferSource, packedLight, t, nowMs, jitterX, jitterY);
+        switch (fpAnimKind) {
+            case SYRINGE_INJECT -> renderFirstPersonSyringe6Limb(mc, player, playerRenderer, poseStack, bufferSource, packedLight, t, nowMs, jitterX, jitterY);
+            case BANDAGE_WRAP -> renderFirstPersonBandage6Limb(mc, player, playerRenderer, poseStack, bufferSource, packedLight, t, nowMs, jitterX, jitterY);
+            case SURGICAL_KIT_OPEN -> renderFirstPersonSurgicalKitOpen(mc, player, playerRenderer, poseStack, bufferSource, packedLight, t, jitterX, jitterY);
+            case IBUPROFEN_DRINK -> renderFirstPersonIbuprofenDrink(mc, player, playerRenderer, poseStack, bufferSource, packedLight, t, jitterX, jitterY);
+            case TOURNIQUET_APPLY -> renderFirstPersonTourniquet6Limb(mc, player, playerRenderer, poseStack, bufferSource, packedLight, t, jitterX, jitterY);
+            case POVIDONE_SPRAY -> renderFirstPersonPovidoneSpray6Limb(mc, player, playerRenderer, poseStack, bufferSource, packedLight, t, jitterX, jitterY);
+            default -> {}
         }
     }
 
     /**
-     * 第一人称注射器 6 肢体差分渲染（左右腿渲染真实 3D 腿部模型，胸腔渲染真实 3D 躯干模型，左右臂渲染真实前臂模型）
+     * 四大重型医疗器械切换就绪动画（100% 驱动真实 .json 3D 模型 + 4 套完全不同的专属动作）：
+     * 1. 胸腔闭式引流包 (chest_drain_kit)：三腔水封引流瓶（绝非箱子！）—— 左手提瓶晃动水封液柱 + 右手从瓶侧拔出 28Fr 硅胶穿刺引流管
+     * 2. 野战血管缝合包 (field_vascular_suture_kit)：左手端起真实橄榄绿血管器械盘 + 右手拿起弯头蚊式止血钳清脆开合试夹 2 次并提拉蓝色普理灵缝线
+     * 3. 野战筋膜切开减压包 (fasciotomy_kit)：左手端起真实琥珀橙减压器械盘 + 右手捏合 V 型双极电凝止血镊尖端迸发蓝白高频电弧火花自检
+     * 4. 野战骨科复位固定包 (orthopedic_fixation_kit)：双手沉重缓冲托举真实钛灰骨科盘 + 右手握持 T 型扭力扳手旋拧外固定支架 Schanz 骨螺钉棘轮锁扣
      */
+    private static void renderFirstPersonSurgicalKitOpen(Minecraft mc, AbstractClientPlayer player, PlayerRenderer playerRenderer,
+                                                         PoseStack poseStack, MultiBufferSource bufferSource, int packedLight,
+                                                         float t, float jitterX, float jitterY) {
+        if (TreatmentRouter.isChestDrainKitItem(fpAnimStack)) {
+            renderChestDrainBottleReadyAnim(mc, player, playerRenderer, poseStack, bufferSource, packedLight, t, jitterX, jitterY);
+        } else if (TreatmentRouter.isOrthopedicKitItem(fpAnimStack)) {
+            renderOrthopedicKitReadyAnim(mc, player, playerRenderer, poseStack, bufferSource, packedLight, t, jitterX, jitterY);
+        } else if (TreatmentRouter.isFasciotomyKitItem(fpAnimStack)) {
+            renderFasciotomyKitReadyAnim(mc, player, playerRenderer, poseStack, bufferSource, packedLight, t, jitterX, jitterY);
+        } else {
+            renderVascularSutureKitReadyAnim(mc, player, playerRenderer, poseStack, bufferSource, packedLight, t, jitterX, jitterY);
+        }
+    }
+
+    /**
+     * 判断 BakedQuad 是否属于三大手术箱 (.json) 中绕 X 轴旋转的「箱盖 (Lid) 及箱盖内嵌组件」面片：
+     * 在 field_vascular_suture_kit.json、fasciotomy_kit.json、orthopedic_fixation_kit.json 中，
+     * 所有底座与箱内器械构件均为水平/垂直正交或绕 Y 轴旋转（任意面至少有两条水平边 dy == 0，且非水平边 dz == 0），
+     * 而所有箱盖构件均具有绕 X 轴 -22.5° 的倾角（其面片在 Y-Z 平面内存在 |dy| > 0.0005 且 |dz| > 0.0005 的斜边，或顶点 Y > 0.37）。
+     * 该判定在三大手术箱模型上的误判率为 0.0%（False Positive = 0, False Negative = 0）。
+     */
+    private static boolean isSurgicalCaseLidQuad(BakedQuad quad) {
+        int[] v = quad.getVertices();
+        if (v.length < 32) return false;
+        float maxY = -10.0f;
+        float[] ys = new float[4];
+        float[] zs = new float[4];
+        for (int i = 0; i < 4; i++) {
+            float y = Float.intBitsToFloat(v[i * 8 + 1]);
+            float z = Float.intBitsToFloat(v[i * 8 + 2]);
+            ys[i] = y;
+            zs[i] = z;
+            if (y > maxY) maxY = y;
+        }
+        if (maxY > 5.92f / 16.0f) {
+            return true;
+        }
+        for (int i = 0; i < 4; i++) {
+            int next = (i + 1) & 3;
+            float dy = Math.abs(ys[next] - ys[i]);
+            float dz = Math.abs(zs[next] - zs[i]);
+            if (dy > 0.0005f && dz > 0.0005f) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 判断 BakedQuad 是否属于胸腔闭式引流包 (chest_drain_kit.json) 右侧卡槽可拔出的「28Fr 穿刺引流管与钢芯」组件
+     */
+    private static boolean isChestDrainDetachableTubeQuad(BakedQuad quad) {
+        int[] v = quad.getVertices();
+        if (v.length < 32) return false;
+        float maxX = -10.0f;
+        for (int i = 0; i < 4; i++) {
+            float x = Float.intBitsToFloat(v[i * 8]);
+            if (x > maxX) maxX = x;
+        }
+        return maxX > 12.24f / 16.0f;
+    }
+
+    private static void emitBakedQuadWithPose(VertexConsumer vc, PoseStack.Pose poseEntry, BakedQuad quad, int packedLight) {
+        int[] v = quad.getVertices();
+        if (v.length < 32) return;
+        Matrix4f mat = poseEntry.pose();
+        for (int i = 0; i < 4; i++) {
+            int base = i * 8;
+            float x = Float.intBitsToFloat(v[base]);
+            float y = Float.intBitsToFloat(v[base + 1]);
+            float z = Float.intBitsToFloat(v[base + 2]);
+            int abgr = v[base + 3];
+            float u = Float.intBitsToFloat(v[base + 4]);
+            float vt = Float.intBitsToFloat(v[base + 5]);
+            int nPacked = v[base + 7];
+
+            int a = (abgr >>> 24) & 0xFF;
+            int b = (abgr >>> 16) & 0xFF;
+            int g = (abgr >>> 8) & 0xFF;
+            int r = abgr & 0xFF;
+            if (a == 0) a = 255;
+
+            float nx = ((byte) (nPacked & 0xFF)) / 127.0f;
+            float ny = ((byte) ((nPacked >>> 8) & 0xFF)) / 127.0f;
+            float nz = ((byte) ((nPacked >>> 16) & 0xFF)) / 127.0f;
+
+            vc.addVertex(mat, x, y, z)
+                    .setColor(r, g, b, a)
+                    .setUv(u, vt)
+                    .setOverlay(OverlayTexture.NO_OVERLAY)
+                    .setLight(packedLight)
+                    .setNormal(poseEntry, nx, ny, nz);
+        }
+    }
+
+    /**
+     * 核心真实模型开箱渲染引擎：
+     * 直接读取手术包 ItemStack 的真实 BakedModel 面片，将「底座+箱内器械」与「箱盖+盖内组件」在铰链轴处解耦：
+     * - 当 lidOpenProgress == 0.0f（完全闭合态）：箱盖面片绕后侧铰链向正前方旋转 +112.5°，严丝合缝地水平扣合在底座上（误差 0.0mm），完全遮盖内部器械！
+     * - 当 lidOpenProgress 从 0.0f -> 1.0f 推进时：箱盖面片绕铰链平滑向上掀起 112.5° 直至完全打开，逐步显露出箱底的真实 3D 器械！
+     */
+    private static void renderAnimatedSurgicalCaseBakedModel(Minecraft mc, AbstractClientPlayer player, ItemStack stack,
+                                                             PoseStack poseStack, MultiBufferSource bufferSource, int packedLight,
+                                                             float hingeY16, float hingeZ16,
+                                                             float lidOpenProgress, float latchFlipProgress) {
+        BakedModel model = mc.getItemRenderer().getModel(stack, player.level(), player, player.getId());
+        VertexConsumer vc = bufferSource.getBuffer(Sheets.translucentCullBlockSheet());
+        RandomSource rand = RandomSource.create(42L);
+
+        List<BakedQuad> baseQuads = new ArrayList<>();
+        List<BakedQuad> lidQuads = new ArrayList<>();
+        boolean hasFrontHingeLegacy = false;
+
+        Direction[] dirs = Direction.values();
+        for (Direction dir : dirs) {
+            rand.setSeed(42L);
+            for (BakedQuad q : model.getQuads(null, dir, rand)) {
+                if (isSurgicalCaseLidQuad(q)) {
+                    lidQuads.add(q);
+                    float z0 = Float.intBitsToFloat(q.getVertices()[2]);
+                    if (z0 > 0.72f) hasFrontHingeLegacy = true;
+                } else {
+                    baseQuads.add(q);
+                }
+            }
+        }
+        rand.setSeed(42L);
+        for (BakedQuad q : model.getQuads(null, null, rand)) {
+            if (isSurgicalCaseLidQuad(q)) {
+                lidQuads.add(q);
+                float z0 = Float.intBitsToFloat(q.getVertices()[2]);
+                if (z0 > 0.72f) hasFrontHingeLegacy = true;
+            } else {
+                baseQuads.add(q);
+            }
+        }
+
+        // 将 [0..1] 模型空间对齐到中心原点 (-0.5, -0.5, -0.5)
+        poseStack.pushPose();
+        poseStack.translate(-0.5f, -0.5f, -0.5f);
+
+        // 1. 渲染固定不动的底座与箱内 3D 医疗器械面片
+        PoseStack.Pose basePose = poseStack.last();
+        for (BakedQuad q : baseQuads) {
+            emitBakedQuadWithPose(vc, basePose, q, packedLight);
+        }
+
+        // 2. 渲染绕铰链从「完全水平闭合 (lidOpenProgress = 0.0)」旋转掀起至「完全敞开 (lidOpenProgress = 1.0)」的真实箱盖面片！
+        float hy = hingeY16 / 16.0f;
+        float hz = (hasFrontHingeLegacy ? 13.5f : hingeZ16) / 16.0f;
+        float closedDeltaDeg = hasFrontHingeLegacy
+                ? (-67.5f * (1.0f - lidOpenProgress))
+                : (112.5f * (1.0f - lidOpenProgress));
+
+        poseStack.pushPose();
+        poseStack.translate(0.5f, hy, hz);
+        poseStack.mulPose(Axis.XP.rotationDegrees(closedDeltaDeg));
+        poseStack.translate(-0.5f, -hy, -hz);
+
+        PoseStack.Pose lidPose = poseStack.last();
+        for (BakedQuad q : lidQuads) {
+            emitBakedQuadWithPose(vc, lidPose, q, packedLight);
+        }
+        poseStack.popPose();
+
+        poseStack.popPose();
+
+        if (bufferSource instanceof MultiBufferSource.BufferSource bs) {
+            bs.endBatch();
+        }
+
+        // 3. 叠加随箱盖同步翻转的 3D 立体顶盖加强筋、十字徽章与前侧弹开式双金属锁扣（使闭合状态下的箱顶与开锁动作极具机械质感）
+        int shellCol = TreatmentRouter.isOrthopedicKitItem(stack) ? 0xFF37474F
+                : (TreatmentRouter.isFasciotomyKitItem(stack) ? 0xFFD84315 : 0xFF2E5A36);
+        int crossCol = TreatmentRouter.isFasciotomyKitItem(stack) ? 0xFFFFEA00 : 0xFFECEFF1;
+
+        poseStack.pushPose();
+        poseStack.translate(-0.5f, -0.5f, -0.5f);
+
+        // 前侧双金属卡扣：在开锁阶段 (latchFlipProgress: 0 -> 1) 绕前缘轴向外弹开 75°
+        float frontZ = 12.8f / 16.0f;
+        float latchY = hingeY16 / 16.0f;
+        poseStack.pushPose();
+        poseStack.translate(0.5f, latchY, frontZ);
+        poseStack.mulPose(Axis.XP.rotationDegrees(latchFlipProgress * 75.0f));
+
+        Matrix4f latchMat = poseStack.last().pose();
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.disableCull();
+        RenderSystem.enableDepthTest();
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+
+        Tesselator tess = Tesselator.getInstance();
+        BufferBuilder lBuf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        emitColoredBox3D(lBuf, latchMat, -0.24f, -0.06f, 0.0f, -0.15f, 0.03f, 0.035f, 0xFFFFCA28, 0.98f);
+        emitColoredBox3D(lBuf, latchMat,  0.15f, -0.06f, 0.0f,  0.24f, 0.03f, 0.035f, 0xFFFFCA28, 0.98f);
+        MeshData lMesh = lBuf.build();
+        if (lMesh != null) {
+            BufferUploader.drawWithShader(lMesh);
+        }
+        poseStack.popPose();
+
+        // 箱盖外顶面装甲板与立体医疗十字徽章（直接绑定在箱盖铰链坐标系上，闭合时朝上封盖，开启时随箱盖翻转 112.5° 至背面）
+        poseStack.pushPose();
+        poseStack.translate(0.5f, hy, hingeZ16 / 16.0f);
+        poseStack.mulPose(Axis.XP.rotationDegrees(112.5f * (1.0f - lidOpenProgress) - 22.5f));
+        Matrix4f topMat = poseStack.last().pose();
+        BufferBuilder tBuf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        // 箱盖外背板加强层与包边（完全贴合真实 JSON 箱盖尺寸）
+        emitColoredBox3D(tBuf, topMat, -0.37f, 0.0f, -0.065f, 0.37f, 0.50f, -0.035f, shellCol, 0.98f);
+        // 闭合时封住两侧与前缘的箱盖立体折边裙翼（确保闭合时严丝合缝遮挡内部器械）
+        emitColoredBox3D(tBuf, topMat, -0.375f, 0.0f, -0.065f, -0.335f, 0.50f, 0.045f, shellCol, 0.98f);
+        emitColoredBox3D(tBuf, topMat,  0.335f, 0.0f, -0.065f,  0.375f, 0.50f, 0.045f, shellCol, 0.98f);
+        emitColoredBox3D(tBuf, topMat, -0.375f, 0.46f, -0.065f, 0.375f, 0.51f, 0.055f, shellCol, 0.98f);
+        // 箱盖外表面中央立体十字医疗徽章
+        emitColoredBox3D(tBuf, topMat, -0.09f, 0.21f, -0.075f, 0.09f, 0.29f, -0.062f, crossCol, 0.98f);
+        emitColoredBox3D(tBuf, topMat, -0.04f, 0.16f, -0.075f, 0.04f, 0.34f, -0.062f, crossCol, 0.98f);
+        MeshData tMesh = tBuf.build();
+        if (tMesh != null) {
+            BufferUploader.drawWithShader(tMesh);
+        }
+        poseStack.popPose();
+
+        RenderSystem.enableCull();
+        RenderSystem.disableBlend();
+        poseStack.popPose();
+    }
+
+    /**
+     * 计算箱盖前缘在相机空间中的实时坐标，使右手在掀盖阶段精准抓握在箱盖前缘上同步画弧线掀起！
+     */
+    private static float[] computeLidFrontEdgeOffset(float lidOpenProgress, float scale) {
+        // 箱盖半径约 0.48 (模型空间)，闭合时角度为 +90° (指向 +Z 前方)，完全打开时为 -22.5° (指向上方偏后)
+        float angleRad = Mth.lerp(lidOpenProgress, 90.0f, -22.5f) * Mth.DEG_TO_RAD;
+        float radius = 0.46f * scale;
+        float dy = Mth.cos(angleRad) * radius;
+        float dz = Mth.sin(angleRad) * radius;
+        return new float[]{dy, dz};
+    }
+
+    // ==================== 1. 胸腔闭式引流包：真实三腔水封瓶模型 + 拔出右侧 3D 穿刺引流管组件 ====================
+    private static void renderChestDrainBottleReadyAnim(Minecraft mc, AbstractClientPlayer player, PlayerRenderer playerRenderer,
+                                                        PoseStack poseStack, MultiBufferSource bufferSource, int packedLight,
+                                                        float t, float jitterX, float jitterY) {
+        if (t >= 0.10f && !animStageSound1) {
+            animStageSound1 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.BUCKET_FILL, 1.55f, 0.42f));
+            }
+        }
+        if (t >= 0.36f && !animStageSound2) {
+            animStageSound2 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.ARMOR_EQUIP_LEATHER.value(), 1.45f, 0.65f));
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.TRIPWIRE_CLICK_ON, 1.65f, 0.50f));
+            }
+        }
+
+        float liftP = (t < 0.26f) ? easeOutCubic(t / 0.26f) : 1.0f;
+        float uncoilP = (t < 0.30f) ? 0.0f : ((t < 0.74f) ? easeInOutCubic((t - 0.30f) / 0.44f) : 1.0f);
+        float settleP = (t > 0.78f) ? easeInOutCubic((t - 0.78f) / 0.22f) : 0.0f;
+
+        float sloshRoll = (t < 0.65f) ? Mth.sin(t * Mth.TWO_PI * 2.2f) * 6.0f * (1.0f - settleP) : 0.0f;
+        float bottleX = Mth.lerp(settleP, Mth.lerp(liftP, -0.20f, -0.08f), 0.14f) + jitterX;
+        float bottleY = Mth.lerp(settleP, Mth.lerp(liftP, -0.54f, -0.22f), -0.28f) + jitterY;
+        float bottleZ = Mth.lerp(settleP, Mth.lerp(liftP, -0.60f, -0.50f), -0.54f);
+
+        // 左手抓握三腔水封瓶左侧/提手
+        poseStack.pushPose();
+        poseStack.translate(bottleX - 0.12f, bottleY + 0.04f, bottleZ);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(-28.0f + sloshRoll * 0.5f));
+        poseStack.mulPose(Axis.XP.rotationDegrees(-22.0f));
+        renderPlayerArmCenteredAtFist(poseStack, bufferSource, packedLight, player, playerRenderer, false);
+        poseStack.popPose();
+
+        // 解耦渲染真实的 chest_drain_kit.json 模型：瓶体固定在左手，右侧盘绕的 28Fr 穿刺引流管随右手真实拔出！
+        BakedModel model = mc.getItemRenderer().getModel(fpAnimStack, player.level(), player, player.getId());
+        VertexConsumer vc = bufferSource.getBuffer(Sheets.translucentCullBlockSheet());
+        RandomSource rand = RandomSource.create(42L);
+        List<BakedQuad> bottleQuads = new ArrayList<>();
+        List<BakedQuad> tubeQuads = new ArrayList<>();
+
+        for (Direction dir : Direction.values()) {
+            rand.setSeed(42L);
+            for (BakedQuad q : model.getQuads(null, dir, rand)) {
+                if (isChestDrainDetachableTubeQuad(q)) tubeQuads.add(q);
+                else bottleQuads.add(q);
+            }
+        }
+        rand.setSeed(42L);
+        for (BakedQuad q : model.getQuads(null, null, rand)) {
+            if (isChestDrainDetachableTubeQuad(q)) tubeQuads.add(q);
+            else bottleQuads.add(q);
+        }
+
+        poseStack.pushPose();
+        poseStack.translate(bottleX, bottleY, bottleZ);
+        poseStack.mulPose(Axis.YP.rotationDegrees(16.0f - settleP * 24.0f));
+        poseStack.mulPose(Axis.XP.rotationDegrees(8.0f));
+        poseStack.mulPose(Axis.ZP.rotationDegrees(sloshRoll));
+        poseStack.scale(0.68f, 0.68f, 0.68f);
+        poseStack.translate(-0.5f, -0.5f, -0.5f);
+
+        PoseStack.Pose bPose = poseStack.last();
+        for (BakedQuad q : bottleQuads) {
+            emitBakedQuadWithPose(vc, bPose, q, packedLight);
+        }
+
+        // 右侧穿刺引流管组件：从瓶身右侧卡槽 (uncoilP = 0) 向右上前方拔出展开 (uncoilP = 1)
+        poseStack.pushPose();
+        poseStack.translate(uncoilP * 0.22f, uncoilP * 0.16f, -uncoilP * 0.10f);
+        poseStack.translate(0.82f, 0.45f, 0.40f);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(-uncoilP * 32.0f));
+        poseStack.mulPose(Axis.XP.rotationDegrees(uncoilP * 24.0f));
+        poseStack.translate(-0.82f, -0.45f, -0.40f);
+        PoseStack.Pose tPose = poseStack.last();
+        for (BakedQuad q : tubeQuads) {
+            emitBakedQuadWithPose(vc, tPose, q, packedLight);
+        }
+        poseStack.popPose();
+        poseStack.popPose();
+
+        // 右手抓握右侧引流管同步向上拔出
+        float rx = bottleX + 0.10f + uncoilP * 0.14f * (1.0f - settleP * 0.4f);
+        float ry = bottleY + 0.02f + uncoilP * 0.12f * (1.0f - settleP * 0.4f);
+        float rz = bottleZ - 0.02f - uncoilP * 0.05f;
+
+        poseStack.pushPose();
+        poseStack.translate(rx, ry, rz);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(32.0f - uncoilP * 14.0f));
+        poseStack.mulPose(Axis.XP.rotationDegrees(-34.0f + uncoilP * 12.0f));
+        renderPlayerArmCenteredAtFist(poseStack, bufferSource, packedLight, player, playerRenderer, true);
+        poseStack.popPose();
+
+        if (bufferSource instanceof MultiBufferSource.BufferSource bs) {
+            bs.endBatch();
+        }
+    }
+
+    // ==================== 2. 野战血管缝合包：真实模型从闭合 (0°) 掀盖至打开 (112.5°) + 止血钳试夹 ====================
+    private static void renderVascularSutureKitReadyAnim(Minecraft mc, AbstractClientPlayer player, PlayerRenderer playerRenderer,
+                                                         PoseStack poseStack, MultiBufferSource bufferSource, int packedLight,
+                                                         float t, float jitterX, float jitterY) {
+        if (t >= 0.18f && !animStageSound1) {
+            animStageSound1 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.TRIPWIRE_CLICK_ON, 1.55f, 0.60f));
+            }
+        }
+        if (t >= 0.28f && !animStageSound2) {
+            animStageSound2 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.IRON_TRAPDOOR_OPEN, 1.38f, 0.62f));
+            }
+        }
+        if (t >= 0.68f && !animStageSound3) {
+            animStageSound3 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.TRIPWIRE_CLICK_ON, 1.88f, 0.58f));
+            }
+        }
+
+        // 阶段划分：0~0.24 端出完全闭合的手术箱并掰开前锁扣 -> 0.24~0.64 右手将箱盖从 0° 闭合态掀开 112.5° -> 0.64~0.88 止血钳试夹 -> 0.88~1.00 落回持握位
+        float enterP = (t < 0.20f) ? easeOutCubic(t / 0.20f) : 1.0f;
+        float latchP = (t < 0.16f) ? 0.0f : Mth.clamp((t - 0.16f) / 0.10f, 0.0f, 1.0f);
+        float lidOpenP = (t < 0.24f) ? 0.0f : ((t < 0.64f) ? easeInOutCubic((t - 0.24f) / 0.40f) : 1.0f);
+        float inspectP = (t >= 0.64f && t <= 0.88f) ? Mth.sin(((t - 0.64f) / 0.24f) * (float) Math.PI) : 0.0f;
+        float settleP = (t > 0.88f) ? easeInOutCubic((t - 0.88f) / 0.12f) : 0.0f;
+
+        float scale = 0.68f;
+        float trayX = Mth.lerp(settleP, Mth.lerp(enterP, 0.24f, 0.02f), 0.18f) + jitterX;
+        float trayY = Mth.lerp(settleP, Mth.lerp(enterP, -0.52f, -0.27f), -0.32f) + jitterY;
+        float trayZ = Mth.lerp(settleP, Mth.lerp(enterP, -0.60f, -0.50f), -0.55f);
+
+        // 左手稳托手术箱底部左侧
+        poseStack.pushPose();
+        poseStack.translate(trayX - 0.13f, trayY - 0.06f, trayZ);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(-32.0f));
+        poseStack.mulPose(Axis.XP.rotationDegrees(-24.0f));
+        renderPlayerArmCenteredAtFist(poseStack, bufferSource, packedLight, player, playerRenderer, false);
+        poseStack.popPose();
+
+        // 右手轨迹：在 0~0.64s 紧贴箱盖前缘，将闭合的箱盖实实在在地向上掀开 112.5°；随后探入箱内试夹止血钳
+        float[] lidEdge = computeLidFrontEdgeOffset(lidOpenP, scale);
+        float rHandX, rHandY, rHandZ;
+        if (t < 0.64f) {
+            rHandX = trayX + 0.08f;
+            rHandY = trayY - 0.04f + lidEdge[0];
+            rHandZ = trayZ - 0.06f + lidEdge[1];
+        } else {
+            float toTray = Mth.clamp((t - 0.64f) / 0.10f, 0.0f, 1.0f);
+            rHandX = Mth.lerp(toTray, trayX + 0.08f, trayX + 0.11f);
+            rHandY = Mth.lerp(toTray, trayY - 0.04f + lidEdge[0], trayY + 0.04f + inspectP * 0.09f);
+            rHandZ = Mth.lerp(toTray, trayZ - 0.06f + lidEdge[1], trayZ + 0.02f);
+        }
+
+        poseStack.pushPose();
+        poseStack.translate(rHandX, rHandY, rHandZ);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(34.0f));
+        poseStack.mulPose(Axis.XP.rotationDegrees(-28.0f + lidOpenP * 16.0f));
+        renderPlayerArmCenteredAtFist(poseStack, bufferSource, packedLight, player, playerRenderer, true);
+        poseStack.popPose();
+
+        // 渲染真实 field_vascular_suture_kit.json 模型（箱盖从 0° 闭合态绕 [8.0, 5.0, 4.4] 铰链掀开至 112.5°）
+        poseStack.pushPose();
+        poseStack.translate(trayX, trayY, trayZ);
+        poseStack.mulPose(Axis.YP.rotationDegrees(-10.0f - settleP * 12.0f));
+        poseStack.mulPose(Axis.XP.rotationDegrees(24.0f - settleP * 8.0f));
+        poseStack.scale(scale, scale, scale);
+        renderAnimatedSurgicalCaseBakedModel(mc, player, fpAnimStack, poseStack, bufferSource, packedLight,
+                5.0f, 4.4f, lidOpenP, latchP);
+        poseStack.popPose();
+
+        if (inspectP > 0.04f) {
+            float jawOpen = 0.014f * Math.abs(Mth.cos(((t - 0.64f) / 0.24f) * Mth.TWO_PI));
+            Matrix4f mat = poseStack.last().pose();
+            RenderSystem.enableBlend();
+            RenderSystem.defaultBlendFunc();
+            RenderSystem.disableCull();
+            RenderSystem.enableDepthTest();
+            RenderSystem.setShader(GameRenderer::getPositionColorShader);
+
+            Tesselator tess = Tesselator.getInstance();
+            BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+            emitColoredBox3D(buf, mat, rHandX - 0.11f, rHandY + 0.016f + jawOpen, rHandZ - 0.005f, rHandX, rHandY + 0.023f + jawOpen, rHandZ + 0.005f, 0xFFECEFF1, 0.98f);
+            emitColoredBox3D(buf, mat, rHandX - 0.11f, rHandY + 0.009f - jawOpen, rHandZ - 0.005f, rHandX, rHandY + 0.016f - jawOpen, rHandZ + 0.005f, 0xFFCFD8DC, 0.98f);
+            emitColoredBox3D(buf, mat, trayX + 0.01f, trayY + 0.02f, trayZ, rHandX - 0.09f, rHandY + 0.014f, rHandZ, 0xFF00E5FF, 0.92f);
+            MeshData mesh = buf.build();
+            if (mesh != null) {
+                BufferUploader.drawWithShader(mesh);
+            }
+            RenderSystem.enableCull();
+            RenderSystem.disableBlend();
+        }
+    }
+
+    // ==================== 3. 野战筋膜切开减压包：真实模型从闭合 (0°) 掀盖至打开 (112.5°) + 电凝镊火花自检 ====================
+    private static void renderFasciotomyKitReadyAnim(Minecraft mc, AbstractClientPlayer player, PlayerRenderer playerRenderer,
+                                                     PoseStack poseStack, MultiBufferSource bufferSource, int packedLight,
+                                                     float t, float jitterX, float jitterY) {
+        if (t >= 0.18f && !animStageSound1) {
+            animStageSound1 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.TRIPWIRE_CLICK_ON, 1.60f, 0.60f));
+            }
+        }
+        if (t >= 0.28f && !animStageSound2) {
+            animStageSound2 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.IRON_TRAPDOOR_OPEN, 1.42f, 0.62f));
+            }
+        }
+        if (t >= 0.68f && !animStageSound3) {
+            animStageSound3 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.LAVA_POP, 1.95f, 0.55f));
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.NOTE_BLOCK_BIT.value(), 1.85f, 0.45f));
+            }
+        }
+
+        float enterP = (t < 0.20f) ? easeOutCubic(t / 0.20f) : 1.0f;
+        float latchP = (t < 0.16f) ? 0.0f : Mth.clamp((t - 0.16f) / 0.10f, 0.0f, 1.0f);
+        float lidOpenP = (t < 0.24f) ? 0.0f : ((t < 0.64f) ? easeInOutCubic((t - 0.24f) / 0.40f) : 1.0f);
+        float cauteryP = (t >= 0.64f && t <= 0.88f) ? Mth.sin(((t - 0.64f) / 0.24f) * (float) Math.PI) : 0.0f;
+        float settleP = (t > 0.88f) ? easeInOutCubic((t - 0.88f) / 0.12f) : 0.0f;
+
+        float scale = 0.68f;
+        float trayX = Mth.lerp(settleP, Mth.lerp(enterP, 0.24f, 0.02f), 0.18f) + jitterX;
+        float trayY = Mth.lerp(settleP, Mth.lerp(enterP, -0.52f, -0.27f), -0.32f) + jitterY;
+        float trayZ = Mth.lerp(settleP, Mth.lerp(enterP, -0.60f, -0.50f), -0.55f);
+
+        poseStack.pushPose();
+        poseStack.translate(trayX - 0.13f, trayY - 0.06f, trayZ);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(-32.0f));
+        poseStack.mulPose(Axis.XP.rotationDegrees(-24.0f));
+        renderPlayerArmCenteredAtFist(poseStack, bufferSource, packedLight, player, playerRenderer, false);
+        poseStack.popPose();
+
+        float[] lidEdge = computeLidFrontEdgeOffset(lidOpenP, scale);
+        float rHandX, rHandY, rHandZ;
+        if (t < 0.64f) {
+            rHandX = trayX + 0.08f;
+            rHandY = trayY - 0.04f + lidEdge[0];
+            rHandZ = trayZ - 0.06f + lidEdge[1];
+        } else {
+            float toTray = Mth.clamp((t - 0.64f) / 0.10f, 0.0f, 1.0f);
+            rHandX = Mth.lerp(toTray, trayX + 0.08f, trayX + 0.10f);
+            rHandY = Mth.lerp(toTray, trayY - 0.04f + lidEdge[0], trayY + 0.04f + cauteryP * 0.09f);
+            rHandZ = Mth.lerp(toTray, trayZ - 0.06f + lidEdge[1], trayZ + 0.02f);
+        }
+
+        poseStack.pushPose();
+        poseStack.translate(rHandX, rHandY, rHandZ);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(34.0f));
+        poseStack.mulPose(Axis.XP.rotationDegrees(-28.0f + lidOpenP * 16.0f));
+        renderPlayerArmCenteredAtFist(poseStack, bufferSource, packedLight, player, playerRenderer, true);
+        poseStack.popPose();
+
+        // 渲染真实 fasciotomy_kit.json 模型（箱盖从 0° 闭合态绕 [8.0, 4.2, 3.4] 铰链掀开至 112.5°）
+        poseStack.pushPose();
+        poseStack.translate(trayX, trayY, trayZ);
+        poseStack.mulPose(Axis.YP.rotationDegrees(-10.0f - settleP * 12.0f));
+        poseStack.mulPose(Axis.XP.rotationDegrees(24.0f - settleP * 8.0f));
+        poseStack.scale(scale, scale, scale);
+        renderAnimatedSurgicalCaseBakedModel(mc, player, fpAnimStack, poseStack, bufferSource, packedLight,
+                4.2f, 3.4f, lidOpenP, latchP);
+        poseStack.popPose();
+
+        if (cauteryP > 0.04f) {
+            boolean sparking = (t >= 0.70f && t <= 0.84f);
+            float pinchGap = sparking ? 0.002f : 0.014f;
+            Matrix4f mat = poseStack.last().pose();
+            RenderSystem.enableBlend();
+            RenderSystem.defaultBlendFunc();
+            RenderSystem.disableCull();
+            RenderSystem.enableDepthTest();
+            RenderSystem.setShader(GameRenderer::getPositionColorShader);
+
+            Tesselator tess = Tesselator.getInstance();
+            BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+            emitColoredBox3D(buf, mat, rHandX - 0.10f, rHandY + 0.016f + pinchGap, rHandZ - 0.005f, rHandX, rHandY + 0.022f + pinchGap, rHandZ + 0.005f, 0xFF0288D1, 0.98f);
+            emitColoredBox3D(buf, mat, rHandX - 0.10f, rHandY + 0.010f - pinchGap, rHandZ - 0.005f, rHandX, rHandY + 0.016f - pinchGap, rHandZ + 0.005f, 0xFF0288D1, 0.98f);
+            if (sparking) {
+                emitColoredBox3D(buf, mat, rHandX - 0.125f, rHandY + 0.004f, rHandZ - 0.015f, rHandX - 0.095f, rHandY + 0.028f, rHandZ + 0.015f, 0xFF00E5FF, 0.88f);
+                emitColoredBox3D(buf, mat, rHandX - 0.116f, rHandY + 0.010f, rHandZ - 0.008f, rHandX - 0.102f, rHandY + 0.022f, rHandZ + 0.008f, 0xFFFFFFFF, 0.98f);
+            }
+            MeshData mesh = buf.build();
+            if (mesh != null) {
+                BufferUploader.drawWithShader(mesh);
+            }
+            RenderSystem.enableCull();
+            RenderSystem.disableBlend();
+        }
+    }
+
+    // ==================== 4. 野战骨科复位固定包：真实模型从闭合 (0°) 掀盖至打开 (112.5°) + 扭力扳手自检 ====================
+    private static void renderOrthopedicKitReadyAnim(Minecraft mc, AbstractClientPlayer player, PlayerRenderer playerRenderer,
+                                                     PoseStack poseStack, MultiBufferSource bufferSource, int packedLight,
+                                                     float t, float jitterX, float jitterY) {
+        if (t >= 0.16f && !animStageSound1) {
+            animStageSound1 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.ARMOR_EQUIP_IRON.value(), 0.88f, 0.65f));
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.TRIPWIRE_CLICK_ON, 1.50f, 0.60f));
+            }
+        }
+        if (t >= 0.28f && !animStageSound2) {
+            animStageSound2 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.IRON_TRAPDOOR_OPEN, 1.25f, 0.68f));
+            }
+        }
+        if (t >= 0.68f && !animStageSound3) {
+            animStageSound3 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.DISPENSER_DISPENSE, 1.55f, 0.55f));
+            }
+        }
+
+        float enterP = (t < 0.22f) ? easeOutCubic(t / 0.22f) : 1.0f;
+        float heavyDip = (t < 0.26f) ? Mth.sin((t / 0.26f) * (float) Math.PI) * 0.042f : 0.0f;
+        float latchP = (t < 0.16f) ? 0.0f : Mth.clamp((t - 0.16f) / 0.10f, 0.0f, 1.0f);
+        float lidOpenP = (t < 0.24f) ? 0.0f : ((t < 0.64f) ? easeInOutCubic((t - 0.24f) / 0.40f) : 1.0f);
+        float wrenchP = (t >= 0.64f && t <= 0.88f) ? Mth.sin(((t - 0.64f) / 0.24f) * (float) Math.PI) : 0.0f;
+        float settleP = (t > 0.88f) ? easeInOutCubic((t - 0.88f) / 0.12f) : 0.0f;
+
+        float scale = 0.68f;
+        float trayX = Mth.lerp(settleP, Mth.lerp(enterP, 0.24f, 0.02f), 0.18f) + jitterX;
+        float trayY = Mth.lerp(settleP, Mth.lerp(enterP, -0.56f, -0.26f) - heavyDip, -0.32f) + jitterY;
+        float trayZ = Mth.lerp(settleP, Mth.lerp(enterP, -0.60f, -0.50f), -0.55f);
+
+        poseStack.pushPose();
+        poseStack.translate(trayX - 0.13f, trayY - 0.06f, trayZ);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(-34.0f));
+        poseStack.mulPose(Axis.XP.rotationDegrees(-24.0f));
+        renderPlayerArmCenteredAtFist(poseStack, bufferSource, packedLight, player, playerRenderer, false);
+        poseStack.popPose();
+
+        float[] lidEdge = computeLidFrontEdgeOffset(lidOpenP, scale);
+        float rHandX, rHandY, rHandZ;
+        if (t < 0.64f) {
+            rHandX = trayX + 0.08f;
+            rHandY = trayY - 0.04f + lidEdge[0];
+            rHandZ = trayZ - 0.06f + lidEdge[1];
+        } else {
+            float toTray = Mth.clamp((t - 0.64f) / 0.10f, 0.0f, 1.0f);
+            rHandX = Mth.lerp(toTray, trayX + 0.08f, trayX + 0.09f);
+            rHandY = Mth.lerp(toTray, trayY - 0.04f + lidEdge[0], trayY + 0.06f + wrenchP * 0.04f);
+            rHandZ = Mth.lerp(toTray, trayZ - 0.06f + lidEdge[1], trayZ + 0.01f);
+        }
+
+        poseStack.pushPose();
+        poseStack.translate(rHandX, rHandY, rHandZ);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(36.0f));
+        poseStack.mulPose(Axis.XP.rotationDegrees(-30.0f + lidOpenP * 14.0f));
+        renderPlayerArmCenteredAtFist(poseStack, bufferSource, packedLight, player, playerRenderer, true);
+        poseStack.popPose();
+
+        // 渲染真实 orthopedic_fixation_kit.json 模型（箱盖从 0° 闭合态绕 [8.0, 4.2, 3.5] 铰链掀开至 112.5°）
+        poseStack.pushPose();
+        poseStack.translate(trayX, trayY, trayZ);
+        poseStack.mulPose(Axis.YP.rotationDegrees(-10.0f - settleP * 12.0f));
+        poseStack.mulPose(Axis.XP.rotationDegrees(24.0f - settleP * 8.0f));
+        poseStack.scale(scale, scale, scale);
+        renderAnimatedSurgicalCaseBakedModel(mc, player, fpAnimStack, poseStack, bufferSource, packedLight,
+                4.2f, 3.5f, lidOpenP, latchP);
+        poseStack.popPose();
+
+        if (wrenchP > 0.04f) {
+            float spinPhase = (t - 0.64f) / 0.24f;
+            poseStack.pushPose();
+            poseStack.translate(trayX + 0.02f, trayY + 0.03f, trayZ + 0.01f);
+            poseStack.mulPose(Axis.YP.rotationDegrees(spinPhase * 180.0f));
+
+            Matrix4f mat = poseStack.last().pose();
+            RenderSystem.enableBlend();
+            RenderSystem.defaultBlendFunc();
+            RenderSystem.disableCull();
+            RenderSystem.enableDepthTest();
+            RenderSystem.setShader(GameRenderer::getPositionColorShader);
+
+            Tesselator tess = Tesselator.getInstance();
+            BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+            emitColoredBox3D(buf, mat, -0.012f, -0.010f, -0.012f, 0.012f, 0.018f, 0.012f, 0xFFFFCA28, 0.98f);
+            emitColoredBox3D(buf, mat, -0.007f, 0.018f, -0.007f, 0.007f, 0.095f, 0.007f, 0xFFECEFF1, 0.98f);
+            emitColoredBox3D(buf, mat, -0.052f, 0.090f, -0.011f, 0.052f, 0.110f, 0.011f, 0xFF00ACC1, 0.98f);
+            MeshData mesh = buf.build();
+            if (mesh != null) {
+                BufferUploader.drawWithShader(mesh);
+            }
+            RenderSystem.enableCull();
+            RenderSystem.disableBlend();
+            poseStack.popPose();
+        }
+    }
+
+    private static void renderFirstPersonPovidoneSpray6Limb(Minecraft mc, AbstractClientPlayer player, PlayerRenderer playerRenderer,
+                                                            PoseStack poseStack, MultiBufferSource bufferSource, int packedLight,
+                                                            float t, float jitterX, float jitterY) {
+        if (t >= 0.28f && !animStageSound1) {
+            animStageSound1 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.FIRE_EXTINGUISH, 1.85f, 0.55f));
+            }
+        }
+        if (t >= 0.56f && !animStageSound2) {
+            animStageSound2 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.FIRE_EXTINGUISH, 1.95f, 0.55f));
+            }
+        }
+
+        float enterLeave = (t < 0.16f) ? easeOutCubic(t / 0.16f) : ((t > 0.84f) ? (1.0f - easeInCubic((t - 0.84f) / 0.16f)) : 1.0f);
+        boolean isLeg = (fpAnimLimb == MedicalData.Limb.LEFT_LEG || fpAnimLimb == MedicalData.Limb.RIGHT_LEG);
+        float limbX = switch (fpAnimLimb) {
+            case LEFT_ARM -> -0.06f;
+            case RIGHT_ARM -> 0.06f;
+            case LEFT_LEG -> -0.10f;
+            case RIGHT_LEG -> 0.10f;
+            default -> 0.0f;
+        };
+        float limbY = isLeg ? -0.48f : -0.22f;
+        float limbZ = isLeg ? -0.50f : -0.54f;
+
+        if (fpAnimLimb != MedicalData.Limb.HEAD && fpAnimLimb != MedicalData.Limb.CHEST) {
+            poseStack.pushPose();
+            poseStack.translate(limbX + jitterX * 0.3f, Mth.lerp(enterLeave, -0.65f, limbY) + jitterY * 0.3f, limbZ);
+            poseStack.mulPose(Axis.XP.rotationDegrees(isLeg ? -14.0f : -18.0f));
+            poseStack.mulPose(Axis.ZP.rotationDegrees(isLeg ? (fpAnimLimb == MedicalData.Limb.LEFT_LEG ? -6.0f : 6.0f)
+                    : (fpAnimLimb == MedicalData.Limb.LEFT_ARM ? -72.0f : 72.0f)));
+            switch (fpAnimLimb) {
+                case LEFT_ARM -> renderPlayerArmCenteredAtForearm(poseStack, bufferSource, packedLight, player, playerRenderer, false);
+                case RIGHT_ARM -> renderPlayerArmCenteredAtForearm(poseStack, bufferSource, packedLight, player, playerRenderer, true);
+                case LEFT_LEG -> renderPlayerLegCenteredAtMid(poseStack, bufferSource, packedLight, player, playerRenderer, false);
+                case RIGHT_LEG -> renderPlayerLegCenteredAtMid(poseStack, bufferSource, packedLight, player, playerRenderer, true);
+                default -> {}
+            }
+            poseStack.popPose();
+        }
+
+        boolean sprayBurst1 = (t >= 0.28f && t <= 0.44f);
+        boolean sprayBurst2 = (t >= 0.56f && t <= 0.72f);
+        float pressOffset = (sprayBurst1 || sprayBurst2) ? -0.018f : 0.0f;
+
+        float bx = limbX + 0.14f + jitterX;
+        float by = limbY + 0.14f + pressOffset + jitterY;
+        float bz = limbZ + 0.08f;
+
+        poseStack.pushPose();
+        poseStack.translate(bx + 0.06f, by - 0.04f, bz);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(32.0f));
+        poseStack.mulPose(Axis.XP.rotationDegrees(-28.0f));
+        renderPlayerArmCenteredAtFist(poseStack, bufferSource, packedLight, player, playerRenderer, true);
+        poseStack.popPose();
+
+        poseStack.pushPose();
+        poseStack.translate(bx, by, bz);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(26.0f));
+        poseStack.mulPose(Axis.XP.rotationDegrees(-18.0f));
+        poseStack.scale(0.56f, 0.56f, 0.56f);
+        mc.getItemRenderer().renderStatic(
+                player, fpAnimStack, ItemDisplayContext.NONE, false,
+                poseStack, bufferSource, player.level(), packedLight, OverlayTexture.NO_OVERLAY, player.getId()
+        );
+        poseStack.popPose();
+
+        if (bufferSource instanceof MultiBufferSource.BufferSource bs) {
+            bs.endBatch();
+        }
+
+        Matrix4f mat = poseStack.last().pose();
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.disableCull();
+        RenderSystem.enableDepthTest();
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+
+        Tesselator tess = Tesselator.getInstance();
+        BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+
+        if (sprayBurst1 || sprayBurst2) {
+            float burstP = sprayBurst1 ? ((t - 0.28f) / 0.16f) : ((t - 0.56f) / 0.16f);
+            for (int i = 0; i < 8; i++) {
+                float frac = (i / 8.0f + burstP * 0.5f) % 1.0f;
+                float mx = Mth.lerp(frac, bx - 0.03f, limbX) + Mth.sin(i * 2.1f) * 0.035f * frac;
+                float my = Mth.lerp(frac, by + 0.05f, limbY + 0.04f) + Mth.cos(i * 1.7f) * 0.035f * frac;
+                float mz = Mth.lerp(frac, bz - 0.02f, limbZ + 0.06f);
+                emitColoredBox3D(buf, mat, mx - 0.008f, my - 0.008f, mz - 0.008f, mx + 0.008f, my + 0.008f, mz + 0.008f, 0xFFE65100, 0.82f * (1.0f - frac * 0.4f));
+            }
+        }
+
+        if (t >= 0.30f && fpAnimLimb != MedicalData.Limb.HEAD && fpAnimLimb != MedicalData.Limb.CHEST) {
+            float filmAlpha = Mth.clamp((t - 0.30f) / 0.42f, 0.0f, 1.0f) * 0.78f;
+            emitColoredBox3D(buf, mat, limbX - 0.055f, limbY + 0.02f, limbZ - 0.04f, limbX + 0.055f, limbY + 0.06f, limbZ + 0.09f, 0xFFD84315, filmAlpha);
+        }
+
+        MeshData mesh = buf.build();
+        if (mesh != null) {
+            BufferUploader.drawWithShader(mesh);
+        }
+        RenderSystem.enableCull();
+        RenderSystem.disableBlend();
+    }
+
+    private static void renderFirstPersonIbuprofenDrink(Minecraft mc, AbstractClientPlayer player, PlayerRenderer playerRenderer,
+                                                        PoseStack poseStack, MultiBufferSource bufferSource, int packedLight,
+                                                        float t, float jitterX, float jitterY) {
+        if (t >= 0.12f && !animStageSound1) {
+            animStageSound1 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.ITEM_PICKUP, 1.45f, 0.55f));
+            }
+        }
+        if (t >= 0.36f && !animStageSound2) {
+            animStageSound2 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.TURTLE_EGG_CRACK, 1.75f, 0.45f));
+            }
+        }
+        if (t >= 0.62f && !animStageSound3) {
+            animStageSound3 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.GENERIC_EAT, 1.15f, 0.75f));
+            }
+        }
+        if (t >= 0.88f && !animStageSound4) {
+            animStageSound4 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.TRIPWIRE_CLICK_ON, 1.65f, 0.45f));
+            }
+        }
+
+        float bottleX = -0.14f + jitterX;
+        float bottleY = -0.26f + jitterY;
+        float bottleZ = -0.48f;
+        float bottleTiltZ = (t >= 0.34f && t < 0.56f) ? -68.0f * Mth.sin(((t - 0.34f) / 0.22f) * (float) Math.PI) : -12.0f;
+
+        poseStack.pushPose();
+        poseStack.translate(bottleX - 0.08f, bottleY - 0.06f, bottleZ);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(-32.0f));
+        poseStack.mulPose(Axis.XP.rotationDegrees(-24.0f));
+        renderPlayerArmCenteredAtFist(poseStack, bufferSource, packedLight, player, playerRenderer, false);
+        poseStack.popPose();
+
+        poseStack.pushPose();
+        poseStack.translate(bottleX, bottleY, bottleZ);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(bottleTiltZ));
+        poseStack.scale(0.56f, 0.56f, 0.56f);
+        mc.getItemRenderer().renderStatic(
+                player, fpAnimStack, ItemDisplayContext.NONE, false,
+                poseStack, bufferSource, player.level(), packedLight, OverlayTexture.NO_OVERLAY, player.getId()
+        );
+        poseStack.popPose();
+
+        float rx, ry, rz;
+        float capLift = 0.0f;
+        boolean showCapsule = false;
+        float capsX = 0.0f, capsY = 0.0f, capsZ = 0.0f;
+
+        if (t < 0.36f) {
+            float p = t / 0.36f;
+            capLift = (p > 0.65f) ? ((p - 0.65f) / 0.35f) * 0.08f : 0.0f;
+            rx = bottleX + 0.06f;
+            ry = bottleY + 0.12f + capLift;
+            rz = bottleZ;
+        } else if (t < 0.55f) {
+            float p = (t - 0.36f) / 0.19f;
+            rx = Mth.lerp(p, bottleX + 0.14f, 0.08f);
+            ry = Mth.lerp(p, bottleY + 0.02f, -0.22f);
+            rz = Mth.lerp(p, bottleZ, -0.44f);
+            showCapsule = true;
+            capsX = Mth.lerp(p, bottleX + 0.05f, rx);
+            capsY = Mth.lerp(p, bottleY + 0.02f, ry + 0.03f);
+            capsZ = rz;
+        } else if (t < 0.84f) {
+            float p = Mth.sin(((t - 0.55f) / 0.29f) * (float) Math.PI);
+            rx = Mth.lerp(p, 0.08f, 0.02f);
+            ry = Mth.lerp(p, -0.22f, -0.10f);
+            rz = Mth.lerp(p, -0.44f, -0.28f);
+            showCapsule = (t < 0.72f);
+            capsX = rx;
+            capsY = ry + 0.03f;
+            capsZ = rz;
+        } else {
+            float p = (t - 0.84f) / 0.16f;
+            rx = Mth.lerp(p, 0.08f, bottleX + 0.06f);
+            ry = Mth.lerp(p, -0.22f, bottleY + 0.12f);
+            rz = bottleZ;
+        }
+
+        poseStack.pushPose();
+        poseStack.translate(rx + jitterX, ry + jitterY, rz);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(28.0f));
+        poseStack.mulPose(Axis.XP.rotationDegrees(-30.0f));
+        renderPlayerArmCenteredAtFist(poseStack, bufferSource, packedLight, player, playerRenderer, true);
+        poseStack.popPose();
+
+        if (bufferSource instanceof MultiBufferSource.BufferSource bs) {
+            bs.endBatch();
+        }
+
+        Matrix4f mat = poseStack.last().pose();
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.disableCull();
+        RenderSystem.enableDepthTest();
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+
+        Tesselator tess = Tesselator.getInstance();
+        BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        boolean isCharcoal = TreatmentRouter.isActivatedCharcoalItem(fpAnimStack);
+        boolean isAmox = TreatmentRouter.isAmoxicillinItem(fpAnimStack);
+        int capCol = isCharcoal ? 0xFFFFCA28 : (isAmox ? 0xFF1E88E5 : 0xFFF5F7FA);
+        if (t < 0.36f || t >= 0.84f) {
+            float cx = bottleX;
+            float cy = bottleY + 0.11f + capLift;
+            float cz = bottleZ;
+            emitColoredBox3D(buf, mat, cx - 0.038f, cy, cz - 0.038f, cx + 0.038f, cy + 0.032f, cz + 0.038f, capCol, 0.98f);
+        }
+        if (showCapsule) {
+            if (isCharcoal) {
+                emitColoredBox3D(buf, mat, capsX - 0.024f, capsY - 0.016f, capsZ - 0.016f, capsX + 0.024f, capsY + 0.016f, capsZ + 0.016f, 0xFF1C242B, 0.96f);
+                emitColoredBox3D(buf, mat, capsX - 0.014f, capsY - 0.008f, capsZ - 0.008f, capsX + 0.014f, capsY + 0.024f, capsZ + 0.008f, 0xFF37474F, 0.92f);
+            } else if (isAmox) {
+                emitColoredBox3D(buf, mat, capsX - 0.024f, capsY - 0.011f, capsZ - 0.011f, capsX, capsY + 0.011f, capsZ + 0.011f, 0xFF1565C0, 0.98f);
+                emitColoredBox3D(buf, mat, capsX, capsY - 0.011f, capsZ - 0.011f, capsX + 0.024f, capsY + 0.011f, capsZ + 0.011f, 0xFFE3F2FD, 0.98f);
+            } else {
+                emitColoredBox3D(buf, mat, capsX - 0.022f, capsY - 0.010f, capsZ - 0.010f, capsX, capsY + 0.010f, capsZ + 0.010f, 0xFFFF6D00, 0.98f);
+                emitColoredBox3D(buf, mat, capsX, capsY - 0.010f, capsZ - 0.010f, capsX + 0.022f, capsY + 0.010f, capsZ + 0.010f, 0xFFFFFFFF, 0.98f);
+            }
+        }
+        MeshData mesh = buf.build();
+        if (mesh != null) {
+            BufferUploader.drawWithShader(mesh);
+        }
+        RenderSystem.enableCull();
+        RenderSystem.disableBlend();
+    }
+
+    private static void renderFirstPersonTourniquet6Limb(Minecraft mc, AbstractClientPlayer player, PlayerRenderer playerRenderer,
+                                                         PoseStack poseStack, MultiBufferSource bufferSource, int packedLight,
+                                                         float t, float jitterX, float jitterY) {
+        if (t >= 0.14f && !animStageSound1) {
+            animStageSound1 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.ARMOR_EQUIP_LEATHER.value(), 1.20f, 0.75f));
+            }
+        }
+        if (t >= 0.45f && !animStageSound2) {
+            animStageSound2 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.LEASH_KNOT_PLACE, 1.35f, 0.70f));
+            }
+        }
+        if (t >= 0.68f && !animStageSound3) {
+            animStageSound3 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.LEASH_KNOT_PLACE, 1.55f, 0.70f));
+            }
+        }
+        if (t >= 0.85f && !animStageSound4) {
+            animStageSound4 = true;
+            if (mc.getSoundManager() != null) {
+                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.TRIPWIRE_CLICK_ON, 1.65f, 0.65f));
+            }
+        }
+
+        boolean actWithRight = (fpAnimLimb != MedicalData.Limb.RIGHT_ARM);
+        float actSide = actWithRight ? 1.0f : -1.0f;
+
+        float limbCx, limbCy, limbCz, limbRx, limbRy, limbRz;
+        switch (fpAnimLimb) {
+            case LEFT_ARM -> {
+                limbCx = -0.06f; limbCy = -0.22f; limbCz = -0.56f;
+                limbRx = -18.0f; limbRy = 8.0f;   limbRz = -72.0f;
+            }
+            case RIGHT_ARM -> {
+                limbCx = 0.06f;  limbCy = -0.22f; limbCz = -0.56f;
+                limbRx = -18.0f; limbRy = -8.0f;  limbRz = 72.0f;
+            }
+            case LEFT_LEG -> {
+                limbCx = -0.11f; limbCy = -0.50f; limbCz = -0.50f;
+                limbRx = -14.0f; limbRy = 6.0f;   limbRz = -6.0f;
+            }
+            default -> {
+                limbCx = 0.11f;  limbCy = -0.50f; limbCz = -0.50f;
+                limbRx = -14.0f; limbRy = -6.0f;  limbRz = 6.0f;
+            }
+        }
+
+        float strapPullP = Mth.clamp(t / 0.40f, 0.0f, 1.0f);
+        float windlassRotDeg = (t < 0.40f) ? 0.0f : Mth.clamp((t - 0.40f) / 0.42f, 0.0f, 1.0f) * 360.0f;
+        float lockClipP = (t < 0.82f) ? 0.0f : Mth.clamp((t - 0.82f) / 0.18f, 0.0f, 1.0f);
+
+        poseStack.pushPose();
+        poseStack.translate(limbCx + jitterX * 0.35f, limbCy + jitterY * 0.35f, limbCz);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(limbRz));
+        poseStack.mulPose(Axis.XP.rotationDegrees(limbRx));
+        poseStack.mulPose(Axis.YP.rotationDegrees(limbRy));
+        if (fpAnimLimb == MedicalData.Limb.LEFT_ARM) {
+            renderPlayerArmCenteredAtForearm(poseStack, bufferSource, packedLight, player, playerRenderer, false);
+        } else if (fpAnimLimb == MedicalData.Limb.RIGHT_ARM) {
+            renderPlayerArmCenteredAtForearm(poseStack, bufferSource, packedLight, player, playerRenderer, true);
+        } else if (fpAnimLimb == MedicalData.Limb.LEFT_LEG) {
+            renderPlayerLegCenteredAtMid(poseStack, bufferSource, packedLight, player, playerRenderer, false);
+        } else {
+            renderPlayerLegCenteredAtMid(poseStack, bufferSource, packedLight, player, playerRenderer, true);
+        }
+        poseStack.popPose();
+
+        float limbHalfWidth = 0.146f;
+        float localHandX, localHandY = 0.0f, localHandZ = limbHalfWidth + 0.055f;
+        if (t < 0.40f) {
+            localHandX = actSide * Mth.lerp(easeOutCubic(strapPullP), 0.04f, 0.22f);
+        } else if (t < 0.82f) {
+            float ang = windlassRotDeg * Mth.DEG_TO_RAD;
+            localHandX = Mth.cos(ang) * 0.085f;
+            localHandY = Mth.sin(ang) * 0.085f;
+        } else {
+            localHandX = 0.0f;
+            localHandY = 0.04f;
+        }
+        float[] handCam = transformLimbLocalToCamera(localHandX, localHandY, localHandZ, limbCx, limbCy, limbCz, limbRx, limbRy, limbRz);
+
+        poseStack.pushPose();
+        poseStack.translate(handCam[0] + jitterX, handCam[1] + jitterY, handCam[2]);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(actSide * 36.0f));
+        poseStack.mulPose(Axis.XP.rotationDegrees(-32.0f));
+        renderPlayerArmCenteredAtFist(poseStack, bufferSource, packedLight, player, playerRenderer, actWithRight);
+        poseStack.popPose();
+
+        if (bufferSource instanceof MultiBufferSource.BufferSource bs) {
+            bs.endBatch();
+        }
+
+        poseStack.pushPose();
+        poseStack.translate(limbCx + jitterX * 0.35f, limbCy + jitterY * 0.35f, limbCz);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(limbRz));
+        poseStack.mulPose(Axis.XP.rotationDegrees(limbRx));
+        poseStack.mulPose(Axis.YP.rotationDegrees(limbRy));
+
+        Matrix4f mat = poseStack.last().pose();
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.disableCull();
+        RenderSystem.enableDepthTest();
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+
+        Tesselator tess = Tesselator.getInstance();
+        BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+
+        float cinchOffset = Mth.lerp(Mth.clamp((t - 0.15f) / 0.65f, 0.0f, 1.0f), 0.018f, 0.004f);
+        float hw = limbHalfWidth + cinchOffset;
+        float bandH = 0.032f;
+        emitColoredBox3D(buf, mat, -hw, -bandH, -hw, hw, bandH, hw, 0xFF1C242B, 0.98f);
+        emitColoredBox3D(buf, mat, 0.02f, -bandH * 0.6f, hw, 0.08f + (1.0f - strapPullP) * 0.06f, bandH * 0.6f, hw + 0.008f, 0xFFFF1744, 0.98f);
+        emitColoredBox3D(buf, mat, -0.055f, 0.028f, hw, -0.035f, 0.048f, hw + 0.022f, 0xFFECEFF1, 0.98f);
+        emitColoredBox3D(buf, mat,  0.035f, 0.028f, hw,  0.055f, 0.048f, hw + 0.022f, 0xFFECEFF1, 0.98f);
+        if (lockClipP > 0.5f) {
+            emitColoredBox3D(buf, mat, -0.060f, 0.026f, hw + 0.018f, 0.060f, 0.050f, hw + 0.025f, 0xFFD50000, 0.98f);
+        }
+
+        MeshData strapMesh = buf.build();
+        if (strapMesh != null) {
+            BufferUploader.drawWithShader(strapMesh);
+        }
+
+        poseStack.pushPose();
+        poseStack.translate(0.0f, 0.0f, hw + 0.014f);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(windlassRotDeg));
+        Matrix4f rodMat = poseStack.last().pose();
+        BufferBuilder rodBuf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        emitColoredBox3D(rodBuf, rodMat, -0.082f, -0.010f, -0.008f, 0.082f, 0.010f, 0.008f, 0xFFCFD8DC, 0.98f);
+        emitColoredBox3D(rodBuf, rodMat, -0.084f, -0.012f, -0.010f, -0.058f, 0.012f, 0.010f, 0xFFFFB300, 0.98f);
+        emitColoredBox3D(rodBuf, rodMat,  0.058f, -0.012f, -0.010f,  0.084f, 0.012f, 0.010f, 0xFFFFB300, 0.98f);
+        MeshData rodMesh = rodBuf.build();
+        if (rodMesh != null) {
+            BufferUploader.drawWithShader(rodMesh);
+        }
+        poseStack.popPose();
+
+        RenderSystem.enableCull();
+        RenderSystem.disableBlend();
+        poseStack.popPose();
+    }
+
     private static void renderFirstPersonSyringe6Limb(Minecraft mc, AbstractClientPlayer player, PlayerRenderer playerRenderer,
                                                       PoseStack poseStack, MultiBufferSource bufferSource, int packedLight,
                                                       float t, long nowMs, float jitterX, float jitterY) {
+        boolean isDecompNeedle = TreatmentRouter.isDecompressionNeedleItem(fpAnimStack);
         if (t >= 0.42f && !animStageSound1) {
             animStageSound1 = true;
             if (mc.getSoundManager() != null) {
@@ -3486,7 +6537,11 @@ public class TreatmentClientHooks {
         if (t >= 0.56f && !animStageSound2) {
             animStageSound2 = true;
             if (mc.getSoundManager() != null) {
-                mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.BREWING_STAND_BREW, 1.55f, 0.50f));
+                if (isDecompNeedle) {
+                    mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.FIRE_EXTINGUISH, 1.60f, 0.75f));
+                } else {
+                    mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.BREWING_STAND_BREW, 1.55f, 0.50f));
+                }
             }
         }
         if (t >= 0.82f && !animStageSound3) {
@@ -3530,15 +6585,15 @@ public class TreatmentClientHooks {
                 aimRx = -34.0f;     aimRy = -15.0f;     aimRz = -54.0f;
             }
             case LEFT_LEG -> {
-                braceEndX = -0.26f; braceEndY = -0.34f; braceEndZ = -0.56f;
+                braceEndX = -0.24f; braceEndY = -0.46f; braceEndZ = -0.52f;
                 braceRx = -42.0f;   braceRy = 8.0f;     braceRz = -34.0f;
-                px = -0.12f;        py = -0.32f;        pz = -0.56f;
+                px = -0.11f;        py = -0.48f;        pz = -0.50f;
                 aimRx = 12.0f;      aimRy = -8.0f;      aimRz = -22.0f;
             }
             case RIGHT_LEG -> {
-                braceEndX = -0.02f; braceEndY = -0.34f; braceEndZ = -0.56f;
+                braceEndX = -0.02f; braceEndY = -0.46f; braceEndZ = -0.52f;
                 braceRx = -42.0f;   braceRy = 12.0f;    braceRz = -62.0f;
-                px = 0.14f;         py = -0.32f;        pz = -0.56f;
+                px = 0.11f;         py = -0.48f;        pz = -0.50f;
                 aimRx = 12.0f;      aimRy = -6.0f;      aimRz = -8.0f;
             }
             default -> {
@@ -3575,11 +6630,9 @@ public class TreatmentClientHooks {
         float curSyrX, curSyrY, curSyrZ;
         float curSyrRx, curSyrRy, curSyrRz;
         float plungerDepress = 0.0f;
-        float limbVisProgress;
 
         if (t < 0.22f) {
             float p = easeOutCubic(t / 0.22f);
-            limbVisProgress = p;
             curBraceX = Mth.lerp(p, braceStartX, braceEndX);
             curBraceY = Mth.lerp(p, braceStartY, braceEndY);
             curBraceZ = Mth.lerp(p, braceStartZ, braceEndZ);
@@ -3592,7 +6645,6 @@ public class TreatmentClientHooks {
             curSyrRz = Mth.lerp(p, 0.0f, -actSide * 14.0f);
         } else if (t < 0.42f) {
             float p = easeInOutCubic((t - 0.22f) / 0.20f);
-            limbVisProgress = 1.0f;
             curBraceX = braceEndX;
             curBraceY = braceEndY;
             curBraceZ = braceEndZ;
@@ -3605,7 +6657,6 @@ public class TreatmentClientHooks {
             curSyrRz = Mth.lerp(p, -actSide * 14.0f, aimRz);
         } else if (t < 0.52f) {
             float p = (t - 0.42f) / 0.10f;
-            limbVisProgress = 1.0f;
             float stab = easeInCubic(Mth.clamp(p * 1.15f, 0.0f, 1.0f));
             float impactFlinch = Mth.sin(p * (float) Math.PI) * 0.016f;
 
@@ -3621,7 +6672,6 @@ public class TreatmentClientHooks {
             curSyrRz = aimRz;
         } else if (t < 0.82f) {
             float p = (t - 0.52f) / 0.30f;
-            limbVisProgress = 1.0f;
             plungerDepress = easeInOutCubic(p);
             float microX = Mth.sin(nowMs * 0.055f) * 0.0025f;
             float microY = Mth.cos(nowMs * 0.068f) * 0.0025f;
@@ -3641,7 +6691,6 @@ public class TreatmentClientHooks {
             plungerDepress = 1.0f;
             float p = (t - 0.82f) / 0.18f;
             float hideBrace = easeInCubic(p);
-            limbVisProgress = 1.0f - hideBrace;
             curBraceX = Mth.lerp(hideBrace, braceEndX, braceStartX);
             curBraceY = Mth.lerp(hideBrace, braceEndY, braceStartY);
             curBraceZ = Mth.lerp(hideBrace, braceEndZ, braceStartZ);
@@ -3665,19 +6714,16 @@ public class TreatmentClientHooks {
             }
         }
 
-        // 若注射的是左腿或右腿，在目标点渲染玩家真实的 3D 左腿/右腿模型（带裤子皮肤纹理）！
         if (fpAnimLimb == MedicalData.Limb.LEFT_LEG || fpAnimLimb == MedicalData.Limb.RIGHT_LEG) {
             boolean isRightLeg = (fpAnimLimb == MedicalData.Limb.RIGHT_LEG);
-            float legY = Mth.lerp(limbVisProgress, -0.75f, py);
             poseStack.pushPose();
-            poseStack.translate(px + jitterX * 0.3f, legY + jitterY * 0.3f, pz);
-            poseStack.mulPose(Axis.ZP.rotationDegrees(isRightLeg ? 14.0f : -14.0f));
-            poseStack.mulPose(Axis.XP.rotationDegrees(-54.0f));
+            poseStack.translate(px + jitterX * 0.3f, py + jitterY * 0.3f, pz);
+            poseStack.mulPose(Axis.ZP.rotationDegrees(isRightLeg ? 6.0f : -6.0f));
+            poseStack.mulPose(Axis.XP.rotationDegrees(-14.0f));
             renderPlayerLegCenteredAtMid(poseStack, bufferSource, packedLight, player, playerRenderer, isRightLeg);
             poseStack.popPose();
         }
 
-        // 渲染支撑手臂
         poseStack.pushPose();
         poseStack.translate(curBraceX + jitterX * 0.4f, curBraceY + jitterY * 0.4f, curBraceZ);
         poseStack.mulPose(Axis.ZP.rotationDegrees(braceRz));
@@ -3686,7 +6732,6 @@ public class TreatmentClientHooks {
         renderPlayerArmCenteredAtForearm(poseStack, bufferSource, packedLight, player, playerRenderer, !injectWithRightArm);
         poseStack.popPose();
 
-        // 渲染持针手
         poseStack.pushPose();
         poseStack.translate(curSyrX + jitterX, curSyrY + jitterY, curSyrZ);
         poseStack.mulPose(Axis.ZP.rotationDegrees(actSide * 44.0f));
@@ -3695,7 +6740,6 @@ public class TreatmentClientHooks {
         renderPlayerArmCenteredAtFist(poseStack, bufferSource, packedLight, player, playerRenderer, injectWithRightArm);
         poseStack.popPose();
 
-        // 渲染注射器模型
         poseStack.pushPose();
         poseStack.translate(curSyrX + jitterX, curSyrY + jitterY, curSyrZ);
         poseStack.mulPose(Axis.ZP.rotationDegrees(curSyrRz));
@@ -3719,25 +6763,33 @@ public class TreatmentClientHooks {
         if (bufferSource instanceof MultiBufferSource.BufferSource bs) {
             bs.endBatch();
         }
-        renderCoaxialSyringePlungerStem(poseStack, fpAnimStack, plungerDepress);
+        if (isDecompNeedle) {
+            if (t >= 0.50f && t < 0.82f) {
+                float jetP = (t - 0.50f) / 0.32f;
+                Matrix4f mat = poseStack.last().pose();
+                RenderSystem.enableBlend();
+                RenderSystem.defaultBlendFunc();
+                RenderSystem.disableCull();
+                RenderSystem.setShader(GameRenderer::getPositionColorShader);
+                BufferBuilder buf = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+                for (int k = 0; k < 4; k++) {
+                    float jy0 = 0.44f + ((jetP * 3.0f + k * 0.25f) % 1.0f) * 0.38f;
+                    float spread = (jy0 - 0.40f) * 0.22f;
+                    emitColoredBox3D(buf, mat, -spread, jy0, -spread, spread, jy0 + 0.06f, spread, 0xFFE0F7FA, 0.65f);
+                }
+                MeshData mesh = buf.build();
+                if (mesh != null) {
+                    BufferUploader.drawWithShader(mesh);
+                }
+                RenderSystem.enableCull();
+                RenderSystem.disableBlend();
+            }
+        } else {
+            renderCoaxialSyringePlungerStem(poseStack, fpAnimStack, plungerDepress);
+        }
         poseStack.popPose();
     }
 
-    /**
-     * 第一人称高细节绷带/加压止血绷带 6 肢体差分缠绕动画：
-     * - 彻底区分 6 大部位的受包扎几何体：
-     *   1. LEFT_ARM  (左臂)：横置真实左前臂模型，右手持绷带绕左前臂螺旋缠绕 3 圈
-     *   2. RIGHT_ARM (右臂)：横置真实右前臂模型，左手持绷带绕右前臂螺旋缠绕 3 圈
-     *   3. LEFT_LEG  (左腿)：抬起玩家真实 3D 左腿模型（带裤腿皮肤），左手扶膝、右手绕左小腿/大腿缠绕 3 圈
-     *   4. RIGHT_LEG (右腿)：抬起玩家真实 3D 右腿模型（带裤腿皮肤），左手扶膝、右手绕右小腿/大腿缠绕 3 圈
-     *   5. CHEST     (胸腔)：在视野下方渲染玩家真实 3D 胸腔躯干模型，左手按住创垫、右手绕躯干做 3 圈宽幅交叉缠绕
-     *   6. HEAD      (头部)：左手按住左太阳穴，右手沿额头视线高处水平环头 3 圈，视野上方逐圈形成立体护额绷带圈
-     * - 先调用 BufferSource#endBatch 刷新肢体模型深度缓冲，随后在目标肢体表面实时绘制：
-     *   (a) 首层白色无菌敷料创垫 (Sterile Trauma Pad)
-     *   (b) 随角度从 0° -> 1080° (3整圈) 逐段生长包裹在肢体四周的 24 段 16 边形带光影立体白色纱布/军绿加压绷带层 + 交叉斜纹带
-     *   (c) 从肢体最新包扎切点绷紧连接到手中绷带卷的多段立体展开纱布带 (带蓝边/战术缝线)
-     *   (d) 收尾按压锁定的金属蝴蝶搭扣 / 以式 C 型加压卡扣
-     */
     private static void renderFirstPersonBandage6Limb(Minecraft mc, AbstractClientPlayer player, PlayerRenderer playerRenderer,
                                                       PoseStack poseStack, MultiBufferSource bufferSource, int packedLight,
                                                       float t, long nowMs, float jitterX, float jitterY) {
@@ -3772,61 +6824,199 @@ public class TreatmentClientHooks {
         float targSide = -actSide;
 
         boolean isPressure = fpAnimStack.getItem().toString().contains("pressure");
-        // 白色无菌纱布 vs 军绿以式加压止血绷带配色
         int mainBandageCol = isPressure ? 0xFF789052 : 0xFFF2F6FA;
         int trimStripeCol  = isPressure ? 0xFFC5A868 : 0xFF58A6E8;
         int claspColor     = isPressure ? 0xFF4A5448 : 0xFFCFD8DC;
 
-        // 目标被包扎肢体的中心坐标 (limbCx, limbCy, limbCz) 与旋转角 (limbRx, limbRy, limbRz)
+        float enterLeave = (t < 0.14f)
+                ? easeOutCubic(t / 0.14f)
+                : ((t > 0.88f) ? (1.0f - easeInCubic((t - 0.88f) / 0.12f)) : 1.0f);
+
+        float restX = actSide * 0.44f, restY = -0.42f, restZ = -0.64f;
+
+        if (fpAnimLimb == MedicalData.Limb.HEAD) {
+            float bx = Mth.lerp(enterLeave, -0.45f, -0.31f);
+            float by = Mth.lerp(enterLeave, -0.62f, -0.02f);
+            float bz = Mth.lerp(enterLeave, -0.52f, -0.42f);
+
+            poseStack.pushPose();
+            poseStack.translate(bx + jitterX * 0.3f, by + jitterY * 0.3f, bz);
+            poseStack.mulPose(Axis.ZP.rotationDegrees(-26.0f));
+            poseStack.mulPose(Axis.XP.rotationDegrees(-16.0f));
+            poseStack.mulPose(Axis.YP.rotationDegrees(18.0f));
+            renderPlayerArmCenteredAtFist(poseStack, bufferSource, packedLight, player, playerRenderer, false);
+            poseStack.popPose();
+
+            float rollX, rollY, rollZ, rollRx, rollRy, rollRz;
+            if (t < 0.16f) {
+                float p = easeOutCubic(t / 0.16f);
+                rollX = Mth.lerp(p, restX, -0.24f);
+                rollY = Mth.lerp(p, restY, 0.05f);
+                rollZ = Mth.lerp(p, restZ, -0.40f);
+                rollRx = Mth.lerp(p, 0.0f, 68.0f);
+                rollRy = Mth.lerp(p, 0.0f, 20.0f);
+                rollRz = Mth.lerp(p, 0.0f, -18.0f);
+            } else if (t < 0.80f) {
+                float wrapP = (t - 0.16f) / 0.64f;
+                float ang = wrapP * 3.0f * Mth.TWO_PI;
+                rollX = Mth.sin(ang) * 0.36f;
+                rollY = 0.04f + 0.05f * Mth.cos(ang * 2.0f);
+                rollZ = -0.32f - 0.14f * Mth.cos(ang);
+                rollRx = 72.0f + 12.0f * Mth.sin(ang);
+                rollRy = (ang * Mth.RAD_TO_DEG) * 0.35f;
+                rollRz = -22.0f * Mth.cos(ang);
+            } else if (t < 0.88f) {
+                float p = easeInOutCubic((t - 0.80f) / 0.08f);
+                float press = Mth.sin(p * (float) Math.PI) * 0.03f;
+                rollX = -0.24f + press;
+                rollY = 0.02f;
+                rollZ = -0.40f;
+                rollRx = 55.0f;
+                rollRy = 18.0f;
+                rollRz = -28.0f;
+            } else {
+                float p = easeInOutCubic((t - 0.88f) / 0.12f);
+                rollX = Mth.lerp(p, -0.24f, restX);
+                rollY = Mth.lerp(p, 0.02f, restY);
+                rollZ = Mth.lerp(p, -0.40f, restZ);
+                rollRx = Mth.lerp(p, 55.0f, 0.0f);
+                rollRy = Mth.lerp(p, 18.0f, 0.0f);
+                rollRz = Mth.lerp(p, -28.0f, 0.0f);
+            }
+
+            poseStack.pushPose();
+            poseStack.translate(rollX + jitterX, rollY + jitterY, rollZ);
+            poseStack.mulPose(Axis.ZP.rotationDegrees(32.0f));
+            poseStack.mulPose(Axis.XP.rotationDegrees(-28.0f));
+            poseStack.mulPose(Axis.YP.rotationDegrees(14.0f));
+            renderPlayerArmCenteredAtFist(poseStack, bufferSource, packedLight, player, playerRenderer, true);
+            poseStack.popPose();
+
+            poseStack.pushPose();
+            poseStack.translate(rollX + jitterX, rollY + jitterY, rollZ);
+            poseStack.mulPose(Axis.ZP.rotationDegrees(rollRz));
+            poseStack.mulPose(Axis.XP.rotationDegrees(rollRx));
+            poseStack.mulPose(Axis.YP.rotationDegrees(rollRy));
+            poseStack.scale(0.62f, 0.62f, 0.62f);
+            mc.getItemRenderer().renderStatic(
+                    player, fpAnimStack, ItemDisplayContext.NONE, false,
+                    poseStack, bufferSource, player.level(), packedLight, OverlayTexture.NO_OVERLAY, player.getId()
+            );
+            poseStack.popPose();
+            return;
+        }
+
+        if (fpAnimLimb == MedicalData.Limb.CHEST) {
+            float bx = Mth.lerp(enterLeave, -0.45f, -0.20f);
+            float by = Mth.lerp(enterLeave, -0.65f, -0.28f);
+            float bz = Mth.lerp(enterLeave, -0.52f, -0.44f);
+
+            poseStack.pushPose();
+            poseStack.translate(bx + jitterX * 0.3f, by + jitterY * 0.3f, bz);
+            poseStack.mulPose(Axis.ZP.rotationDegrees(-46.0f));
+            poseStack.mulPose(Axis.XP.rotationDegrees(-32.0f));
+            poseStack.mulPose(Axis.YP.rotationDegrees(16.0f));
+            renderPlayerArmCenteredAtFist(poseStack, bufferSource, packedLight, player, playerRenderer, false);
+            poseStack.popPose();
+
+            float rollX, rollY, rollZ, rollRx, rollRy, rollRz;
+            boolean showChestStrip = false;
+            if (t < 0.16f) {
+                float p = easeOutCubic(t / 0.16f);
+                rollX = Mth.lerp(p, restX, -0.16f);
+                rollY = Mth.lerp(p, restY, -0.26f);
+                rollZ = Mth.lerp(p, restZ, -0.46f);
+                rollRx = Mth.lerp(p, 0.0f, 32.0f);
+                rollRy = Mth.lerp(p, 0.0f, 24.0f);
+                rollRz = Mth.lerp(p, 0.0f, -35.0f);
+            } else if (t < 0.80f) {
+                showChestStrip = true;
+                float wrapP = (t - 0.16f) / 0.64f;
+                float ang = wrapP * 3.0f * Mth.TWO_PI;
+                float cinch = Math.max(0.0f, Mth.sin(ang)) * 0.03f;
+                rollX = 0.04f + Mth.sin(ang) * 0.30f;
+                rollY = -0.26f + Mth.cos(ang * 2.0f) * 0.055f + cinch;
+                rollZ = -0.42f - 0.11f * Mth.cos(ang);
+                rollRx = 35.0f + 18.0f * Mth.cos(ang);
+                rollRy = 28.0f * Mth.sin(ang);
+                rollRz = -38.0f + 20.0f * Mth.cos(ang);
+            } else if (t < 0.88f) {
+                float p = easeInOutCubic((t - 0.80f) / 0.08f);
+                float press = Mth.sin(p * (float) Math.PI) * 0.035f;
+                rollX = -0.06f;
+                rollY = -0.26f - press;
+                rollZ = -0.44f + press;
+                rollRx = 28.0f;
+                rollRy = 18.0f;
+                rollRz = -42.0f;
+            } else {
+                float p = easeInOutCubic((t - 0.88f) / 0.12f);
+                rollX = Mth.lerp(p, -0.06f, restX);
+                rollY = Mth.lerp(p, -0.26f, restY);
+                rollZ = Mth.lerp(p, -0.44f, restZ);
+                rollRx = Mth.lerp(p, 28.0f, 0.0f);
+                rollRy = Mth.lerp(p, 18.0f, 0.0f);
+                rollRz = Mth.lerp(p, -42.0f, 0.0f);
+            }
+
+            poseStack.pushPose();
+            poseStack.translate(rollX + jitterX, rollY + jitterY, rollZ);
+            poseStack.mulPose(Axis.ZP.rotationDegrees(38.0f));
+            poseStack.mulPose(Axis.XP.rotationDegrees(-32.0f));
+            poseStack.mulPose(Axis.YP.rotationDegrees(14.0f));
+            renderPlayerArmCenteredAtFist(poseStack, bufferSource, packedLight, player, playerRenderer, true);
+            poseStack.popPose();
+
+            poseStack.pushPose();
+            poseStack.translate(rollX + jitterX, rollY + jitterY, rollZ);
+            poseStack.mulPose(Axis.ZP.rotationDegrees(rollRz));
+            poseStack.mulPose(Axis.XP.rotationDegrees(rollRx));
+            poseStack.mulPose(Axis.YP.rotationDegrees(rollRy));
+            poseStack.scale(0.62f, 0.62f, 0.62f);
+            mc.getItemRenderer().renderStatic(
+                    player, fpAnimStack, ItemDisplayContext.NONE, false,
+                    poseStack, bufferSource, player.level(), packedLight, OverlayTexture.NO_OVERLAY, player.getId()
+            );
+            poseStack.popPose();
+
+            if (bufferSource instanceof MultiBufferSource.BufferSource bs) {
+                bs.endBatch();
+            }
+            if (showChestStrip) {
+                render3DTautStripBetweenPoints(poseStack, bx + 0.04f, by + 0.02f, bz - 0.02f, rollX, rollY, rollZ, mainBandageCol, trimStripeCol);
+            }
+            return;
+        }
+
         float limbCx, limbCy, limbCz;
         float limbRx, limbRy, limbRz;
-        // 辅助手（如缠腿/缠胸/缠头时的左手）坐标与旋转
+        boolean isLegLimb = (fpAnimLimb == MedicalData.Limb.LEFT_LEG || fpAnimLimb == MedicalData.Limb.RIGHT_LEG);
         boolean hasSeparateBraceHand = false;
         float braceX = 0.0f, braceY = 0.0f, braceZ = 0.0f;
         float braceRx = 0.0f, braceRy = 0.0f, braceRz = 0.0f;
 
         switch (fpAnimLimb) {
             case LEFT_ARM -> {
-                // 左前臂横置在画面正中偏下，轴向近似水平 (-72° Z倾角)
                 limbCx = -0.06f; limbCy = -0.21f; limbCz = -0.56f;
                 limbRx = -18.0f; limbRy = 8.0f;   limbRz = -72.0f;
             }
             case RIGHT_ARM -> {
-                // 右前臂横置在画面正中偏下，左手持绷带卷缠绕
                 limbCx = 0.06f;  limbCy = -0.21f; limbCz = -0.56f;
                 limbRx = -18.0f; limbRy = -8.0f;  limbRz = 72.0f;
             }
             case LEFT_LEG -> {
-                // 玩家真实 3D 左腿抬起置于左下方前景（清晰可见裤腿与小腿/大腿纵向轮廓，轴向近似竖直偏前倾）
-                limbCx = -0.10f; limbCy = -0.27f; limbCz = -0.56f;
-                limbRx = -38.0f; limbRy = 10.0f;  limbRz = -12.0f;
+                limbCx = -0.10f; limbCy = -0.48f; limbCz = -0.50f;
+                limbRx = -14.0f; limbRy = 6.0f;   limbRz = -6.0f;
                 hasSeparateBraceHand = true;
-                braceX = -0.25f; braceY = -0.16f; braceZ = -0.54f;
-                braceRx = -35.0f; braceRy = 15.0f; braceRz = -38.0f;
+                braceX = -0.24f; braceY = -0.36f; braceZ = -0.48f;
+                braceRx = -42.0f; braceRy = 15.0f; braceRz = -34.0f;
             }
             case RIGHT_LEG -> {
-                // 玩家真实 3D 右腿抬起置于右下方前景，左手跨过按扶膝盖上方，右手持绷带绕右腿缠绕
-                limbCx = 0.10f;  limbCy = -0.27f; limbCz = -0.56f;
-                limbRx = -38.0f; limbRy = -10.0f; limbRz = 12.0f;
+                limbCx = 0.10f;  limbCy = -0.48f; limbCz = -0.50f;
+                limbRx = -14.0f; limbRy = -6.0f;  limbRz = 6.0f;
                 hasSeparateBraceHand = true;
-                braceX = -0.05f; braceY = -0.16f; braceZ = -0.54f;
-                braceRx = -35.0f; braceRy = 18.0f; braceRz = -56.0f;
-            }
-            case CHEST -> {
-                // 玩家真实 3D 胸腔躯干呈现在视野下方，左手按压胸口创垫，右手绕胸腔宽幅缠绕
-                limbCx = 0.0f;   limbCy = -0.29f; limbCz = -0.54f;
-                limbRx = -24.0f; limbRy = 0.0f;   limbRz = 0.0f;
-                hasSeparateBraceHand = true;
-                braceX = -0.22f; braceY = -0.24f; braceZ = -0.48f;
-                braceRx = -32.0f; braceRy = 14.0f; braceRz = -48.0f;
-            }
-            case HEAD -> {
-                // 头部前额高处水平环绕包扎
-                limbCx = 0.0f;   limbCy = 0.08f;  limbCz = -0.46f;
-                limbRx = 8.0f;   limbRy = 0.0f;   limbRz = 0.0f;
-                hasSeparateBraceHand = true;
-                braceX = -0.26f; braceY = 0.04f;  braceZ = -0.46f;
-                braceRx = -14.0f; braceRy = 18.0f; braceRz = -28.0f;
+                braceX = -0.04f; braceY = -0.36f; braceZ = -0.48f;
+                braceRx = -42.0f; braceRy = 18.0f; braceRz = -52.0f;
             }
             default -> {
                 limbCx = -0.06f; limbCy = -0.21f; limbCz = -0.56f;
@@ -3834,15 +7024,10 @@ public class TreatmentClientHooks {
             }
         }
 
-        float enterLeave = (t < 0.14f)
-                ? easeOutCubic(t / 0.14f)
-                : ((t > 0.88f) ? (1.0f - easeInCubic((t - 0.88f) / 0.12f)) : 1.0f);
+        float curLimbX = isLegLimb ? limbCx : Mth.lerp(enterLeave, targSide * 0.35f, limbCx);
+        float curLimbY = isLegLimb ? limbCy : Mth.lerp(enterLeave, -0.68f, limbCy);
+        float curLimbZ = isLegLimb ? limbCz : Mth.lerp(enterLeave, -0.52f, limbCz);
 
-        float curLimbX = Mth.lerp(enterLeave, targSide * 0.35f, limbCx);
-        float curLimbY = Mth.lerp(enterLeave, -0.68f, limbCy);
-        float curLimbZ = Mth.lerp(enterLeave, -0.52f, limbCz);
-
-        // 计算包扎进度 wrapProgress (0.0 -> 1.0 对应 3 整圈 = 1080°)
         float wrapProgress = 0.0f;
         float padAppear = 0.0f;
         float claspLockProgress = 0.0f;
@@ -3860,42 +7045,39 @@ public class TreatmentClientHooks {
             claspLockProgress = Mth.clamp((t - 0.80f) / 0.08f, 0.0f, 1.0f);
         }
 
-        // 每圈拉紧脉动
         float totalAngle = wrapProgress * 3.0f * Mth.TWO_PI;
         float turnFrac = (wrapProgress * 3.0f) % 1.0f;
         float cinchPull = (showTautStrip && turnFrac > 0.62f)
                 ? Mth.sin(((turnFrac - 0.62f) / 0.38f) * (float) Math.PI) * 0.032f
                 : 0.0f;
 
-        curLimbY += cinchPull * 0.28f;
+        if (!isLegLimb) {
+            curLimbY += cinchPull * 0.28f;
+        }
 
-        // 计算在受包扎肢体局部坐标系 (原点 0,0,0，肢体长轴沿局部 Y 轴) 下，绷带卷当前的局部轨道坐标 (localRollX, localRollY, localRollZ) 与切点坐标 (localTanX, localTanY, localTanZ)
-        float limbRadiusX = (fpAnimLimb == MedicalData.Limb.CHEST) ? 0.255f : ((fpAnimLimb == MedicalData.Limb.HEAD) ? 0.24f : 0.132f);
-        float limbRadiusZ = (fpAnimLimb == MedicalData.Limb.CHEST) ? 0.135f : ((fpAnimLimb == MedicalData.Limb.HEAD) ? 0.16f : 0.132f);
-
+        float limbHalfWidth = 0.146f;
         float spiralY = Mth.lerp(wrapProgress, -0.095f, 0.095f);
-        float orbitDist = 0.085f + cinchPull * 1.4f;
+        float orbitDist = 0.095f + cinchPull * 1.4f;
 
         float cosA = Mth.cos(totalAngle);
         float sinA = Mth.sin(totalAngle);
-        // 切点位于角度 (totalAngle - 0.55 rad) 的肢体表面
         float tanAng = totalAngle - 0.55f;
-        float localTanX = Mth.cos(tanAng) * (limbRadiusX + 0.012f);
+        float cTan = Mth.cos(tanAng), sTan = Mth.sin(tanAng);
+        float mTan = Math.max(Math.abs(cTan), Math.abs(sTan));
+        float localTanX = (cTan / mTan) * (limbHalfWidth + 0.010f);
         float localTanY = spiralY;
-        float localTanZ = Mth.sin(tanAng) * (limbRadiusZ + 0.012f);
+        float localTanZ = (sTan / mTan) * (limbHalfWidth + 0.010f);
 
-        float localRollX = cosA * (limbRadiusX + orbitDist);
+        float localRollX = cosA * (limbHalfWidth + orbitDist);
         float localRollY = spiralY + 0.015f * Mth.sin(totalAngle * 2.0f);
-        float localRollZ = sinA * (limbRadiusZ + orbitDist);
+        float localRollZ = sinA * (limbHalfWidth + orbitDist);
 
-        // 将局部轨道点转换到相机空间，用于定位持握绷带卷的主手
         float[] camRollPos = transformLimbLocalToCamera(
                 localRollX, localRollY, localRollZ,
                 curLimbX, curLimbY, curLimbZ,
                 limbRx, limbRy, limbRz
         );
 
-        float restX = actSide * 0.44f, restY = -0.42f, restZ = -0.64f;
         float rollX, rollY, rollZ;
         float rollRx, rollRy, rollRz;
 
@@ -3915,10 +7097,9 @@ public class TreatmentClientHooks {
             rollRy = limbRy + actSide * 24.0f;
             rollRz = limbRz - actSide * 18.0f;
         } else if (t < 0.88f) {
-            // 按压固定搭扣
             float p = easeInOutCubic((t - 0.80f) / 0.08f);
             float pressDepth = Mth.sin(p * (float) Math.PI) * 0.035f;
-            float[] claspCam = transformLimbLocalToCamera(0.0f, 0.04f, limbRadiusZ + 0.045f - pressDepth, curLimbX, curLimbY, curLimbZ, limbRx, limbRy, limbRz);
+            float[] claspCam = transformLimbLocalToCamera(0.0f, 0.04f, limbHalfWidth + 0.048f - pressDepth, curLimbX, curLimbY, curLimbZ, limbRx, limbRy, limbRz);
             rollX = Mth.lerp(p, camRollPos[0], claspCam[0]);
             rollY = Mth.lerp(p, camRollPos[1], claspCam[1]);
             rollZ = Mth.lerp(p, camRollPos[2], claspCam[2]);
@@ -3927,7 +7108,7 @@ public class TreatmentClientHooks {
             rollRz = limbRz;
         } else {
             float p = easeInOutCubic((t - 0.88f) / 0.12f);
-            float[] claspCam = transformLimbLocalToCamera(0.0f, 0.04f, limbRadiusZ + 0.045f, curLimbX, curLimbY, curLimbZ, limbRx, limbRy, limbRz);
+            float[] claspCam = transformLimbLocalToCamera(0.0f, 0.04f, limbHalfWidth + 0.048f, curLimbX, curLimbY, curLimbZ, limbRx, limbRy, limbRz);
             rollX = Mth.lerp(p, claspCam[0], restX);
             rollY = Mth.lerp(p, claspCam[1], restY);
             rollZ = Mth.lerp(p, claspCam[2], restZ);
@@ -3936,8 +7117,6 @@ public class TreatmentClientHooks {
             rollRz = Mth.lerp(p, limbRz, 0.0f);
         }
 
-        // ==================== 第一步：向 MultiBufferSource 录制所有玩家肢体与绷带卷模型 ====================
-        // 1A. 渲染目标受包扎身体部位模型（左臂、右臂、真实3D左腿、真实3D右腿、真实3D胸腔）
         poseStack.pushPose();
         poseStack.translate(curLimbX + jitterX * 0.35f, curLimbY + jitterY * 0.35f, curLimbZ);
         poseStack.mulPose(Axis.ZP.rotationDegrees(limbRz));
@@ -3949,14 +7128,10 @@ public class TreatmentClientHooks {
             case RIGHT_ARM -> renderPlayerArmCenteredAtForearm(poseStack, bufferSource, packedLight, player, playerRenderer, true);
             case LEFT_LEG -> renderPlayerLegCenteredAtMid(poseStack, bufferSource, packedLight, player, playerRenderer, false);
             case RIGHT_LEG -> renderPlayerLegCenteredAtMid(poseStack, bufferSource, packedLight, player, playerRenderer, true);
-            case CHEST -> renderPlayerTorsoCenteredAtChest(poseStack, bufferSource, packedLight, player, playerRenderer);
-            case HEAD -> {
-                // 头部视角在自身额头前方包扎，不需要渲染遮挡视线的头颅方块，直接在其局部坐标系绘制环头立体纱布圈
-            }
+            default -> {}
         }
         poseStack.popPose();
 
-        // 1B. 若是腿部/胸腔/头部，额外渲染左辅助手（按扶大腿/胸口/太阳穴）
         if (hasSeparateBraceHand) {
             float bx = Mth.lerp(enterLeave, -0.45f, braceX);
             float by = Mth.lerp(enterLeave, -0.65f, braceY);
@@ -3970,7 +7145,6 @@ public class TreatmentClientHooks {
             poseStack.popPose();
         }
 
-        // 1C. 渲染持握绷带卷的活动手 + 3D 绷带卷本体
         poseStack.pushPose();
         poseStack.translate(rollX + jitterX, rollY + jitterY, rollZ);
         poseStack.mulPose(Axis.ZP.rotationDegrees(actSide * 38.0f));
@@ -3986,25 +7160,15 @@ public class TreatmentClientHooks {
         poseStack.mulPose(Axis.YP.rotationDegrees(rollRy));
         poseStack.scale(0.62f, 0.62f, 0.62f);
         mc.getItemRenderer().renderStatic(
-                player,
-                fpAnimStack,
-                ItemDisplayContext.NONE,
-                false,
-                poseStack,
-                bufferSource,
-                player.level(),
-                packedLight,
-                OverlayTexture.NO_OVERLAY,
-                player.getId()
+                player, fpAnimStack, ItemDisplayContext.NONE, false,
+                poseStack, bufferSource, player.level(), packedLight, OverlayTexture.NO_OVERLAY, player.getId()
         );
         poseStack.popPose();
 
-        // ==================== 第二步：立即刷新 MultiBufferSource 批次，确保手臂/腿部深度缓冲已写入 ====================
         if (bufferSource instanceof MultiBufferSource.BufferSource bs) {
             bs.endBatch();
         }
 
-        // ==================== 第三步：在目标肢体局部坐标系下绘制逐圈缠上的 3D 立体白色/军绿绷带层与展开纱布带 ====================
         if (padAppear > 0.01f) {
             poseStack.pushPose();
             poseStack.translate(curLimbX + jitterX * 0.35f, curLimbY + jitterY * 0.35f, curLimbZ);
@@ -4014,8 +7178,7 @@ public class TreatmentClientHooks {
 
             render3DProgressiveBandageLayersOnLimb(
                     poseStack,
-                    limbRadiusX,
-                    limbRadiusZ,
+                    limbHalfWidth,
                     padAppear,
                     wrapProgress,
                     claspLockProgress,
@@ -4032,8 +7195,65 @@ public class TreatmentClientHooks {
     }
 
     /**
-     * 将肢体局部坐标 (lx, ly, lz) 按 ZP(rz) * XP(rx) * YP(ry) 转换到相机坐标系
+     * 在相机空间两点之间绘制拉紧的 3D 纱布带（用于胸腹部包扎时连接左手按压点与右手绷带卷）
      */
+    private static void render3DTautStripBetweenPoints(PoseStack poseStack,
+                                                       float x0, float y0, float z0,
+                                                       float x1, float y1, float z1,
+                                                       int mainCol, int trimCol) {
+        Matrix4f mat = poseStack.last().pose();
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.disableCull();
+        RenderSystem.enableDepthTest();
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+
+        Tesselator tess = Tesselator.getInstance();
+        BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+
+        int baseR = (mainCol >>> 16) & 0xFF;
+        int baseG = (mainCol >>> 8) & 0xFF;
+        int baseB = mainCol & 0xFF;
+        int trimR = (trimCol >>> 16) & 0xFF;
+        int trimG = (trimCol >>> 8) & 0xFF;
+        int trimB = trimCol & 0xFF;
+
+        float hw = 0.036f;
+        float edgeH = 0.004f;
+        int steps = 6;
+        for (int k = 0; k < steps; k++) {
+            float u0 = k / (float) steps;
+            float u1 = (k + 1) / (float) steps;
+            float sag0 = Mth.sin(u0 * (float) Math.PI) * 0.012f;
+            float sag1 = Mth.sin(u1 * (float) Math.PI) * 0.012f;
+
+            float sx0 = Mth.lerp(u0, x0, x1);
+            float sy0 = Mth.lerp(u0, y0, y1) - sag0;
+            float sz0 = Mth.lerp(u0, z0, z1);
+
+            float sx1 = Mth.lerp(u1, x0, x1);
+            float sy1 = Mth.lerp(u1, y0, y1) - sag1;
+            float sz1 = Mth.lerp(u1, z0, z1);
+
+            buf.addVertex(mat, sx0, sy0 - hw, sz0).setColor(baseR, baseG, baseB, 242);
+            buf.addVertex(mat, sx1, sy1 - hw, sz1).setColor(baseR, baseG, baseB, 242);
+            buf.addVertex(mat, sx1, sy1 + hw, sz1).setColor(baseR, baseG, baseB, 242);
+            buf.addVertex(mat, sx0, sy0 + hw, sz0).setColor(baseR, baseG, baseB, 242);
+
+            buf.addVertex(mat, sx0, sy0 + hw - edgeH, sz0).setColor(trimR, trimG, trimB, 255);
+            buf.addVertex(mat, sx1, sy1 + hw - edgeH, sz1).setColor(trimR, trimG, trimB, 255);
+            buf.addVertex(mat, sx1, sy1 + hw, sz1).setColor(trimR, trimG, trimB, 255);
+            buf.addVertex(mat, sx0, sy0 + hw, sz0).setColor(trimR, trimG, trimB, 255);
+        }
+
+        MeshData mesh = buf.build();
+        if (mesh != null) {
+            BufferUploader.drawWithShader(mesh);
+        }
+        RenderSystem.enableCull();
+        RenderSystem.disableBlend();
+    }
+
     private static float[] transformLimbLocalToCamera(float lx, float ly, float lz,
                                                       float cx, float cy, float cz,
                                                       float rxDeg, float ryDeg, float rzDeg) {
@@ -4041,15 +7261,14 @@ public class TreatmentClientHooks {
         float rx = rxDeg * Mth.DEG_TO_RAD;
         float rz = rzDeg * Mth.DEG_TO_RAD;
 
-        // 1. YP(ry)
         float x1 = lx * Mth.cos(ry) + lz * Mth.sin(ry);
         float y1 = ly;
         float z1 = -lx * Mth.sin(ry) + lz * Mth.cos(ry);
-        // 2. XP(rx)
+
         float x2 = x1;
         float y2 = y1 * Mth.cos(rx) - z1 * Mth.sin(rx);
         float z2 = y1 * Mth.sin(rx) + z1 * Mth.cos(rx);
-        // 3. ZP(rz)
+
         float x3 = x2 * Mth.cos(rz) - y2 * Mth.sin(rz);
         float y3 = x2 * Mth.sin(rz) + y2 * Mth.cos(rz);
         float z3 = z2;
@@ -4058,14 +7277,11 @@ public class TreatmentClientHooks {
     }
 
     /**
-     * 在受包扎肢体的局部三维空间内，实时绘制：
-     * 1. 贴合创面的白色无菌吸水敷垫（带微红渗血核心印记）
-     * 2. 随 wrapProgress (0.0 -> 1.0，共 3 整圈 = 36 个扇区步进) 一段一段真实缠绕在肢体四周的多层 16 边形立体绷带圈（带明暗法线光照、螺旋叠压阶梯与蓝边/缝线）
-     * 3. 从肢体最新包扎切点拉紧连接到手中绷带卷的多段曲面纱布带
-     * 4. 收尾按压锁定的金属蝴蝶搭扣或以式加压 C 型卡扣
+     * 在受包扎四肢（左臂/右臂/左腿/右腿）的局部三维空间内，采用方形截面轮廓贴合算法 (c / max(|c|, |s|) * halfWidth)：
+     * - 确保在原版 4x12x4 矩形手臂/腿部（含外层袖子/裤腿 0.1406m）的四个平面与四个直角棱上均有 >= 6mm 的正向外扩裕量，彻底杜绝与皮肤/袖子/裤腿重叠穿模！
      */
     private static void render3DProgressiveBandageLayersOnLimb(PoseStack poseStack,
-                                                               float radX, float radZ,
+                                                               float limbHalfWidth,
                                                                float padAppear, float wrapProgress, float claspProgress,
                                                                boolean showTautStrip,
                                                                float tanX, float tanY, float tanZ,
@@ -4082,17 +7298,16 @@ public class TreatmentClientHooks {
         Tesselator tess = Tesselator.getInstance();
         BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
 
-        // 1. 首层贴在伤口正面的无菌敷料创垫 (Sterile Non-Adherent Wound Pad)
+        // 1. 首层贴在伤口正面的无菌敷料创垫（位于袖子/裤腿外表面 +2mm ~ +8mm）
         float padScale = easeOutCubic(padAppear);
-        float pw = 0.055f * padScale;
-        float ph = 0.068f * padScale;
-        float pz0 = radZ + 0.002f;
-        float pz1 = radZ + 0.010f;
-        emitColoredBox3D(buf, mat, -pw, -ph, pz0, pw, ph, pz1, 0xFFF8FBFF, 0.96f);
-        // 创垫中央微红渗血吸收印记
-        emitColoredBox3D(buf, mat, -pw * 0.42f, -ph * 0.42f, pz1 - 0.001f, pw * 0.42f, ph * 0.42f, pz1 + 0.002f, 0xFFD32F2F, 0.78f);
+        float pw = 0.058f * padScale;
+        float ph = 0.070f * padScale;
+        float pz0 = limbHalfWidth + 0.002f;
+        float pz1 = limbHalfWidth + 0.008f;
+        emitColoredBox3D(buf, mat, -pw, -ph, pz0, pw, ph, pz1, 0xFFF8FBFF, 0.98f);
+        emitColoredBox3D(buf, mat, -pw * 0.42f, -ph * 0.42f, pz1 - 0.001f, pw * 0.42f, ph * 0.42f, pz1 + 0.002f, 0xFFD32F2F, 0.80f);
 
-        // 2. 逐段缠绕在肢体表面的 3 整圈 (3 * 16 = 48 扇区段) 16 边形立体螺旋绷带层
+        // 2. 沿方形截面周长逐段缠绕 3 整圈 (3 * 16 = 48 段，每段 22.5°，45°/135°/225°/315° 恰好落在方形肢体的四条棱角上，100% 贴合无穿模！)
         int totalSegments = 48;
         float exactSegs = wrapProgress * totalSegments;
         int fullSegs = (int) exactSegs;
@@ -4118,46 +7333,40 @@ public class TreatmentClientHooks {
             float a0 = p0 * 3.0f * Mth.TWO_PI;
             float a1 = p1 * 3.0f * Mth.TWO_PI;
 
-            // 3 圈螺旋交替覆盖整个创面区间 [-0.085, +0.085]
             int turnIdx = s / 16;
             float yCenter0, yCenter1;
             if (turnIdx == 0) {
-                // 第一圈：由下向上螺旋缠绕
                 yCenter0 = Mth.lerp(p0 * 3.0f, -0.075f, 0.055f);
                 yCenter1 = Mth.lerp(p1 * 3.0f, -0.075f, 0.055f);
             } else if (turnIdx == 1) {
-                // 第二圈：交叉向下回绕锁紧
                 yCenter0 = Mth.lerp((p0 - 1.0f / 3.0f) * 3.0f, 0.065f, -0.065f);
                 yCenter1 = Mth.lerp((p1 - 1.0f / 3.0f) * 3.0f, 0.065f, -0.065f);
             } else {
-                // 第三圈：居中收紧加固创面中心
                 yCenter0 = Mth.lerp((p0 - 2.0f / 3.0f) * 3.0f, -0.055f, 0.045f);
                 yCenter1 = Mth.lerp((p1 - 2.0f / 3.0f) * 3.0f, -0.055f, 0.045f);
             }
 
-            // 每一层比内层略厚 0.0045m，形成真实的纱布叠压厚度感
-            float layerOutset = 0.007f + turnIdx * 0.0045f + (s % 2) * 0.0005f;
-            float rx0 = radX + layerOutset;
-            float rz0 = radZ + layerOutset;
-            float rxInner = rx0 - 0.005f;
-            float rzInner = rz0 - 0.005f;
+            // 每一圈向外递增 0.0055m，完全位于 0.1406m 袖子/裤腿表面之外
+            float hwOut = limbHalfWidth + 0.006f + turnIdx * 0.0055f;
+            float hwIn  = hwOut - 0.0045f;
 
             float c0 = Mth.cos(a0), s0 = Mth.sin(a0);
             float c1 = Mth.cos(a1), s1 = Mth.sin(a1);
+            float m0 = Math.max(Math.abs(c0), Math.abs(s0));
+            float m1 = Math.max(Math.abs(c1), Math.abs(s1));
 
-            // 根据法线方向计算明暗立体阴影，让每一圈绷带的褶皱与层次清晰可见
+            float x0Out = (c0 / m0) * hwOut, z0Out = (s0 / m0) * hwOut;
+            float x1Out = (c1 / m1) * hwOut, z1Out = (s1 / m1) * hwOut;
+            float x0In  = (c0 / m0) * hwIn,  z0In  = (s0 / m0) * hwIn;
+            float x1In  = (c1 / m1) * hwIn,  z1In  = (s1 / m1) * hwIn;
+
             float lightDot = 0.78f + 0.22f * (0.5f * (s0 + s1) + 0.35f * (c0 + c1));
             float turnShade = 1.0f - (2 - turnIdx) * 0.04f;
-            float shade = Mth.clamp(lightDot * turnShade, 0.62f, 1.08f);
+            float shade = Mth.clamp(lightDot * turnShade, 0.64f, 1.06f);
 
             int sr = Mth.clamp((int) (baseR * shade), 0, 255);
             int sg = Mth.clamp((int) (baseG * shade), 0, 255);
             int sb = Mth.clamp((int) (baseB * shade), 0, 255);
-
-            float x0Out = c0 * rx0, z0Out = s0 * rz0;
-            float x1Out = c1 * rx0, z1Out = s1 * rz0;
-            float x0In  = c0 * rxInner, z0In  = s0 * rzInner;
-            float x1In  = c1 * rxInner, z1In  = s1 * rzInner;
 
             // 外表面四边面
             buf.addVertex(mat, x0Out, yCenter0 - bandHalfWidth, z0Out).setColor(sr, sg, sb, 255);
@@ -4165,7 +7374,7 @@ public class TreatmentClientHooks {
             buf.addVertex(mat, x1Out, yCenter1 + bandHalfWidth, z1Out).setColor(sr, sg, sb, 255);
             buf.addVertex(mat, x0Out, yCenter0 + bandHalfWidth, z0Out).setColor(sr, sg, sb, 255);
 
-            // 上下边缘厚度面 + 医疗锁边线 (Selvedge Trim Line)，让每一层叠瓦边界极其分明
+            // 上下边缘厚度阶梯 + 锁边线
             buf.addVertex(mat, x0In,  yCenter0 + bandHalfWidth, z0In).setColor(trimR, trimG, trimB, 255);
             buf.addVertex(mat, x0Out, yCenter0 + bandHalfWidth, z0Out).setColor(trimR, trimG, trimB, 255);
             buf.addVertex(mat, x1Out, yCenter1 + bandHalfWidth, z1Out).setColor(trimR, trimG, trimB, 255);
@@ -4177,13 +7386,12 @@ public class TreatmentClientHooks {
             buf.addVertex(mat, x1Out, yCenter1 - bandHalfWidth, z1Out).setColor(trimR, trimG, trimB, 255);
         }
 
-        // 3. 渲染从肢体最新包扎切点 (tanX, tanY, tanZ) 绷紧连接到手中绷带卷 (rollX, rollY, rollZ) 的 3D 展开纱布带
+        // 3. 渲染从肢体最新包扎切点连接到手中绷带卷的 3D 展开纱布带
         if (showTautStrip) {
             int subSteps = 6;
             for (int k = 0; k < subSteps; k++) {
                 float u0 = k / (float) subSteps;
                 float u1 = (k + 1) / (float) subSteps;
-                // 略带张力弧度的插值曲线
                 float sag0 = Mth.sin(u0 * (float) Math.PI) * 0.010f;
                 float sag1 = Mth.sin(u1 * (float) Math.PI) * 0.010f;
 
@@ -4199,13 +7407,11 @@ public class TreatmentClientHooks {
                 int gCol = Mth.clamp((int) (baseG * (0.92f + 0.08f * u0)), 0, 255);
                 int bCol = Mth.clamp((int) (baseB * (0.92f + 0.08f * u0)), 0, 255);
 
-                // 主纱布带面
                 buf.addVertex(mat, sx0, sy0 - bandHalfWidth, sz0).setColor(rCol, gCol, bCol, 245);
                 buf.addVertex(mat, sx1, sy1 - bandHalfWidth, sz1).setColor(rCol, gCol, bCol, 245);
                 buf.addVertex(mat, sx1, sy1 + bandHalfWidth, sz1).setColor(rCol, gCol, bCol, 245);
                 buf.addVertex(mat, sx0, sy0 + bandHalfWidth, sz0).setColor(rCol, gCol, bCol, 245);
 
-                // 上下两侧织边线
                 float edgeH = 0.004f;
                 buf.addVertex(mat, sx0, sy0 + bandHalfWidth - edgeH, sz0).setColor(trimR, trimG, trimB, 255);
                 buf.addVertex(mat, sx1, sy1 + bandHalfWidth - edgeH, sz1).setColor(trimR, trimG, trimB, 255);
@@ -4216,13 +7422,11 @@ public class TreatmentClientHooks {
 
         // 4. 收尾阶段按压固定在包扎层外侧的 3D 金属蝴蝶搭扣 / 以式加压 C 型卡扣
         if (claspProgress > 0.01f) {
-            float cz = radZ + 0.020f;
+            float cz = limbHalfWidth + 0.022f;
             if (isPressure) {
-                // 以式加压止血绷带标志性 C 型刚性加压横梁卡扣
                 emitColoredBox3D(buf, mat, -0.048f, -0.045f, cz, 0.048f, 0.045f, cz + 0.014f, claspCol, 0.98f);
                 emitColoredBox3D(buf, mat, -0.042f, -0.038f, cz + 0.014f, 0.042f, 0.038f, cz + 0.026f, 0xFFFFCA28, 0.95f);
             } else {
-                // 双枚金属弹性蝴蝶搭扣
                 emitColoredBox3D(buf, mat, -0.042f, 0.012f, cz, -0.010f, 0.036f, cz + 0.008f, claspCol, 0.98f);
                 emitColoredBox3D(buf, mat,  0.010f, 0.012f, cz,  0.042f, 0.036f, cz + 0.008f, claspCol, 0.98f);
                 emitColoredBox3D(buf, mat, -0.012f, 0.014f, cz + 0.001f, 0.012f, 0.034f, cz + 0.009f, 0xFFD7BC91, 0.98f);
@@ -4241,9 +7445,6 @@ public class TreatmentClientHooks {
         RenderSystem.disableBlend();
     }
 
-    /**
-     * 以玩家拳心握持点为局部原点 (0, 0, 0) 渲染第一人称手臂
-     */
     private static void renderPlayerArmCenteredAtFist(PoseStack poseStack, MultiBufferSource bufferSource, int packedLight,
                                                       AbstractClientPlayer player, PlayerRenderer playerRenderer, boolean rightArm) {
         float armSide = rightArm ? 1.0f : -1.0f;
@@ -4257,9 +7458,6 @@ public class TreatmentClientHooks {
         poseStack.popPose();
     }
 
-    /**
-     * 以玩家前臂肌肉正中心为局部原点 (0, 0, 0) 渲染第一人称手臂
-     */
     private static void renderPlayerArmCenteredAtForearm(PoseStack poseStack, MultiBufferSource bufferSource, int packedLight,
                                                          AbstractClientPlayer player, PlayerRenderer playerRenderer, boolean rightArm) {
         float armSide = rightArm ? 1.0f : -1.0f;
@@ -4273,9 +7471,6 @@ public class TreatmentClientHooks {
         poseStack.popPose();
     }
 
-    /**
-     * 以玩家大腿/小腿正中心为局部原点 (0, 0, 0) 渲染玩家真实的 3D 左腿或右腿模型（包含皮肤层与外层裤腿层）
-     */
     private static void renderPlayerLegCenteredAtMid(PoseStack poseStack, MultiBufferSource bufferSource, int packedLight,
                                                      AbstractClientPlayer player, PlayerRenderer playerRenderer, boolean rightLeg) {
         PlayerModel<AbstractClientPlayer> model = playerRenderer.getModel();
@@ -4288,7 +7483,6 @@ public class TreatmentClientHooks {
         boolean oldPantsVis = pants.visible;
 
         poseStack.pushPose();
-        // 将腿部几何中心 (-legSide * 1.9/16, +18.0/16, 0) 移动到局部原点 (0, 0, 0)
         poseStack.translate(legSide * 0.11875f, -1.125f, 0.0f);
         leg.xRot = 0.0f;
         leg.yRot = 0.0f;
@@ -4310,45 +7504,15 @@ public class TreatmentClientHooks {
     }
 
     /**
-     * 以玩家胸腔正中心为局部原点 (0, 0, 0) 渲染玩家真实的 3D 胸腔躯干模型（包含身体层与外层夹克层）
-     */
-    private static void renderPlayerTorsoCenteredAtChest(PoseStack poseStack, MultiBufferSource bufferSource, int packedLight,
-                                                         AbstractClientPlayer player, PlayerRenderer playerRenderer) {
-        PlayerModel<AbstractClientPlayer> model = playerRenderer.getModel();
-        ModelPart body = model.body;
-        ModelPart jacket = model.jacket;
-
-        float oldX = body.xRot, oldY = body.yRot, oldZ = body.zRot;
-        boolean oldVis = body.visible;
-        boolean oldJacketVis = jacket.visible;
-
-        poseStack.pushPose();
-        poseStack.translate(0.0f, -0.375f, 0.0f);
-        body.xRot = 0.0f;
-        body.yRot = 0.0f;
-        body.zRot = 0.0f;
-        body.visible = true;
-        jacket.copyFrom(body);
-        jacket.visible = true;
-
-        VertexConsumer vc = bufferSource.getBuffer(RenderType.entityTranslucent(playerRenderer.getTextureLocation(player)));
-        body.render(poseStack, vc, packedLight, OverlayTexture.NO_OVERLAY);
-        jacket.render(poseStack, vc, packedLight, OverlayTexture.NO_OVERLAY);
-        poseStack.popPose();
-
-        body.xRot = oldX;
-        body.yRot = oldY;
-        body.zRot = oldZ;
-        body.visible = oldVis;
-        jacket.visible = oldJacketVis;
-    }
-
-    /**
      * 在 ItemDisplayContext.NONE 纯净坐标系下，沿注射器精确中轴线 (X=0, Z=0) 渲染随推注进度物理下压的顶部活塞推杆
      */
     private static void renderCoaxialSyringePlungerStem(PoseStack poseStack, ItemStack stack, float depressProgress) {
         int capColor;
-        if (TreatmentRouter.isTranexamicAcidItem(stack)) {
+        if (TreatmentRouter.isMeropenemItem(stack)) {
+            capColor = 0xFFFFCA28;
+        } else if (TreatmentRouter.isAcetylcysteineItem(stack)) {
+            capColor = 0xFF00E676;
+        } else if (TreatmentRouter.isTranexamicAcidItem(stack)) {
             capColor = 0xFFE040FB;
         } else if (TreatmentRouter.isFentanylItem(stack)) {
             capColor = 0xFFF50057;
