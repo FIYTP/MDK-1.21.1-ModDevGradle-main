@@ -37,6 +37,8 @@ public final class MedicalAssetLibrary {
         NALOXONE_INJECTOR,
         TOURNIQUET,
         VASCULAR_SUTURE_KIT,
+        BALLISTIC_EXTRACTION_KIT,
+        PERFORATION_REPAIR_KIT,
         FASCIOTOMY_KIT,
         ORTHOPEDIC_KIT,
         CHEST_DRAIN_KIT,
@@ -103,6 +105,8 @@ public final class MedicalAssetLibrary {
             if (path.contains("chest_drain")) return AssetType.CHEST_DRAIN_KIT;
             if (path.contains("orthopedic")) return AssetType.ORTHOPEDIC_KIT;
             if (path.contains("fasciotomy")) return AssetType.FASCIOTOMY_KIT;
+            if (path.contains("ballistic_extraction")) return AssetType.BALLISTIC_EXTRACTION_KIT;
+            if (path.contains("perforation_repair")) return AssetType.PERFORATION_REPAIR_KIT;
             if (path.contains("suture_kit")) return AssetType.VASCULAR_SUTURE_KIT;
             if (path.contains("tourniquet")) return AssetType.TOURNIQUET;
             if (path.contains("adrenaline")) return AssetType.ADRENALINE_INJECTOR;

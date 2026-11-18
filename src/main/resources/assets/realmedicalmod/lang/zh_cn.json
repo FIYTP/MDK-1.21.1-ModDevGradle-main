@@ -144,5 +144,15 @@
   "item.realmedicalmod.acetylcysteine": "乙酰半胱氨酸解毒注射液",
   "item.realmedicalmod.povidone_iodine": "聚维酮碘消毒喷雾",
   "item.realmedicalmod.amoxicillin": "阿莫西林克拉维酸钾片",
-  "item.realmedicalmod.meropenem": "注射用美罗培南复合针剂"
+  "item.realmedicalmod.meropenem": "注射用美罗培南复合针剂",
+  "medical.status.perforation": "贯穿伤(需贯穿修补包)",
+  "medical.status.perforation_packed": "贯穿已塞纱(需贯穿修补包)",
+  "medical.status.embedded_bullet": "嵌弹×%s(需弹道取弹包)",
+  "medical.detail.perforation": "弹道贯通",
+  "medical.detail.embedded_bullet": "嵌留弹头/铅丸",
+  "message.realmedicalmod.bandage.perforation_limited": "§d[贯穿伤] §f前后对穿空腔单次包扎止血受限！残余渗血 %s mL/min（可用加压绷带二次塞纱，或用【贯穿创道修补包】根治）",
+  "message.realmedicalmod.bandage.perforation_packed": "§6[创道塞纱] §f已用加压止血纱布填塞贯穿腔道暂时止血！剧烈跑跳仍易崩裂，请尽快使用【贯穿创道修补包】缝合双侧创口",
+  "message.realmedicalmod.bandage.embedded_bullet_pain": "§e[异物刺痛] §f绷带压迫体内未取出的弹头/铅丸引发剧痛！请使用【野战弹道取弹包】夹出弹头",
+  "item.realmedicalmod.ballistic_extraction_kit": "野战弹道取弹包",
+  "item.realmedicalmod.perforation_repair_kit": "贯穿创道修补包"
 }

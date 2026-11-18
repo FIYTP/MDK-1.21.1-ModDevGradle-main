@@ -769,6 +769,42 @@ public class MedicalConfig {
     public static ModConfigSpec.BooleanValue LOCK_HOTBAR_DURING_MEDICAL_ANIM;
     public static ModConfigSpec.IntValue SURGICAL_KIT_READY_ANIM_DURATION_MS;
 
+    // --- 枪伤弹道分型（盲管伤嵌留子弹 vs 前后对穿贯穿伤）临床病理与救治配置 (12项) ---
+    public static ModConfigSpec.DoubleValue EMBEDDED_BULLET_INFECTION_ACCUM_PER_SEC;
+    public static ModConfigSpec.IntValue EMBEDDED_BULLET_MIN_PAIN_FLOOR;
+    public static ModConfigSpec.DoubleValue EMBEDDED_BULLET_MOVE_REBLEED_CHANCE;
+    public static ModConfigSpec.IntValue EMBEDDED_BULLET_MOVE_REBLEED_AMOUNT;
+    public static ModConfigSpec.IntValue EMBEDDED_BULLET_BANDAGE_PRESS_PAIN_SPIKE;
+    public static ModConfigSpec.DoubleValue EMBEDDED_BULLET_FRACTURE_HEAL_PENALTY_MULT;
+    public static ModConfigSpec.DoubleValue PERFORATION_REGULAR_BANDAGE_EFFICIENCY;
+    public static ModConfigSpec.DoubleValue PERFORATION_PRESSURE_BANDAGE_EFFICIENCY;
+    public static ModConfigSpec.DoubleValue PERFORATION_BANDAGE_RESIDUAL_BLEED_RATIO;
+    public static ModConfigSpec.IntValue PERFORATION_MIN_RESIDUAL_BLEED;
+    public static ModConfigSpec.DoubleValue PERFORATION_PACKING_SPRINT_TEAR_CHANCE;
+    public static ModConfigSpec.IntValue SUTURE_BULLET_EXTRACT_DURABILITY_COST;
+    public static ModConfigSpec.DoubleValue TACZ_GUNSHOT_FRACTURE_MIN_DAMAGE;
+    public static ModConfigSpec.DoubleValue TACZ_GUNSHOT_FRACTURE_CHANCE_MULTIPLIER;
+    public static ModConfigSpec.DoubleValue TACZ_PNEUMOTHORAX_MIN_PENETRATING_DAMAGE;
+    public static ModConfigSpec.DoubleValue TACZ_PNEUMOTHORAX_BASE_CHANCE;
+    public static ModConfigSpec.IntValue TACZ_SHOTGUN_EMBEDDED_PELLETS_MIN;
+    public static ModConfigSpec.IntValue TACZ_SHOTGUN_EMBEDDED_PELLETS_MAX;
+    public static ModConfigSpec.IntValue TACZ_MAX_EMBEDDED_BULLETS_PER_LIMB;
+    public static ModConfigSpec.DoubleValue TACZ_INJURY_SWAY_AMPLITUDE_MULTIPLIER;
+    public static ModConfigSpec.DoubleValue TACZ_INJURY_ADS_SLOWDOWN_STRENGTH;
+
+    // --- Sable: Ragdolls + Ragdoll Reactions 物理布娃娃与受创脱手兼容配置 (11项) ---
+    public static ModConfigSpec.BooleanValue RAGDOLL_COMPAT_ENABLED;
+    public static ModConfigSpec.DoubleValue RAGDOLL_LEG_HEAVY_DAMAGE_THRESHOLD;
+    public static ModConfigSpec.IntValue RAGDOLL_LEG_KNOCKDOWN_DURATION_TICKS;
+    public static ModConfigSpec.DoubleValue RAGDOLL_ARM_DISARM_DAMAGE_THRESHOLD;
+    public static ModConfigSpec.DoubleValue RAGDOLL_ARM_HEAVY_HIT_DISARM_CHANCE;
+    public static ModConfigSpec.DoubleValue RAGDOLL_ARM_DISARM_THROW_SPEED;
+    public static ModConfigSpec.IntValue RAGDOLL_ARM_DISARM_PICKUP_DELAY_TICKS;
+    public static ModConfigSpec.DoubleValue RAGDOLL_HEAVY_CALIBER_KNOCKDOWN_DAMAGE;
+    public static ModConfigSpec.IntValue RAGDOLL_HEAVY_CALIBER_DURATION_TICKS;
+    public static ModConfigSpec.DoubleValue RAGDOLL_EXPLOSION_MIN_DAMAGE;
+    public static ModConfigSpec.IntValue RAGDOLL_EXPLOSION_DURATION_TICKS;
+
 
 
 
@@ -3003,6 +3039,108 @@ public class MedicalConfig {
         SURGICAL_KIT_READY_ANIM_DURATION_MS = builder
                 .comment("切换手持四大重型医疗器械包时的第一人称真实模型就绪动画持续毫秒数 (默认 1050 ms)")
                 .defineInRange("surgicalKitReadyAnimDurationMs", 1050, 400, 3000);
+
+        builder.pop();
+
+        builder.comment("枪伤弹道分型（盲管伤体内嵌留子弹 vs 前后对穿贯穿伤）临床病理、绷带受限与取弹缝合配置")
+                .push("gunshot_embedded_and_perforation");
+
+        EMBEDDED_BULLET_INFECTION_ACCUM_PER_SEC = builder
+                .comment("体内每颗未取出的嵌留子弹/弹片每秒额外增加的深部厌氧感染累积速率 (默认 0.16)")
+                .defineInRange("embeddedBulletInfectionAccumPerSec", 0.16, 0.0, 5.0);
+        EMBEDDED_BULLET_MIN_PAIN_FLOOR = builder
+                .comment("部位存在未取出嵌留子弹时的异物保底刺痛等级（未取弹前疼痛无法自然消退至该值以下，默认 2）")
+                .defineInRange("embeddedBulletMinPainFloor", 2, 0, 10);
+        EMBEDDED_BULLET_MOVE_REBLEED_CHANCE = builder
+                .comment("部位存在未取出嵌留子弹时，疾跑/跳跃/发力每秒因弹头摩擦切割周围血管导致复发渗血的概率 (默认 0.15)")
+                .defineInRange("embeddedBulletMoveRebleedChance", 0.15, 0.0, 1.0);
+        EMBEDDED_BULLET_MOVE_REBLEED_AMOUNT = builder
+                .comment("嵌留子弹摩擦切割血管引发单次复发渗血的外出血增量 (mL/min，默认 35)")
+                .defineInRange("embeddedBulletMoveRebleedAmount", 35, 1, 500);
+        EMBEDDED_BULLET_BANDAGE_PRESS_PAIN_SPIKE = builder
+                .comment("未取出嵌留子弹就直接缠绕绷带压迫伤口时，将弹头压向深部神经引发的瞬时剧痛跳变增量 (默认 2)")
+                .defineInRange("embeddedBulletBandagePressPainSpike", 2, 0, 10);
+        EMBEDDED_BULLET_FRACTURE_HEAL_PENALTY_MULT = builder
+                .comment("部位存在未取出嵌留子弹卡阻骨断端时，骨折愈合推进速率保留比例 (默认 0.40 = 减慢 60%)")
+                .defineInRange("embeddedBulletFractureHealPenaltyMult", 0.40, 0.05, 1.0);
+        PERFORATION_REGULAR_BANDAGE_EFFICIENCY = builder
+                .comment("贯穿伤（前后双创口+空腔通道）下普通卷式绷带的单次止血吸收效率系数 (默认 0.35 = 35% 效率)")
+                .defineInRange("perforationRegularBandageEfficiency", 0.35, 0.05, 1.0);
+        PERFORATION_PRESSURE_BANDAGE_EFFICIENCY = builder
+                .comment("贯穿伤下加压绷带的单次止血吸收效率系数 (默认 0.60 = 60% 效率)")
+                .defineInRange("perforationPressureBandageEfficiency", 0.60, 0.10, 1.0);
+        PERFORATION_BANDAGE_RESIDUAL_BLEED_RATIO = builder
+                .comment("贯穿伤未完成深部塞纱填塞或外科缝合前，单次缠绕绷带后至少残留的空腔渗血比例 (默认 0.28)")
+                .defineInRange("perforationBandageResidualBleedRatio", 0.28, 0.05, 0.90);
+        PERFORATION_MIN_RESIDUAL_BLEED = builder
+                .comment("贯穿伤未塞纱填塞/未缝合前，单次缠绕绷带后保留的最低空腔残余渗血速率 (mL/min，默认 25)")
+                .defineInRange("perforationMinResidualBleed", 25, 5, 300);
+        PERFORATION_PACKING_SPRINT_TEAR_CHANCE = builder
+                .comment("对贯穿伤仅做加压绷带二次塞纱填塞（未做外科缝合）期间，疾跑/跳跃每秒导致塞纱崩裂复发出血的概率 (默认 0.12)")
+                .defineInRange("perforationPackingSprintTearChance", 0.12, 0.0, 1.0);
+        SUTURE_BULLET_EXTRACT_DURABILITY_COST = builder
+                .comment("使用野战血管缝合手术包完成探查取弹与贯穿创道清创缝合消耗的耐久度 (默认 15)")
+                .defineInRange("sutureBulletExtractDurabilityCost", 15, 1, 100);
+        TACZ_GUNSHOT_FRACTURE_MIN_DAMAGE = builder
+                .comment("TaCZ 枪击触发穿透性骨折所需的最低穿透伤害阈值（调高以避免普通交火频繁骨折，默认 9.5）")
+                .defineInRange("taczGunshotFractureMinDamage", 9.5, 1.0, 50.0);
+        TACZ_GUNSHOT_FRACTURE_CHANCE_MULTIPLIER = builder
+                .comment("TaCZ 枪击骨折全局概率缩放倍率（默认 0.26，大幅降低枪击导致的骨折频率）")
+                .defineInRange("taczGunshotFractureChanceMultiplier", 0.26, 0.0, 2.0);
+        TACZ_PNEUMOTHORAX_MIN_PENETRATING_DAMAGE = builder
+                .comment("TaCZ 胸腔枪击触发开放性气胸所需的最低护甲后穿透伤害阈值（默认 9.5）")
+                .defineInRange("taczPneumothoraxMinPenetratingDamage", 9.5, 1.0, 50.0);
+        TACZ_PNEUMOTHORAX_BASE_CHANCE = builder
+                .comment("TaCZ 胸腔枪击达到穿透阈值时的气胸基础触发概率（默认 0.15，避免频繁触发气胸）")
+                .defineInRange("taczPneumothoraxBaseChance", 0.15, 0.0, 1.0);
+        TACZ_SHOTGUN_EMBEDDED_PELLETS_MIN = builder
+                .comment("霰弹枪单次命中未完全贯穿部位时最少嵌留的鹿弹铅丸数量（默认 3）")
+                .defineInRange("taczShotgunEmbeddedPelletsMin", 3, 1, 12);
+        TACZ_SHOTGUN_EMBEDDED_PELLETS_MAX = builder
+                .comment("霰弹枪单次命中未完全贯穿部位时最多嵌留的鹿弹铅丸数量（默认 6）")
+                .defineInRange("taczShotgunEmbeddedPelletsMax", 6, 1, 12);
+        TACZ_MAX_EMBEDDED_BULLETS_PER_LIMB = builder
+                .comment("单个部位最多可嵌留的子弹/霰弹铅丸总数上限（默认 12）")
+                .defineInRange("taczMaxEmbeddedBulletsPerLimb", 12, 1, 16);
+        TACZ_INJURY_SWAY_AMPLITUDE_MULTIPLIER = builder
+                .comment("疼痛与手臂受伤时的准星/枪口晃动幅度全局倍率（默认 4.2，提供显著的大幅晃动反馈）")
+                .defineInRange("taczInjurySwayAmplitudeMultiplier", 4.2, 0.5, 15.0);
+        TACZ_INJURY_ADS_SLOWDOWN_STRENGTH = builder
+                .comment("疼痛与手臂受伤时的开镜举枪减速强度倍率（默认 2.4，让受伤举枪过程明显缓慢沉重）")
+                .defineInRange("taczInjuryAdsSlowdownStrength", 2.4, 0.5, 10.0);
+        RAGDOLL_COMPAT_ENABLED = builder
+                .comment("是否启用 Sable: Ragdolls 与受创物理扑倒/物品脱手兼容系统 (默认 true)")
+                .define("ragdollCompatEnabled", true);
+        RAGDOLL_LEG_HEAVY_DAMAGE_THRESHOLD = builder
+                .comment("腿部承受单次较重伤害触发暂时摔倒（布娃娃扑倒）的伤害阈值 (默认 6.5)")
+                .defineInRange("ragdollLegHeavyDamageThreshold", 6.5, 1.0, 50.0);
+        RAGDOLL_LEG_KNOCKDOWN_DURATION_TICKS = builder
+                .comment("腿部受重伤摔倒后在地面扑倒/翻滚的持续时间 (Tick，20 Tick = 1秒，默认 65 即 3.25 秒后自动站起)")
+                .defineInRange("ragdollLegKnockdownDurationTicks", 65, 10, 400);
+        RAGDOLL_ARM_DISARM_DAMAGE_THRESHOLD = builder
+                .comment("手部（左臂/右臂）承受较重伤害导致手中物品脱手飞出的伤害阈值 (默认 6.0)")
+                .defineInRange("ragdollArmDisarmDamageThreshold", 6.0, 1.0, 50.0);
+        RAGDOLL_ARM_HEAVY_HIT_DISARM_CHANCE = builder
+                .comment("手部承受超过阈值的重伤时，手中物品脱手抛出的概率 (默认 0.78；若触发骨折/脱臼/截肢则 100% 脱手)")
+                .defineInRange("ragdollArmHeavyHitDisarmChance", 0.78, 0.0, 1.0);
+        RAGDOLL_ARM_DISARM_THROW_SPEED = builder
+                .comment("手部重伤导致手中物品脱手飞出时的物理抛射初速度 (默认 0.42)")
+                .defineInRange("ragdollArmDisarmThrowSpeed", 0.42, 0.05, 2.0);
+        RAGDOLL_ARM_DISARM_PICKUP_DELAY_TICKS = builder
+                .comment("手中物品因手部重伤脱手飞出后的禁止拾取延迟 (Tick，默认 40 即 2 秒，防止原地瞬间吸回)")
+                .defineInRange("ragdollArmDisarmPickupDelayTicks", 40, 10, 200);
+        RAGDOLL_HEAVY_CALIBER_KNOCKDOWN_DAMAGE = builder
+                .comment("大口径枪械或重击直接触发全身真实物理布娃娃击飞瘫软的单发伤害阈值 (默认 13.5)")
+                .defineInRange("ragdollHeavyCaliberKnockdownDamage", 13.5, 4.0, 100.0);
+        RAGDOLL_HEAVY_CALIBER_DURATION_TICKS = builder
+                .comment("被大口径武器命中触发全身布娃娃瘫软的持续时间 (Tick，默认 85 即 4.25 秒)")
+                .defineInRange("ragdollHeavyCaliberDurationTicks", 85, 20, 400);
+        RAGDOLL_EXPLOSION_MIN_DAMAGE = builder
+                .comment("爆炸冲击波导致玩家暂时摔倒/布娃娃翻滚的最低爆炸伤害阈值 (默认 3.5)")
+                .defineInRange("ragdollExplosionMinDamage", 3.5, 0.5, 50.0);
+        RAGDOLL_EXPLOSION_DURATION_TICKS = builder
+                .comment("爆炸导致暂时摔倒的基准持续时间 (Tick，默认 90 即 4.5 秒)")
+                .defineInRange("ragdollExplosionDurationTicks", 90, 20, 400);
 
         builder.pop();
 

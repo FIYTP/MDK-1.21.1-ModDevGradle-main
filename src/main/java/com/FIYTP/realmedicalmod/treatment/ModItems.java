@@ -154,6 +154,24 @@ public class ModItems {
                             MedicalPotency.of(MedicalItemTags.INTERNAL_HEMOSTASIS.location(), 1500.0f)
                     )));
 
+    /** 野战弹道取弹包（专用于非贯穿盲管伤：探查并夹出嵌留弹头、霰弹鹿弹铅丸与破片放入右侧大号不锈钢托盘） */
+    public static final DeferredItem<Item> BALLISTIC_EXTRACTION_KIT = ITEMS.register("ballistic_extraction_kit",
+            () -> new BandageItem(new Item.Properties()
+                    .durability(100)
+                    .component(
+                            MedicalComponents.MEDICAL_POTENCY.get(),
+                            MedicalPotency.of(MedicalItemTags.INTERNAL_HEMOSTASIS.location(), 1200.0f)
+                    )));
+
+    /** 贯穿创道修补包（专用于前后对穿贯穿伤：双创口加压冲洗、空腔止血海绵填塞与入射/出射口双侧缝合闭合） */
+    public static final DeferredItem<Item> PERFORATION_REPAIR_KIT = ITEMS.register("perforation_repair_kit",
+            () -> new BandageItem(new Item.Properties()
+                    .durability(100)
+                    .component(
+                            MedicalComponents.MEDICAL_POTENCY.get(),
+                            MedicalPotency.of(MedicalItemTags.INTERNAL_HEMOSTASIS.location(), 1600.0f)
+                    )));
+
     public static final DeferredItem<Item> MORPHINE = ITEMS.register("morphine",
             () -> new BandageItem(new Item.Properties()
                     .durability(100)
@@ -825,6 +843,32 @@ public class ModItems {
         }
     }
 
+    public static int getEmbeddedBulletCount(MedicalData.LimbData ld) {
+        if (ld instanceof MedicalDataImpl.LimbDataImpl lImpl) {
+            return lImpl.getEmbeddedBulletCount();
+        }
+        return 0;
+    }
+
+    public static void setEmbeddedBulletCount(MedicalData.LimbData ld, int count) {
+        if (ld instanceof MedicalDataImpl.LimbDataImpl lImpl) {
+            lImpl.setEmbeddedBulletCount(count);
+        }
+    }
+
+    public static boolean isPerforationPacked(MedicalData.LimbData ld) {
+        if (ld instanceof MedicalDataImpl.LimbDataImpl lImpl) {
+            return lImpl.isPerforationPacked();
+        }
+        return false;
+    }
+
+    public static void setPerforationPacked(MedicalData.LimbData ld, boolean packed) {
+        if (ld instanceof MedicalDataImpl.LimbDataImpl lImpl) {
+            lImpl.setPerforationPacked(packed);
+        }
+    }
+
     public static boolean hasAnyNecroticLimb(MedicalData data) {
         if (data == null) return false;
         for (MedicalData.Limb limb : MedicalData.Limb.values()) {
@@ -999,8 +1043,77 @@ public class ModItems {
         }
     }
 
+    /**
+     * 判断单条下肢是否处于完全丧失站立支撑能力的状态（截肢、未上夹板且未做骨科外固定的骨折、或肢体坏死）
+     */
+    public static boolean isLegUnableToStand(MedicalData.LimbData leg) {
+        if (leg == null) return false;
+        if (leg.isAmputated()) return true;
+        if (isLimbNecrotic(leg)) return true;
+        if (leg.hasFracture() && !leg.hasSplint() && !isLimbOrthopedicFixed(leg)) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 判断玩家是否必须被强制锁定为匍匐趴下姿态 (Pose.SWIMMING)：
+     * 1. 双腿同时丧失站立支撑能力（双腿均骨折未固定、双腿截肢、一腿截肢一腿骨折未固定、或双腿坏死）；
+     * 2. 或玩家处于意识归零昏迷 / 心脏骤停倒地状态。
+     */
+    public static boolean shouldForcePlayerProne(net.minecraft.world.entity.player.Player player, MedicalData data) {
+        if (player == null || data == null || player.isCreative() || player.isSpectator() || player.isPassenger()) {
+            return false;
+        }
+        if (data.getConsciousness() <= 0 || data.isCardiacArrest()) {
+            return true;
+        }
+        if (!safeCfgBool(MedicalConfig.AMPUTATION_DOUBLE_LEG_PRONE, true)) {
+            return false;
+        }
+        MedicalData.LimbData leftLeg = data.getLimb(MedicalData.Limb.LEFT_LEG);
+        MedicalData.LimbData rightLeg = data.getLimb(MedicalData.Limb.RIGHT_LEG);
+        return isLegUnableToStand(leftLeg) && isLegUnableToStand(rightLeg);
+    }
+
+    /**
+     * 客户端 + 服务端双端每 Tick (Pre & Post) 强制锁定匍匐姿态：
+     * 同时调用 setForcedPose(Pose.SWIMMING) 与 setPose(Pose.SWIMMING)，彻底根除原版 Player#updatePlayerPose()
+     * 在第 2~19 Tick 将玩家重置回站立状态导致的“时而趴着时而不趴”状态不稳定闪烁 Bug！
+     */
+    public static void enforceBilateralLegIncapacitationProne(net.minecraft.world.entity.player.Player player) {
+        if (player == null || !player.isAlive()) return;
+        MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
+        if (data == null) return;
+
+        boolean forceProne = shouldForcePlayerProne(player, data);
+        if (forceProne) {
+            if (player.isSprinting()) {
+                player.setSprinting(false);
+            }
+            if (player.getForcedPose() != net.minecraft.world.entity.Pose.SWIMMING) {
+                player.setForcedPose(net.minecraft.world.entity.Pose.SWIMMING);
+            }
+            if (player.getPose() != net.minecraft.world.entity.Pose.SWIMMING) {
+                player.setPose(net.minecraft.world.entity.Pose.SWIMMING);
+                player.refreshDimensions();
+            }
+        } else {
+            if (player.getForcedPose() == net.minecraft.world.entity.Pose.SWIMMING) {
+                player.setForcedPose(null);
+                player.refreshDimensions();
+            }
+        }
+    }
+
+    @SubscribeEvent
+    public static void onPlayerTickEnforcePronePre(PlayerTickEvent.Pre event) {
+        enforceBilateralLegIncapacitationProne(event.getEntity());
+    }
+
     @SubscribeEvent
     public static void onPlayerTickSyncAddictionBuff(PlayerTickEvent.Post event) {
+        enforceBilateralLegIncapacitationProne(event.getEntity());
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
         if (player.tickCount % 20 != 0) return;
 
@@ -1495,7 +1608,12 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                         setFractureTimerAuth(ld, targetMax);
                         dirty = true;
                     } else {
-                        int nextTimer = curTimer - 1;
+                        int embBullets = getEmbeddedBulletCount(ld);
+                        float healKeepMult = (embBullets > 0)
+                                ? ((float) safeCfgDouble(MedicalConfig.EMBEDDED_BULLET_FRACTURE_HEAL_PENALTY_MULT, 0.40))
+                                : 1.0f;
+                        boolean advanceTick = (embBullets <= 0) || (player.getRandom().nextFloat() < healKeepMult);
+                        int nextTimer = advanceTick ? (curTimer - 1) : curTimer;
                         if (nextTimer <= 0) {
                             boolean hadSplint = ld.hasSplint();
                             completeFractureHealing(ld);
@@ -1512,6 +1630,70 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                         }
                         dirty = true;
                     }
+                }
+            }
+        }
+
+        // 8AA. 枪伤深部病理演进：体内嵌留子弹 (Embedded Bullet) 持续感染/异物保底刺痛/运动磨破血管 + 贯穿伤临时塞纱跑跳崩裂
+        float embInfPerSec = ((float) safeCfgDouble(MedicalConfig.EMBEDDED_BULLET_INFECTION_ACCUM_PER_SEC, 0.16));
+        int embMinPain = safeCfgInt(MedicalConfig.EMBEDDED_BULLET_MIN_PAIN_FLOOR, 2);
+        float embRebleedChance = ((float) safeCfgDouble(MedicalConfig.EMBEDDED_BULLET_MOVE_REBLEED_CHANCE, 0.15));
+        int embRebleedAmt = safeCfgInt(MedicalConfig.EMBEDDED_BULLET_MOVE_REBLEED_AMOUNT, 35);
+        float perfTearChance = ((float) safeCfgDouble(MedicalConfig.PERFORATION_PACKING_SPRINT_TEAR_CHANCE, 0.12));
+
+        for (MedicalData.Limb gLimb : MedicalData.Limb.values()) {
+            MedicalData.LimbData gLd = data.getLimb(gLimb);
+            if (gLd == null || gLd.isAmputated()) continue;
+
+            int embeddedCount = getEmbeddedBulletCount(gLd);
+            if (embeddedCount > 0) {
+                if (!gLd.hasOpenWound()) {
+                    gLd.setOpenWound(true);
+                    dirty = true;
+                }
+                if (gLd.getPainLevel() < embMinPain) {
+                    gLd.setPainLevel(Math.min(maxPainCfg, embMinPain));
+                    dirty = true;
+                }
+                float disinfectFactor = (gLd.getDisinfectantTimer() > 0) ? 0.75f : 1.0f;
+                float nextInfAcc = gLd.getInfectionAccumulator() + embeddedCount * embInfPerSec * disinfectFactor;
+                if (nextInfAcc >= 1.0f) {
+                    int gainInf = (int) nextInfAcc;
+                    gLd.setInfection(Math.min(100, gLd.getInfection() + gainInf));
+                    nextInfAcc -= gainInf;
+                    dirty = true;
+                }
+                gLd.setInfectionAccumulator(nextInfAcc);
+
+                if (isStrenuousMove && player.getRandom().nextFloat() < embRebleedChance) {
+                    if (gLd.isTourniqueted()) {
+                        setTourniquetClampedBleed(gLd, Math.min(2500, getTourniquetClampedBleed(gLd) + embRebleedAmt));
+                    } else {
+                        gLd.setBleeding(Math.min(2500, gLd.getBleeding() + embRebleedAmt));
+                        gLd.setBandaged(false);
+                    }
+                    gLd.setPainLevel(Math.min(maxPainCfg, gLd.getPainLevel() + 1));
+                    player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                            SoundEvents.CHAIN_HIT, SoundSource.PLAYERS, 0.70f, 0.85f);
+                    dirty = true;
+                }
+            }
+
+            if (gLd.hasPerforation() && isPerforationPacked(gLd) && isStrenuousMove) {
+                if (player.getRandom().nextFloat() < perfTearChance) {
+                    setPerforationPacked(gLd, false);
+                    gLd.setBandaged(false);
+                    gLd.setOpenWound(true);
+                    int reBleed = Math.max(45, embRebleedAmt * 2);
+                    if (gLd.isTourniqueted()) {
+                        setTourniquetClampedBleed(gLd, Math.min(2500, getTourniquetClampedBleed(gLd) + reBleed));
+                    } else {
+                        gLd.setBleeding(Math.min(2500, gLd.getBleeding() + reBleed));
+                    }
+                    gLd.setPainLevel(Math.min(maxPainCfg, gLd.getPainLevel() + 2));
+                    player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                            SoundEvents.LEASH_KNOT_BREAK, SoundSource.PLAYERS, 0.90f, 0.75f);
+                    dirty = true;
                 }
             }
         }

@@ -904,11 +904,19 @@ public class MedicalScreen extends Screen {
         }
 
         if (ld.getBleeding() > 0) {
-            g.fill(x + w - 6, y + 2, x + w - 2, y + 6, 0xFFFF1744);
+            if (ld.hasPerforation()) {
+                g.fill(x + w - 6, y + 2, x + w - 2, y + 6, 0xFFFF2A85);
+                g.fill(x + w - 4, y + 2, x + w - 2, y + 4, 0xFFFF9100);
+            } else {
+                g.fill(x + w - 6, y + 2, x + w - 2, y + 6, 0xFFFF1744);
+            }
         }
         if (ld.getInternalBleedingRate() > 0) {
             int px = (ld.getBleeding() > 0) ? (x + w - 12) : (x + w - 6);
             g.fill(px, y + 2, px + 4, y + 6, 0xFFAB47BC);
+        }
+        if (com.FIYTP.realmedicalmod.treatment.ModItems.getEmbeddedBulletCount(ld) > 0) {
+            g.fill(x + w - 12, y + h - 6, x + w - 8, y + h - 2, 0xFFFFC400);
         }
         if (ld.isTourniqueted()) {
             g.fill(x + 2, y + 2, x + 6, y + 6, 0xFFFF9100);
@@ -941,7 +949,9 @@ public class MedicalScreen extends Screen {
         int color = getLimbColor(ld);
         HudRenderHelper.drawSciFiLeaderLine(g, anchorX, anchorY, cardX, cardY + 12, color, withAlpha(color, 0.4f));
 
-        String title = getLimbFullName(limb) + " [" + BrainScan3DRenderer.computeLimbHealthPercent(ld) + "%]";
+        int embCnt = com.FIYTP.realmedicalmod.treatment.ModItems.getEmbeddedBulletCount(ld);
+        String perfTag = ld.hasPerforation() ? " [贯穿]" : (embCnt > 0 ? " [嵌弹×" + embCnt + "]" : "");
+        String title = getLimbFullName(limb) + " [" + BrainScan3DRenderer.computeLimbHealthPercent(ld) + "%]" + perfTag;
         String sub = "外:" + ld.getBleeding() + " 内:" + ld.getInternalBleedingRate() + " 痛:" + ld.getPainLevel();
         HudRenderHelper.drawTacticalBadge(g, this.font, cardX, cardY, 122, 24, title, sub, color, 0xEE050D17);
     }
@@ -1093,9 +1103,14 @@ public class MedicalScreen extends Screen {
                 drawTomographyMetric(g, rightX, metricY + 28, rightW, tr("medical.detail.pain_level"),
                         ld.getPainLevel() + " / 10",
                         ld.getPainLevel() > 0 ? C_VITAL_PAIN : C_SAFE_GREEN);
-                drawTomographyMetric(g, rightX, metricY + 56, rightW, "贯通伤",
-                        ld.hasPerforation() ? "存在" : "无",
-                        ld.hasPerforation() ? C_ALERT_RED : C_SAFE_GREEN);
+                int tomoEmb = com.FIYTP.realmedicalmod.treatment.ModItems.getEmbeddedBulletCount(ld);
+                boolean tomoPacked = com.FIYTP.realmedicalmod.treatment.ModItems.isPerforationPacked(ld);
+                String ballisticTxt = ld.hasPerforation()
+                        ? (tomoPacked ? "前后贯穿(已塞纱)" : "前后贯穿(双创口)")
+                        : (tomoEmb > 0 ? ("盲管嵌弹×" + tomoEmb) : "无弹道存留");
+                int ballisticCol = ld.hasPerforation() ? 0xFFFF2A85 : (tomoEmb > 0 ? 0xFFFFC400 : C_SAFE_GREEN);
+                drawTomographyMetric(g, rightX, metricY + 56, rightW, "弹道创道",
+                        ballisticTxt, ballisticCol);
                 drawTomographyMetric(g, rightX, metricY + 84, rightW, "SIRS 等级",
                         data.getSirsLevel() + " / 4",
                         data.getSirsLevel() > 0 ? C_ALERT_RED : C_SAFE_GREEN);
@@ -1916,15 +1931,25 @@ public class MedicalScreen extends Screen {
             int inBleed = ld.getInternalBleedingRate();
             int pain = ld.getPainLevel();
             int inf = ld.getInfection();
+            boolean isPerf = ld.hasPerforation();
+            boolean isPerfPacked = com.FIYTP.realmedicalmod.treatment.ModItems.isPerforationPacked(ld);
+            int embBullets = com.FIYTP.realmedicalmod.treatment.ModItems.getEmbeddedBulletCount(ld);
+            int exBleedCol = isPerf ? 0xFFFF2A85 : C_ALERT_RED;
+            String exBleedLabel = isPerf
+                    ? (isPerfPacked ? tr("medical.detail.bleeding_rate") + "[塞纱]" : tr("medical.detail.bleeding_rate") + "[贯穿]")
+                    : tr("medical.detail.bleeding_rate");
 
             if (compactTwoColumn && w >= 180) {
                 int colW = (w - 6) / 2;
                 if (clampedBleed > 0 && bleed <= 0) {
-                    drawDashedBleedCard(g, font, x, y, colW, tr("medical.detail.bleeding_rate"),
-                            clampedBleed + " mL/m", Math.min(1f, clampedBleed / 500f), C_ALERT_RED);
+                    drawDashedBleedCard(g, font, x, y, colW, exBleedLabel,
+                            clampedBleed + " mL/m", Math.min(1f, clampedBleed / 500f), exBleedCol);
                 } else {
-                    drawMetricCard(g, font, x, y, colW, tr("medical.detail.bleeding_rate"), bleed + " mL/m",
-                            Math.min(1f, bleed / 500f), bleed > 0 ? C_ALERT_RED : 0xFF37474F);
+                    drawMetricCard(g, font, x, y, colW, exBleedLabel, bleed + " mL/m",
+                            Math.min(1f, bleed / 500f), bleed > 0 ? exBleedCol : (isPerf ? 0xFF881B4C : 0xFF37474F));
+                    if (isPerf && bleed > 0) {
+                        drawPerforationHazardTicks(g, x + 5, y + 13, colW - 8, 5, Math.min(1f, bleed / 500f));
+                    }
                 }
                 int tampInBleed = com.FIYTP.realmedicalmod.treatment.ModItems.getCompartmentTamponadedBleed(ld);
                 if (tampInBleed > 0 && inBleed <= 0) {
@@ -1943,11 +1968,15 @@ public class MedicalScreen extends Screen {
                 y += 24;
             } else {
                 if (clampedBleed > 0 && bleed <= 0) {
-                    y = drawDashedBleedFullRow(g, font, x, y, w, tr("medical.detail.bleeding_rate"),
-                            clampedBleed + " mL/min", Math.min(1f, clampedBleed / 500f), C_ALERT_RED);
+                    y = drawDashedBleedFullRow(g, font, x, y, w, exBleedLabel,
+                            clampedBleed + " mL/min", Math.min(1f, clampedBleed / 500f), exBleedCol);
                 } else if (bleed > 0) {
-                    y = drawFullRow(g, font, x, y, w, tr("medical.detail.bleeding_rate"), bleed + " mL/min",
-                            Math.min(1f, bleed / 500f), C_ALERT_RED);
+                    int barY = y + 10;
+                    y = drawFullRow(g, font, x, y, w, exBleedLabel, bleed + " mL/min",
+                            Math.min(1f, bleed / 500f), exBleedCol);
+                    if (isPerf) {
+                        drawPerforationHazardTicks(g, x, barY, w, 5, Math.min(1f, bleed / 500f));
+                    }
                 }
                 int tampInBleed = com.FIYTP.realmedicalmod.treatment.ModItems.getCompartmentTamponadedBleed(ld);
                 if (tampInBleed > 0 && inBleed <= 0) {
@@ -1987,6 +2016,10 @@ public class MedicalScreen extends Screen {
                 }
             }
 
+            if (embBullets > 0) {
+                y = drawFullRow(g, font, x, y, w, tr("medical.detail.embedded_bullet"),
+                        embBullets + " 枚 (需手术取弹)", Math.min(1.0f, embBullets / 4.0f), 0xFFFFC400);
+            }
             y = drawLimbStatusPills(g, font, x, y + 2, w, ld);
             if (ld.isTourniqueted()) {
                 this.unbindTargetLimb = limb;
@@ -2183,6 +2216,13 @@ public class MedicalScreen extends Screen {
             return y + 18;
         }
 
+        private void drawPerforationHazardTicks(GuiGraphics g, int x, int y, int w, int h, float pct) {
+            int fillW = Math.round(w * Mth.clamp(pct, 0.0f, 1.0f));
+            for (int dx = 3; dx < fillW - 2; dx += 6) {
+                g.fill(x + dx, y + 1, x + dx + 2, y + h - 1, 0xFFFF9100);
+            }
+        }
+
         /**
          * 止血带绑扎期间：以虚线进度条 + 虚线数值下划线表示拿掉止血带后的实际出血量（无任何多余文字描述）
          */
@@ -2238,6 +2278,21 @@ public class MedicalScreen extends Screen {
             int rightEdge = x + w;
             boolean abnormal = false;
 
+            if (ld.hasPerforation()) {
+                abnormal = true;
+                boolean packed = com.FIYTP.realmedicalmod.treatment.ModItems.isPerforationPacked(ld);
+                String pTxt = packed ? tr("medical.status.perforation_packed") : tr("medical.status.perforation");
+                int pCol = packed ? 0xFFFF9100 : 0xFFFF2A85;
+                int nx = drawWrappedPill(g, font, x, px, py, rightEdge, pTxt, pCol);
+                if (nx < 0) { py += 14; px = drawWrappedPill(g, font, x, x, py, rightEdge, pTxt, pCol); } else px = nx;
+            }
+            int pillEmb = com.FIYTP.realmedicalmod.treatment.ModItems.getEmbeddedBulletCount(ld);
+            if (pillEmb > 0) {
+                abnormal = true;
+                String eTxt = Component.translatable("medical.status.embedded_bullet", pillEmb).getString();
+                int nx = drawWrappedPill(g, font, x, px, py, rightEdge, eTxt, 0xFFFFC400);
+                if (nx < 0) { py += 14; px = drawWrappedPill(g, font, x, x, py, rightEdge, eTxt, 0xFFFFC400); } else px = nx;
+            }
             if (ld.isAmputated()) {
                 abnormal = true;
                 int nx = drawWrappedPill(g, font, x, px, py, rightEdge, tr("medical.status.amputated"), 0xFFFF1744);

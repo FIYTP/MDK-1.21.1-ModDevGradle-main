@@ -66,34 +66,108 @@ public final class TreatmentRouter {
                 return 0;
             }
 
+            ResourceLocation bandageId = BuiltInRegistries.ITEM.getKey(stack.getItem());
+            boolean isPressureBandageItem = (bandageId != null && bandageId.getPath().contains("pressure_bandage"));
+            int embeddedBullets = ModItems.getEmbeddedBulletCount(ld);
+            boolean hasPerf = ld.hasPerforation();
+            int maxPainVal = ModItems.safeCfgInt(MedicalConfig.MAX_PAIN_LEVEL, 10);
+
+            // 若体内嵌留有未取出的子弹/弹片，直接缠绕绷带会将金属弹头压向深层组织神经，引发瞬时剧痛跳变！
+            if (embeddedBullets > 0) {
+                int pressPainSpike = ModItems.safeCfgInt(MedicalConfig.EMBEDDED_BULLET_BANDAGE_PRESS_PAIN_SPIKE, 2);
+                if (pressPainSpike > 0) {
+                    ld.setPainLevel(Math.min(maxPainVal, ld.getPainLevel() + pressPainSpike));
+                }
+                player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                        SoundEvents.CHAIN_HIT, SoundSource.PLAYERS, 0.85f, 0.70f);
+                player.displayClientMessage(
+                        net.minecraft.network.chat.Component.translatable("message.realmedicalmod.bandage.embedded_bullet_pain"),
+                        true
+                );
+            }
+
+            // 贯穿伤 (hasPerforation) 绷带止血受限与二次创道塞纱填塞 (Wound Packing) 机制
+            float perfEfficiency = 1.0f;
+            int minPerfResidual = ModItems.safeCfgInt(MedicalConfig.PERFORATION_MIN_RESIDUAL_BLEED, 25);
+            float perfResidualRatio = ((float) ModItems.safeCfgDouble(MedicalConfig.PERFORATION_BANDAGE_RESIDUAL_BLEED_RATIO, 0.28));
+            if (hasPerf) {
+                perfEfficiency = isPressureBandageItem
+                        ? ((float) ModItems.safeCfgDouble(MedicalConfig.PERFORATION_PRESSURE_BANDAGE_EFFICIENCY, 0.60))
+                        : ((float) ModItems.safeCfgDouble(MedicalConfig.PERFORATION_REGULAR_BANDAGE_EFFICIENCY, 0.35));
+            }
+
             if (ld.isTourniqueted() && clampedBleed > 0) {
-                int absorbed = Math.min(clampedBleed, remainingCap);
-                int newClamped = Math.max(0, clampedBleed - absorbed);
+                int effectiveAbsorb = Math.max(5, Math.round(remainingCap * perfEfficiency));
+                int residualFloor = 0;
+                boolean packedNow = false;
+                if (hasPerf && !ModItems.isPerforationPacked(ld)) {
+                    int calcFloor = Math.max(minPerfResidual, Math.round(clampedBleed * perfResidualRatio));
+                    if (isPressureBandageItem && clampedBleed <= Math.max(110, minPerfResidual * 3)) {
+                        // 加压绷带对已初步控制的贯穿伤执行「创道塞纱深部填塞 (Wound Packing)」
+                        residualFloor = 0;
+                        packedNow = true;
+                    } else {
+                        residualFloor = Math.min(clampedBleed, calcFloor);
+                    }
+                }
+                int newClamped = Math.max(residualFloor, clampedBleed - effectiveAbsorb);
+                int durabilityUsed = Math.min(remainingCap, Math.max(15, clampedBleed - newClamped));
                 ModItems.setTourniquetClampedBleed(ld, newClamped);
 
                 if (newClamped == 0) {
                     ld.setBandaged(true);
-                    ld.setOpenWound(false);
+                    ld.setOpenWound(embeddedBullets > 0 || hasPerf);
                     ld.setNaturalClottingTimer(0);
+                    if (packedNow) {
+                        ModItems.setPerforationPacked(ld, true);
+                        player.displayClientMessage(
+                                net.minecraft.network.chat.Component.translatable("message.realmedicalmod.bandage.perforation_packed"),
+                                true
+                        );
+                    }
                 } else {
                     ld.setBandaged(false);
+                    if (hasPerf) {
+                        player.displayClientMessage(
+                                net.minecraft.network.chat.Component.translatable("message.realmedicalmod.bandage.perforation_limited", newClamped),
+                                true
+                        );
+                    }
                 }
-                return Math.max(1, absorbed);
+                return Math.max(1, durabilityUsed);
             }
 
             if (oldBleed > 0) {
-                int absorbed = Math.min(oldBleed, remainingCap);
-                int newBleed = Math.max(0, oldBleed - absorbed);
+                int effectiveAbsorb = Math.max(5, Math.round(remainingCap * perfEfficiency));
+                int residualFloor = 0;
+                boolean packedNow = false;
+                if (hasPerf && !ModItems.isPerforationPacked(ld)) {
+                    int calcFloor = Math.max(minPerfResidual, Math.round(oldBleed * perfResidualRatio));
+                    if (isPressureBandageItem && oldBleed <= Math.max(110, minPerfResidual * 3)) {
+                        // 加压绷带二次深部塞纱填塞 (Wound Packing)：封堵前后双创口与空腔渗血
+                        residualFloor = 0;
+                        packedNow = true;
+                    } else {
+                        residualFloor = Math.min(oldBleed, calcFloor);
+                    }
+                }
+                int newBleed = Math.max(residualFloor, oldBleed - effectiveAbsorb);
+                int durabilityUsed = Math.min(remainingCap, Math.max(15, oldBleed - newBleed));
                 ld.setBleeding(newBleed);
 
                 if (newBleed == 0) {
                     ld.setBandaged(true);
-                    ld.setOpenWound(false);
+                    ld.setOpenWound(embeddedBullets > 0 || hasPerf);
                     ld.setNaturalClottingTimer(0);
+                    if (packedNow) {
+                        ModItems.setPerforationPacked(ld, true);
+                        player.displayClientMessage(
+                                net.minecraft.network.chat.Component.translatable("message.realmedicalmod.bandage.perforation_packed"),
+                                true
+                        );
+                    }
                     if (limb == MedicalData.Limb.CHEST && (ModItems.getPneumothoraxType(data) > 0 || ModItems.getPleuralAirMl(data) > 50.0f)) {
-                        ResourceLocation bid = BuiltInRegistries.ITEM.getKey(stack.getItem());
-                        boolean isPressureBandage = (bid != null && bid.getPath().contains("pressure_bandage"));
-                        if (isPressureBandage) {
+                        if (isPressureBandageItem) {
                             ModItems.setThreeSidedValveSealed(data, true);
                             ModItems.setImproperlyDeadSealed(data, false);
                             if (ModItems.getPneumothoraxType(data) == 2) {
@@ -106,12 +180,18 @@ public final class TreatmentRouter {
                     }
                 } else {
                     ld.setBandaged(false);
+                    if (hasPerf) {
+                        player.displayClientMessage(
+                                net.minecraft.network.chat.Component.translatable("message.realmedicalmod.bandage.perforation_limited", newBleed),
+                                true
+                        );
+                    }
                 }
-                return Math.max(1, absorbed);
+                return Math.max(1, durabilityUsed);
             } else {
                 int cost = Math.min(OPEN_WOUND_DRESSING_COST, remainingCap);
                 ld.setBandaged(true);
-                ld.setOpenWound(false);
+                ld.setOpenWound(embeddedBullets > 0 || hasPerf);
                 if (limb == MedicalData.Limb.CHEST) {
                     if (ld.hasFracture()) {
                         ModItems.setChestBraced(ld, true);
@@ -307,6 +387,18 @@ public final class TreatmentRouter {
         return id != null && id.getPath().contains("suture_kit");
     }
 
+    public static boolean isBallisticExtractionKitItem(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
+        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        return id != null && id.getPath().contains("ballistic_extraction_kit");
+    }
+
+    public static boolean isPerforationRepairKitItem(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
+        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        return id != null && id.getPath().contains("perforation_repair_kit");
+    }
+
     public static boolean isFasciotomyKitItem(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return false;
         ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
@@ -419,7 +511,7 @@ public final class TreatmentRouter {
     public static boolean isMedicalItem(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return false;
         if (stack.getItem() instanceof BandageItem) return true;
-        if (isOpioidItem(stack) || isAdrenalineItem(stack) || isNaloxoneItem(stack) || isTourniquetItem(stack) || isSutureKitItem(stack) || isFasciotomyKitItem(stack) || isOrthopedicKitItem(stack) || isChestDrainKitItem(stack) || isDecompressionNeedleItem(stack) || isSplintItem(stack) || isIbuprofenItem(stack) || isTranexamicAcidItem(stack) || isActivatedCharcoalItem(stack) || isAcetylcysteineItem(stack) || isPovidoneIodineItem(stack) || isAmoxicillinItem(stack) || isMeropenemItem(stack)) return true;
+        if (isOpioidItem(stack) || isAdrenalineItem(stack) || isNaloxoneItem(stack) || isTourniquetItem(stack) || isSutureKitItem(stack) || isBallisticExtractionKitItem(stack) || isPerforationRepairKitItem(stack) || isFasciotomyKitItem(stack) || isOrthopedicKitItem(stack) || isChestDrainKitItem(stack) || isDecompressionNeedleItem(stack) || isSplintItem(stack) || isIbuprofenItem(stack) || isTranexamicAcidItem(stack) || isActivatedCharcoalItem(stack) || isAcetylcysteineItem(stack) || isPovidoneIodineItem(stack) || isAmoxicillinItem(stack) || isMeropenemItem(stack)) return true;
         if (stack.has(MedicalComponents.MEDICAL_POTENCY.get())) return true;
         if (stack.is(MedicalItemTags.BANDAGE)
                 || stack.is(MedicalItemTags.SYRINGE)
@@ -515,13 +607,28 @@ public final class TreatmentRouter {
                     || ModItems.getCompartmentBlood(ld) > 0.1f
                     || ModItems.getCompartmentPressure(ld) > 4.5f;
         }
+        if (isBallisticExtractionKitItem(stack)) {
+            if (ModItems.isLimbNecrotic(ld)) return false;
+            if (data.getConsciousness() < ModItems.getSutureMinConsciousness() || data.isCardiacArrest() || data.isInVFib()) {
+                return false;
+            }
+            return ModItems.getEmbeddedBulletCount(ld) > 0;
+        }
+        if (isPerforationRepairKitItem(stack)) {
+            if (ModItems.isLimbNecrotic(ld)) return false;
+            if (data.getConsciousness() < ModItems.getSutureMinConsciousness() || data.isCardiacArrest() || data.isInVFib()) {
+                return false;
+            }
+            return ld.hasPerforation();
+        }
         if (isSutureKitItem(stack)) {
             if (ModItems.isLimbNecrotic(ld)) return false;
             if (data.getConsciousness() < ModItems.getSutureMinConsciousness() || data.isCardiacArrest() || data.isInVFib()) {
                 return false;
             }
             int effBleed = Math.max(ld.getBleeding(), ModItems.getTourniquetClampedBleed(ld));
-            return effBleed > ModItems.safeCfgInt(MedicalConfig.BANDAGE_MAX_BLEEDING_THRESHOLD, 500) || ModItems.isLimbArterialLigated(ld);
+            return effBleed > ModItems.safeCfgInt(MedicalConfig.BANDAGE_MAX_BLEEDING_THRESHOLD, 500)
+                    || ModItems.isLimbArterialLigated(ld);
         }
         if (isAdrenalineItem(stack) || isNaloxoneItem(stack)) {
             return !ld.isAmputated();
@@ -607,7 +714,7 @@ public final class TreatmentRouter {
     public static float getChannelDurationSeconds(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return 0.65f;
         if (isNaloxoneItem(stack) || isAdrenalineItem(stack)) return 0.28f;
-        if (isSutureKitItem(stack) || isFasciotomyKitItem(stack) || isOrthopedicKitItem(stack) || isChestDrainKitItem(stack)) return 0.35f;
+        if (isSutureKitItem(stack) || isBallisticExtractionKitItem(stack) || isPerforationRepairKitItem(stack) || isFasciotomyKitItem(stack) || isOrthopedicKitItem(stack) || isChestDrainKitItem(stack)) return 0.35f;
         if (isTourniquetItem(stack)) return 0.45f;
         if (isOpioidItem(stack) || stack.is(MedicalItemTags.SYRINGE)) return 0.35f;
         if (stack.is(MedicalItemTags.ORAL)) return 0.50f;
@@ -1194,24 +1301,23 @@ public final class TreatmentRouter {
         }
 
         int origBleed = Math.max(ld.getBleeding(), ModItems.getTourniquetClampedBleed(ld));
-        if (origBleed <= ModItems.safeCfgInt(MedicalConfig.BANDAGE_MAX_BLEEDING_THRESHOLD, 500) && !ModItems.isLimbArterialLigated(ld)) {
+        if (origBleed <= ModItems.safeCfgInt(MedicalConfig.BANDAGE_MAX_BLEEDING_THRESHOLD, 500)
+                && !ModItems.isLimbArterialLigated(ld)) {
             return 0;
         }
 
         if (actionCode == 201) {
-            // 路径 A：直接结扎缝死血管
+            // 路径 A：直接血管结扎闭塞术（专职处理大出血/残端动脉结扎）
             ld.setBleeding(0);
             ModItems.setTourniquetClampedBleed(ld, 0);
-            ld.setOpenWound(false);
-            ld.setBandaged(true);
+            ld.setOpenWound(ModItems.getEmbeddedBulletCount(ld) > 0 || ld.hasPerforation());
+            ld.setBandaged(!ld.hasOpenWound());
             ld.setNaturalClottingTimer(0);
             ld.setTourniqueted(false);
 
             if (!ld.isAmputated() && origBleed > ModItems.getSutureArterialThreshold()) {
-                // 对未断肢的主干动脉强行结扎：导致主干供血中断，持续向缺血坏死演进
                 ModItems.setLimbArterialLigated(ld, true);
             } else {
-                // 非主干动脉或已断肢残端：直接结扎闭合血管无任何坏死/缺血后果
                 ModItems.setLimbArterialLigated(ld, false);
                 ModItems.setTourniquetTimer(ld, 0);
             }
@@ -1219,11 +1325,11 @@ public final class TreatmentRouter {
         }
 
         if (actionCode == 202) {
-            // 路径 B：血管吻合桥接手术（完美重建远端供血）
+            // 路径 B：人工血管吻合桥接术（完美重建远端供血）
             ld.setBleeding(0);
             ModItems.setTourniquetClampedBleed(ld, 0);
-            ld.setOpenWound(false);
-            ld.setBandaged(true);
+            ld.setOpenWound(ModItems.getEmbeddedBulletCount(ld) > 0 || ld.hasPerforation());
+            ld.setBandaged(!ld.hasOpenWound());
             ld.setNaturalClottingTimer(0);
             ld.setTourniqueted(false);
             ModItems.setLimbArterialLigated(ld, false);
@@ -1231,6 +1337,107 @@ public final class TreatmentRouter {
             return ModItems.safeCfgInt(MedicalConfig.SUTURE_ANASTOMOSIS_DURABILITY_COST, 25);
         }
 
+        return 0;
+    }
+
+    /**
+     * 服务端处理「野战弹道取弹包 (ballistic_extraction_kit)」动作码：
+     * - 800：开启深部弹道探查手术
+     * - 801：将部位内全部嵌留弹头/霰弹鹿弹铅丸夹出放入不锈钢托盘，消除异物刺痛与深部厌氧感染源，并减轻创道渗血
+     * - 803：取弹钳误触周围血管/神经导致局部疼痛与少量失血
+     * - 804：切开探查中途强行中断导致创道二次渗血
+     */
+    private static int applyBallisticExtractionKitAction(ServerPlayer player, MedicalData data,
+                                                         MedicalData.Limb limb, MedicalData.LimbData ld,
+                                                         ItemStack stack, int actionCode) {
+        if (ModItems.isLimbNecrotic(ld)) return 0;
+        if (actionCode == 800) {
+            if (data.getConsciousness() < ModItems.getSutureMinConsciousness()) return 0;
+            return UNBIND_NO_COST_SIGNAL;
+        }
+        if (actionCode == 803) {
+            int maxPain = ModItems.safeCfgInt(MedicalConfig.MAX_PAIN_LEVEL, 10);
+            ld.setPainLevel(Math.min(maxPain, ld.getPainLevel() + 1));
+            data.setBloodVolume(Math.max(0, data.getBloodVolume() - 12));
+            return UNBIND_NO_COST_SIGNAL;
+        }
+        if (actionCode == 804) {
+            int maxPain = ModItems.safeCfgInt(MedicalConfig.MAX_PAIN_LEVEL, 10);
+            ld.setPainLevel(Math.min(maxPain, ld.getPainLevel() + 1));
+            ld.setBleeding(ld.getBleeding() + 45);
+            return UNBIND_NO_COST_SIGNAL;
+        }
+        if (data.getConsciousness() < ModItems.getSutureMinConsciousness() || data.isCardiacArrest() || data.isInVFib()) {
+            return 0;
+        }
+        if (actionCode == 801 && ModItems.getEmbeddedBulletCount(ld) > 0) {
+            ModItems.setEmbeddedBulletCount(ld, 0);
+            ld.setPainLevel(Math.max(0, ld.getPainLevel() - 2));
+            ld.setInfectionAccumulator(Math.max(0.0f, ld.getInfectionAccumulator() * 0.35f));
+            int maxBandageThresh = ModItems.safeCfgInt(MedicalConfig.BANDAGE_MAX_BLEEDING_THRESHOLD, 500);
+            if (ld.getBleeding() > 0 && ld.getBleeding() <= maxBandageThresh && !ld.hasPerforation()) {
+                ld.setBleeding(Math.max(0, Math.round(ld.getBleeding() * 0.40f)));
+                if (ld.getBleeding() == 0) {
+                    ld.setOpenWound(false);
+                    ld.setBandaged(true);
+                }
+            }
+            return ModItems.safeCfgInt(MedicalConfig.SUTURE_BULLET_EXTRACT_DURABILITY_COST, 15);
+        }
+        return 0;
+    }
+
+    /**
+     * 服务端处理「贯穿创道修补包 (perforation_repair_kit)」动作码：
+     * - 900：开启前后贯穿伤双创口修补界面
+     * - 901：完成贯穿腔道冲洗 + XStat 高膨胀止血海绵填塞 + 入射口/出射口双侧荷包缝合，彻底根治贯穿伤 (hasPerforation = false)
+     * - 903：修补操作失误导致刺痛与少量失血
+     * - 904：中途中断导致塞纱松脱渗血增加
+     */
+    private static int applyPerforationRepairKitAction(ServerPlayer player, MedicalData data,
+                                                       MedicalData.Limb limb, MedicalData.LimbData ld,
+                                                       ItemStack stack, int actionCode) {
+        if (ModItems.isLimbNecrotic(ld)) return 0;
+        if (actionCode == 900) {
+            if (data.getConsciousness() < ModItems.getSutureMinConsciousness()) return 0;
+            return UNBIND_NO_COST_SIGNAL;
+        }
+        if (actionCode == 903) {
+            int maxPain = ModItems.safeCfgInt(MedicalConfig.MAX_PAIN_LEVEL, 10);
+            ld.setPainLevel(Math.min(maxPain, ld.getPainLevel() + 1));
+            data.setBloodVolume(Math.max(0, data.getBloodVolume() - 12));
+            return UNBIND_NO_COST_SIGNAL;
+        }
+        if (actionCode == 904) {
+            int maxPain = ModItems.safeCfgInt(MedicalConfig.MAX_PAIN_LEVEL, 10);
+            ld.setPainLevel(Math.min(maxPain, ld.getPainLevel() + 1));
+            ModItems.setPerforationPacked(ld, false);
+            ld.setBleeding(ld.getBleeding() + 65);
+            return UNBIND_NO_COST_SIGNAL;
+        }
+        if (data.getConsciousness() < ModItems.getSutureMinConsciousness() || data.isCardiacArrest() || data.isInVFib()) {
+            return 0;
+        }
+        if (actionCode == 901 && ld.hasPerforation()) {
+            ld.setPerforation(false);
+            ModItems.setPerforationPacked(ld, false);
+            int maxBandageThresh = ModItems.safeCfgInt(MedicalConfig.BANDAGE_MAX_BLEEDING_THRESHOLD, 500);
+            if (ld.getBleeding() <= maxBandageThresh) {
+                ld.setBleeding(0);
+            } else {
+                ld.setBleeding(Math.round(ld.getBleeding() * 0.45f));
+            }
+            if (ModItems.getTourniquetClampedBleed(ld) > 0 && ModItems.getTourniquetClampedBleed(ld) <= maxBandageThresh) {
+                ModItems.setTourniquetClampedBleed(ld, 0);
+            }
+            ld.setInternalBleedingRate(Math.max(0, Math.round(ld.getInternalBleedingRate() * 0.45f)));
+            ld.setPainLevel(Math.max(0, ld.getPainLevel() - 2));
+            if (ld.getBleeding() == 0 && ModItems.getEmbeddedBulletCount(ld) == 0) {
+                ld.setOpenWound(false);
+                ld.setBandaged(true);
+            }
+            return ModItems.safeCfgInt(MedicalConfig.SUTURE_BULLET_EXTRACT_DURABILITY_COST, 15);
+        }
         return 0;
     }
 
@@ -1658,6 +1865,22 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
         } else if (isFasciotomyKitItem(stack)) {
             matchedTag = true;
             int cost = applyFasciotomyKitAction(player, data, limb, ld, stack, requestedDoseUnits);
+            if (cost == UNBIND_NO_COST_SIGNAL) {
+                unbindNoCost = true;
+            } else {
+                totalDurabilityCost = cost;
+            }
+        } else if (isBallisticExtractionKitItem(stack)) {
+            matchedTag = true;
+            int cost = applyBallisticExtractionKitAction(player, data, limb, ld, stack, requestedDoseUnits);
+            if (cost == UNBIND_NO_COST_SIGNAL) {
+                unbindNoCost = true;
+            } else {
+                totalDurabilityCost = cost;
+            }
+        } else if (isPerforationRepairKitItem(stack)) {
+            matchedTag = true;
+            int cost = applyPerforationRepairKitAction(player, data, limb, ld, stack, requestedDoseUnits);
             if (cost == UNBIND_NO_COST_SIGNAL) {
                 unbindNoCost = true;
             } else {

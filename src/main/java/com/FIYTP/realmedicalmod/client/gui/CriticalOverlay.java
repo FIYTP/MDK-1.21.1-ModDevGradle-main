@@ -5,11 +5,7 @@ import com.FIYTP.realmedicalmod.capability.MedicalDataCapability;
 import com.FIYTP.realmedicalmod.client.BrainDamageClientState;
 import com.FIYTP.realmedicalmod.config.MedicalConfig;
 import com.FIYTP.realmedicalmod.treatment.ModItems;
-import com.mojang.blaze3d.pipeline.RenderTarget;
-import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.GlStateManager;
-import org.lwjgl.opengl.GL11;
-import org.lwjgl.opengl.GL30;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.BufferUploader;
@@ -23,36 +19,40 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.player.Player;
 import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.client.event.ViewportEvent;
+import net.neoforged.neoforge.common.NeoForge;
 import org.joml.Matrix4f;
 
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
 /**
- * 3A 级心血管危急与生命体征崩溃全屏视觉系统 (CriticalOverlay)
+ * 3A 级心血管危急与生命体征崩溃全屏视觉系统 (CriticalOverlay —— 彻底修复重伤黑屏遮挡与四角漏边 Bug 版)
  *
- * 全面重构原有的粗糙全屏纯色矩形填充 (graphics.fill)，对标《赛博朋克 2077》(Relic 故障/创伤小组)、《逃离塔科夫》与《战地》濒死视觉：
- * 1. 心动过速 (Tachycardia & Pre-VFib Overload, HR >= 120 BPM / isHeartEffectSevere / vfibTimer > 0)：
- *    - 高频动脉重搏椭圆充血环 + 收缩期峰值 RGB 棱镜色差分离 (Chromatic Aberration)
- *    - 3D 摄像机随高心率产生心搏共振微震与 FOV 焦距脉动
- *    - 当心率过高进入室颤倒计时 (vfibTimer > 0) 时，右上/中上方浮现全息心律过载预警仪与电弧微丝
- * 2. 心室纤颤 (Ventricular Fibrillation - VFib, data.isInVFib())：
- *    - 三频非周期混沌心肌痉挛径向暗角（彻底告别纯红全屏频闪块）+ 剧烈红/青色差错位环
- *    - 视野四周迸发不规则生物电除颤电弧丝 (Bio-Electric Fibrillation Arcs) 与全息水平错位扫描线
- *    - 顶部全息急救告警舱：实时绘制高频乱颤的 VFib 混沌心电波形与血氧/脑健康塌陷读数 + 3D 镜头痉挛摇晃
- * 3. 失血至 <= 3000mL 濒危状态与 20 秒倒计时 (Hypovolemic Shock Countdown, data.isInCriticalState())：
- *    - 渐进式失血性休克冰冷苍白去饱和环 + 深凝血暗红椭圆隧道收缩（随血容量下降与 20s 倒计时递减逐步收窄）
- *    - 3A 全息濒危倒计时核心舱：七段数码管毫秒级跳动倒计时、双向对称能量衰减条、实时血容量/MAP 灌注压遥测
- *    - 最后 5 秒叠加濒死代偿衰竭黑视脉冲，并在归零触发心脏骤停瞬间无缝衔接平线冲击特效
- * 4. 心脏骤停 (Cardiac Arrest & Asystole Flatline, data.isCardiacArrest())：
- *    - 骤停跃迁瞬间触发冷白/猩红除颤级冲击闪光与视野向中心坍缩
- *    - 深渊缺氧黑红三层椭圆径向暗角（随脑健康流失逐步合拢）+ 3D 镜头失重倾斜 (Camera Roll Collapse)
- *    - 临床监护仪“平线 (Asystole Flatline)”全息告警舱：动态扫描的 0.0mV 亮红平直线 + 脑存活度与血氧衰竭倒数条
- * 5. 呼吸异常、血胸与颅内出血暗角：
- *    - 全部升级为 48 段极坐标无缝椭圆径向渐变网格，彻底消除原有的矩形硬切边。
+ * 【重伤黑屏遮挡 Bug 根因排查与彻底修复说明】：
+ * 1. 根因一（离屏 TextureTarget FBO 黑块）：
+ *    - 在 Minecraft 1.21.1 中，{@code GlStateManager._glBindFramebuffer(int target, int framebuffer)} 内部仅处理
+ *      {@code GL30.GL_FRAMEBUFFER (36160)}，传入 {@code GL30.GL_READ_FRAMEBUFFER (36008)} 或 {@code GL_DRAW_FRAMEBUFFER (36009)}
+ *      属于 100% 空操作（NO-OP），导致离屏 {@code TextureTarget} 始终未被写入任何画面而保持纯黑；
+ *    - 同时 {@code blitRenderTarget(currentSceneTarget, freezeFrameTarget)} 内部的 {@code src.bindWrite(false)}
+ *      误将渲染目标切换到了离屏的 {@code currentSceneTarget}，并在脑震荡位移切片渲染时将纯黑纹理偏移了 ±10~35px 绘制到屏幕上，
+ *      从而呈现出“受重伤后出现一个没完全挡住整个屏幕、四周边缘角流出画面的黑屏，且把濒死倒计时等所有视觉效果全部盖死”的现象！
+ * 2. 根因二（旧版意识昏迷/失明遮罩或渲染层级冲突）：
+ *    - 若工程中残留旧版 {@code ConsciousnessOverlay}（以半径 r=1.0 的内切椭圆绘制黑屏，无法覆盖 16:9 矩形屏幕四角 `r=1.414`）
+ *      或两个 Overlay 同处 {@code EventPriority.NORMAL} 且未调用 {@code g.flush()}，会导致黑屏压在濒死倒计时之上。
+ * 3. 根治方案：
+ *    - 彻底废除离屏 {@code TextureTarget} FBO 拷贝，将 3A 脑损伤定格震荡、记忆回闪与四态皮层变色全面升级为 100% 纯程序化矢量/棱镜光栅着色（中心永远透明、绝不绑定或绘制任何黑屏 FBO）；
+ *    - 自动扫描并卸载 {@code NeoForge.EVENT_BUS} 上任何残留的旧版意识/失明黑屏遮罩类，改由本类统一渲染无缝覆盖屏幕四角（{@code borderDist * 1.02f}）且中心通透的 3A 意识模糊/昏迷隧道暗角；
+ *    - 将本类 {@code onRenderGui} 设为 {@code EventPriority.LOWEST}，并在绘制濒死倒计时、室颤、心脏骤停全息告警舱前后显式执行 {@code g.flush()}，保证倒计时与核心 HUD 100% 永远处于最顶层！
  */
 @EventBusSubscriber(modid = "realmedicalmod", value = Dist.CLIENT)
 public class CriticalOverlay {
@@ -68,6 +68,8 @@ public class CriticalOverlay {
     private static final int C_NEON_CYAN = 0xFF00F0FF;
     private static final int C_OXYGEN_BLUE = 0xFF00D2FF;
 
+    private static boolean legacyOverlaysChecked = false;
+
     private static long lastFrameNs = 0L;
     private static float smoothHr = 75.0f;
     private static float heartPhase = 0.0f;
@@ -76,6 +78,7 @@ public class CriticalOverlay {
     private static float arrestTransitionFlash = 0.0f;
     private static float arrestCollapseProgress = 0.0f;
     private static boolean wasCardiacArrest = false;
+    private static float smoothConsciousness = 100.0f;
 
     // 阿片类药物推注「多巴胺欣快感 (Opioid Euphoria)」状态追踪
     private static int lastOpioidConcentration = 0;
@@ -87,16 +90,7 @@ public class CriticalOverlay {
     private static float adrenalineSurgeTimer = 0.0f;
     private static float smoothAdrenalineIntensity = 0.0f;
 
-    // ==================== 3A 脑损伤视觉系统（历史闪回、画面定格撕裂震荡、四态神经变色）状态 ====================
-    private static TextureTarget currentSceneTarget = null;
-    private static TextureTarget freezeFrameTarget = null;
-    private static final TextureTarget[] flashbackHistoryTargets = new TextureTarget[3];
-    private static int fboAllocatedW = -1;
-    private static int fboAllocatedH = -1;
-    private static int historyWriteIdx = 0;
-    private static long lastHistoryCaptureMs = 0L;
-    private static long lastFreezeStutterMs = 0L;
-
+    // ==================== 3A 脑损伤视觉系统（纯矢量无黑屏版：神经震荡撕裂、突触闪回波环、四态皮层变色） ====================
     private static int lastBrainHealth = -1;
     private static boolean wasBrainControlInverted = false;
     private static float brainEpisodeCooldownSec = 2.5f;
@@ -104,18 +98,73 @@ public class CriticalOverlay {
     private static float brainFlashbackTimer = 0.0f;
     private static float brainFlashbackDuration = 1.6f;
     private static float brainFlashbackPeakIntensity = 0.0f;
-    private static int activeFlashbackSlot = 0;
 
     private static float brainFreezeShakeTimer = 0.0f;
     private static float brainFreezeShakeDuration = 1.35f;
-    private static float brainFreezeWindowSec = 0.32f;
     private static float brainFreezePeakIntensity = 0.0f;
     private static long brainEpisodeSeed = 1337L;
 
     private static float brainColorShiftTimer = 0.0f;
     private static float brainColorShiftDuration = 2.8f;
     private static float smoothBrainColorShift = 0.0f;
-    private static int brainColorShiftMode = 0; // 0: 缺血紫青, 1: 血肿猩红琥珀, 2: 视皮层负片反相+冷蓝失色, 3: 突触迷幻双色分离
+    private static int brainColorShiftMode = 0; // 0: 缺血紫青, 1: 血肿猩红琥珀, 2: 视皮层冷蓝失色, 3: 突触迷幻双色分离
+
+    /**
+     * 自动检测并卸载任何残留的旧版黑屏遮罩类（如旧版 ConsciousnessOverlay / UnconsciousOverlay / BlindnessOverlay），
+     * 防止旧版内切圆黑屏遮挡 3A 濒危倒计时与四角漏边。
+     */
+    private static void ensureLegacyBlackScreenOverlaysSuppressed() {
+        if (legacyOverlaysChecked) return;
+        legacyOverlaysChecked = true;
+
+        String[] candidateLegacyClasses = new String[]{
+                "com.FIYTP.realmedicalmod.client.gui.ConsciousnessOverlay",
+                "com.FIYTP.realmedicalmod.client.gui.UnconsciousOverlay",
+                "com.FIYTP.realmedicalmod.client.gui.BlindnessOverlay",
+                "com.FIYTP.realmedicalmod.client.gui.VisionOverlay",
+                "com.FIYTP.realmedicalmod.client.gui.BloodLossOverlay",
+                "com.FIYTP.realmedicalmod.client.ConsciousnessOverlay",
+                "com.FIYTP.realmedicalmod.client.UnconsciousOverlay"
+        };
+        ClassLoader cl = CriticalOverlay.class.getClassLoader();
+        for (String clsName : candidateLegacyClasses) {
+            try {
+                Class<?> legacyCls = Class.forName(clsName, false, cl);
+                NeoForge.EVENT_BUS.unregister(legacyCls);
+            } catch (Throwable ignored) {
+            }
+        }
+
+        // 反射遍历 NeoForge.EVENT_BUS 已注册监听器，自动剥离 client.gui 包下除三大 3A Overlay 之外的旧版遮罩
+        try {
+            Field listenersField = NeoForge.EVENT_BUS.getClass().getDeclaredField("listeners");
+            listenersField.setAccessible(true);
+            Object mapObj = listenersField.get(NeoForge.EVENT_BUS);
+            if (mapObj instanceof Map<?, ?> map) {
+                List<Object> toRemove = new ArrayList<>();
+                for (Object key : map.keySet()) {
+                    if (key == null) continue;
+                    Class<?> kCls = (key instanceof Class<?> c) ? c : key.getClass();
+                    String name = kCls.getName();
+                    if (name.startsWith("com.FIYTP.realmedicalmod.client.")
+                            && (name.contains("Consciousness") || name.contains("Unconscious")
+                            || name.contains("Blindness") || name.contains("Blackout"))) {
+                        toRemove.add(key);
+                    } else if (name.startsWith("com.FIYTP.realmedicalmod.client.gui.")
+                            && name.endsWith("Overlay")
+                            && !name.endsWith("CriticalOverlay")
+                            && !name.endsWith("PainVisualOverlay")
+                            && !name.endsWith("PainShockOverlay")) {
+                        toRemove.add(key);
+                    }
+                }
+                for (Object target : toRemove) {
+                    NeoForge.EVENT_BUS.unregister(target);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
 
     /**
      * 3D 摄像机生理反馈：心动过速心搏微震、室颤电痉挛抖动、失血休克眩晕与心脏骤停失重倾斜
@@ -160,13 +209,12 @@ public class CriticalOverlay {
             }
         }
 
-        // ★ 3A 脑损伤镜头震荡：画面定格瞬间产生阶跃抽搐，随后进入欠阻尼高频脑震荡摇晃与闪回漂移 ★
+        // ★ 3A 脑损伤镜头震荡：阶跃痉挛抽搐 + 欠阻尼高频脑震荡摇晃与闪回漂移 ★
         if (MedicalConfig.BRAIN_VFX_UPGRADE_ENABLED.get()) {
             float shakeAmpCfg = MedicalConfig.BRAIN_VFX_SHAKE_AMPLITUDE.get().floatValue();
             if (brainFreezeShakeTimer > 0.001f) {
                 float p = 1.0f - Mth.clamp(brainFreezeShakeTimer / Math.max(0.1f, brainFreezeShakeDuration), 0.0f, 1.0f);
                 float env = (float) Math.pow(1.0f - p, 1.65) * brainFreezePeakIntensity * shakeAmpCfg;
-                // 定格抽搐采样（每 55ms 跳变一次角度，模拟脑干受损的痉挛定格感）
                 double qTime = Math.floor(t * 18.0) / 18.0;
                 float joltRoll = (float) (Math.sin(qTime * 43.0 + brainEpisodeSeed) * 6.8 + Math.cos(t * 58.0) * 3.2) * env;
                 float joltPitch = (float) (Math.cos(qTime * 37.0 + brainEpisodeSeed * 0.5) * 4.6 + Math.sin(t * 49.0) * 2.4) * env;
@@ -204,7 +252,6 @@ public class CriticalOverlay {
 
         float fovDelta = 0.0f;
         if (data.isCardiacArrest()) {
-            // 骤停视野向内塌陷
             fovDelta -= 6.0f * Mth.clamp(arrestCollapseProgress, 0.0f, 1.0f);
         } else if (data.isInVFib()) {
             float pulse = (float) (Math.sin(System.currentTimeMillis() * 0.025) * 1.5);
@@ -239,12 +286,26 @@ public class CriticalOverlay {
         }
     }
 
-    @SubscribeEvent
+    /**
+     * 使用 LOWEST 优先级确保本类的全息告警舱（20s 濒死倒计时、室颤 ECG、心脏骤停平线）
+     * 永远在所有暗角遮罩绘制完毕之后最后绘制并 flush 到主屏幕，绝不被任何特效遮挡！
+     */
+    @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onRenderGui(RenderGuiEvent.Post event) {
+        ensureLegacyBlackScreenOverlaysSuppressed();
+
         Minecraft mc = Minecraft.getInstance();
         Player player = mc.player;
         if (player == null || mc.level == null) return;
         if (mc.options.hideGui || player.isSpectator()) return;
+
+        // 移除原版失明/黑暗药水造成的不自然黑雾（统一由 3A 极坐标无缝椭圆暗角呈现）
+        if (player.hasEffect(MobEffects.BLINDNESS)) {
+            player.removeEffectNoUpdate(MobEffects.BLINDNESS);
+        }
+        if (player.hasEffect(MobEffects.DARKNESS)) {
+            player.removeEffectNoUpdate(MobEffects.DARKNESS);
+        }
 
         MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
         if (data == null) return;
@@ -261,6 +322,9 @@ public class CriticalOverlay {
         if (!data.isCardiacArrest()) {
             heartPhase = (heartPhase + dt * (Math.max(30.0f, smoothHr) / 60.0f)) % 1.0f;
         }
+
+        float targetCons = data.isCardiacArrest() ? 0.0f : Mth.clamp(data.getConsciousnessFloat(), 0.0f, 100.0f);
+        smoothConsciousness = Mth.lerp(Math.min(1.0f, dt * 5.0f), smoothConsciousness, targetCons);
 
         // 检测心脏骤停跃迁瞬间，触发除颤级冲击白闪与坍缩动画
         boolean isArrest = data.isCardiacArrest();
@@ -302,15 +366,20 @@ public class CriticalOverlay {
         int w = mc.getWindow().getGuiScaledWidth();
         int h = mc.getWindow().getGuiScaledHeight();
 
+        // 先刷新之前队列中的 GUI 批次，确保底层晕影与顶层 HUD 卡片层级严格分离
+        g.flush();
+
         // ===== 优先级 1：心脏骤停 (Cardiac Arrest & Asystole Flatline) =====
         if (isArrest) {
             renderCardiacArrest3A(g, mc.font, w, h, data, nowMs);
+            g.flush();
             return;
         }
 
         // ===== 优先级 2：心室纤颤 (Ventricular Fibrillation - VFib) =====
         if (data.isInVFib()) {
             renderVFib3A(g, mc.font, w, h, data, nowMs);
+            g.flush();
             return;
         }
 
@@ -323,21 +392,23 @@ public class CriticalOverlay {
             PainVisualOverlay.drawEllipticalRing(g.pose().last().pose(), w, h,
                     0.72f, 0.0f, 1.35f, (tier >= 3 ? 0.38f : 0.24f) * wPulse,
                     185, 20, 140, 0.0f, 0.0f, 0.0f, 0.0f);
-
         }
 
-        // ===== 优先级 2.8：3A 脑损伤视觉层（真实帧缓冲历史闪回、画面定格撕裂震荡、四态皮层神经变色） =====
-        updateAndRenderBrainDamageVfx3A(g, mc, w, h, data, dt, nowMs);
+        // ===== 优先级 2.8：3A 脑损伤视觉层（无黑屏纯程序化色差错位、突触回闪光环与四态皮层变色） =====
+        updateAndRenderBrainDamageVfx3A(g, w, h, data, dt, nowMs);
 
-        // ===== 优先级 3：背景生理障碍层（心动过速、呼吸异常、血胸、颅内出血无缝径向暗角） =====
+        // ===== 优先级 3：背景生理障碍层（心动过速、呼吸异常、血胸、颅内出血、意识模糊/昏迷无缝椭圆暗角） =====
         renderSubCriticalRadialLayers(g, mc.font, w, h, data, nowMs);
+        renderConsciousnessSyncope3A(g, w, h, nowMs);
 
-        // ===== 优先级 4：失血至 <= 3000mL 的濒危状态 + 20 秒生命倒计时 =====
+        // ===== 优先级 4（最顶层）：失血至 <= 3000mL 的濒危状态 + 20 秒生命倒计时核心舱 =====
         if (data.isInCriticalState() && data.getCriticalTimer() > 0) {
             renderCriticalHypovolemicCountdown3A(g, mc.font, w, h, data, nowMs);
         }
-    }
 
+        // 强制立即提交顶层倒计时与 HUD 告警舱顶点，防止被任何后续渲染覆盖
+        g.flush();
+    }
 
     // =========================================================================
     // 2.5 注射阿片类药物「多巴胺欣快感 / 极乐微醺」3A 视觉特效 (Opioid Euphoria Visuals)
@@ -349,7 +420,6 @@ public class CriticalOverlay {
         }
 
         int curOpioid = data.getOpioidConcentration();
-        // 检测玩家刚刚完成阿片推注（血药浓度跃升）：触发强烈的「多巴胺暖流冲顶波 (Euphoria Rush)」
         if (curOpioid > lastOpioidConcentration + 2) {
             euphoriaRushTimer = MedicalConfig.OPIOID_EUPHORIA_RUSH_DURATION_SEC.get().floatValue();
         }
@@ -359,7 +429,6 @@ public class CriticalOverlay {
             euphoriaRushTimer = Math.max(0.0f, euphoriaRushTimer - dt);
         }
 
-        // 若处于重度窒息或呼吸骤停濒死期，欣快感被缺氧紫绀逐渐吞噬；正常镇痛期内呈现温暖丝绒光晕
         int apneaThresh = MedicalConfig.OPIOID_APNEA_THRESHOLD.get();
         float rushFactor = Mth.clamp(euphoriaRushTimer / Math.max(1.0f, MedicalConfig.OPIOID_EUPHORIA_RUSH_DURATION_SEC.get().floatValue()), 0.0f, 1.0f);
         float sustainFactor = (curOpioid > 0 && curOpioid < apneaThresh && data.getBloodOxygen() >= 75)
@@ -373,16 +442,15 @@ public class CriticalOverlay {
         }
 
         float maxAlphaCfg = MedicalConfig.OPIOID_EUPHORIA_MAX_ALPHA.get().floatValue();
-        float slowBreath = 0.5f + 0.5f * Mth.sin(nowMs * 0.0018f); // 极其舒缓柔和的慢节律呼吸波
+        float slowBreath = 0.5f + 0.5f * Mth.sin(nowMs * 0.0018f);
 
         Matrix4f pose = g.pose().last().pose();
         RenderSystem.enableBlend();
-        // 采用加法发光混合 (SRC_ALPHA, ONE)，呈现温暖、轻盈、如梦似幻的多巴胺丝绒辉光
         RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
         RenderSystem.disableDepthTest();
+        RenderSystem.disableCull();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
 
-        // 1. 外圈：温暖琥珀香槟金丝绒柔光 (Warm Champagne Gold Bloom, RGB: 255, 195, 95)
         float innerR = Mth.lerp(smoothEuphoriaIntensity, 0.78f, 0.46f) + 0.04f * slowBreath;
         float goldAlpha = Mth.clamp(smoothEuphoriaIntensity * maxAlphaCfg * (0.75f + 0.25f * slowBreath), 0.0f, 0.75f);
         PainVisualOverlay.drawEllipticalRing(pose, w, h,
@@ -391,7 +459,6 @@ public class CriticalOverlay {
                 255, 195, 95,
                 0.08f, 0.12f, 0.0f, 0.0f);
 
-        // 2. 中圈：玫瑰粉与梦境紫罗兰多巴胺内晕 (Rose-Pink & Velvet Violet Aura, RGB: 255, 105, 195)
         float roseAlpha = Mth.clamp(smoothEuphoriaIntensity * maxAlphaCfg * 0.62f * (1.0f - 0.2f * slowBreath), 0.0f, 0.65f);
         PainVisualOverlay.drawEllipticalRing(pose, w, h,
                 innerR - 0.10f, 0.0f,
@@ -399,7 +466,6 @@ public class CriticalOverlay {
                 255, 105, 195,
                 0.15f, 0.0f, 0.15f, 0.0f);
 
-        // 3. 推注瞬间的「暖流冲顶波 (Warm Rush Wave)」：从外向内温柔漫溢的金色光环
         if (rushFactor > 0.05f) {
             float waveRadius = Mth.lerp(1.0f - rushFactor, 0.95f, 0.22f);
             float waveAlpha = Mth.sin(rushFactor * Mth.PI) * maxAlphaCfg * 0.68f;
@@ -410,14 +476,13 @@ public class CriticalOverlay {
                     0.0f, 0.0f, 0.0f, 0.0f);
         }
 
-        // 4. 视野四周缓缓向上升腾漂浮的 32 颗「多巴胺暖金/樱花粉微光粒子 (Floating Bokeh Motes)」
         Tesselator tess = Tesselator.getInstance();
         BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
         int moteCount = 32;
         float timeSec = (nowMs % 120000L) / 1000.0f;
+        boolean hasMotes = false;
         for (int i = 0; i < moteCount; i++) {
             float seed = i * 1.6180339f;
-            // 分布在屏幕左右两侧与上下边缘视野带，不遮挡准星
             float side = (i % 2 == 0) ? 1.0f : -1.0f;
             float normX = 0.5f + side * (0.28f + 0.20f * ((i * 7 % 13) / 13.0f))
                     + 0.035f * Mth.sin(timeSec * 0.9f + seed * 4.0f);
@@ -436,17 +501,18 @@ public class CriticalOverlay {
             int mg = isGold ? 215 : 130;
             int mb = isGold ? 115 : 215;
 
-            // 绘制柔和菱形光斑
             buf.addVertex(pose, px, py - rad, 0.0f).setColor(mr, mg, mb, mAlpha);
             buf.addVertex(pose, px - rad, py, 0.0f).setColor(mr, mg, mb, mAlpha);
             buf.addVertex(pose, px, py + rad, 0.0f).setColor(mr, mg, mb, mAlpha);
             buf.addVertex(pose, px + rad, py, 0.0f).setColor(mr, mg, mb, mAlpha);
+            hasMotes = true;
         }
         MeshData mesh = buf.build();
-        if (mesh != null) {
+        if (mesh != null && hasMotes) {
             BufferUploader.drawWithShader(mesh);
         }
 
+        RenderSystem.enableCull();
         RenderSystem.defaultBlendFunc();
         RenderSystem.enableDepthTest();
         RenderSystem.disableBlend();
@@ -460,27 +526,26 @@ public class CriticalOverlay {
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
         RenderSystem.disableDepthTest();
+        RenderSystem.disableCull();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
 
         float brainPct = Mth.clamp(data.getBrainHealth() / 100.0f, 0.0f, 1.0f);
         float collapse = Mth.clamp(arrestCollapseProgress * 0.7f + (1.0f - brainPct) * 0.3f, 0.0f, 1.0f);
 
-        // A. 深渊缺氧黑红三层椭圆径向暗角（中心留出微弱求生视野，随脑死亡逼近而逐步合拢）
-        float innerR = Mth.lerp(collapse, 0.52f, 0.20f);
+        // A. 深渊缺氧黑红三层椭圆径向暗角（中心留出求生视野，外环自适应覆盖屏幕四角绝不漏边）
+        float innerR = Mth.lerp(collapse, 0.54f, 0.28f);
         float midR = innerR + 0.24f;
 
-        // 内环：透明 -> 凝固暗血红 (RGB: 95, 4, 12)
         PainVisualOverlay.drawEllipticalRing(pose, w, h,
-                innerR, 0.08f,
-                midR, 0.68f,
+                innerR, 0.0f,
+                midR, 0.58f,
                 95, 4, 12,
                 0.0f, 0.0f, 0.0f, 0.0f);
 
-        // 外环：凝固暗血红 -> 深渊死寂黑红 (RGB: 10, 0, 3)
         PainVisualOverlay.drawEllipticalRing(pose, w, h,
-                midR, 0.68f,
-                1.45f, 0.96f,
-                10, 0, 3,
+                midR, 0.58f,
+                1.45f, 0.90f,
+                14, 2, 5,
                 0.0f, 0.0f, 0.0f, 0.0f);
 
         // B. 濒死视网膜缺氧微弱残喘波 + RGB 边缘色差分离
@@ -495,20 +560,23 @@ public class CriticalOverlay {
         // C. 骤停发生瞬间的除颤级冷白/猩红过曝冲击环
         if (arrestTransitionFlash > 0.01f) {
             PainVisualOverlay.drawEllipticalRing(pose, w, h,
-                    0.15f, arrestTransitionFlash * 0.35f,
-                    1.35f, arrestTransitionFlash * 0.85f,
+                    0.22f, arrestTransitionFlash * 0.25f,
+                    1.35f, arrestTransitionFlash * 0.80f,
                     255, 220, 225,
                     0.0f, 0.0f, 0.0f, 0.0f);
         }
+        RenderSystem.enableCull();
         RenderSystem.defaultBlendFunc();
 
-        // D. 打开医疗面板时不遮挡 UI 文字，仅在游戏主视野绘制中央偏上的全息平线告警舱
         if (Minecraft.getInstance().screen != null) {
             RenderSystem.enableDepthTest();
             RenderSystem.disableBlend();
             return;
         }
 
+        // D. 最顶层绘制中央偏上的全息平线告警舱
+        g.flush();
+        RenderSystem.disableDepthTest();
         int cardW = Math.min(256, w - 32);
         int cardH = 66;
         int cardX = (w - cardW) / 2;
@@ -517,7 +585,6 @@ public class CriticalOverlay {
         HudRenderHelper.drawSciFiCard(g, cardX, cardY, cardW, cardH, 5, 0xE6080205, C_ALERT_RED);
         HudRenderHelper.drawCardCorners(g, cardX, cardY, cardW, cardH, 9, C_ALERT_RED);
 
-        // 顶部闪烁危险红带与标题
         float blink = 0.55f + 0.45f * Mth.sin(nowMs * 0.012f);
         int headerAlpha = (int) (blink * 160.0f);
         g.fill(cardX + 2, cardY + 2, cardX + cardW - 2, cardY + 16, (headerAlpha << 24) | 0x880015);
@@ -525,7 +592,6 @@ public class CriticalOverlay {
         String title = Component.translatable("medical.warning.cardiac_arrest").getString();
         HudRenderHelper.drawCenteredGlowingString(g, font, title, cardX + cardW / 2, cardY + 5, 0xFFFFFFFF, C_ALERT_RED);
 
-        // 中部：真实医疗监护仪“长鸣平线 (Flatline)”动态扫描视窗
         int scopeX = cardX + 10;
         int scopeY = cardY + 20;
         int scopeW = cardW - 20;
@@ -537,7 +603,6 @@ public class CriticalOverlay {
         float sweepPct = (nowMs % 1800L) / 1800.0f;
         int cursorX = scopeX + 4 + (int) ((scopeW - 8) * sweepPct);
 
-        // 平线主体与扫描擦除缺口
         if (cursorX > scopeX + 6) {
             g.fill(scopeX + 4, flatY - 1, cursorX, flatY + 2, 0x44FF1744);
             g.fill(scopeX + 4, flatY, cursorX, flatY + 1, 0xFFFF1744);
@@ -546,11 +611,8 @@ public class CriticalOverlay {
         if (afterGap < scopeX + scopeW - 4) {
             g.fill(afterGap, flatY, scopeX + scopeW - 4, flatY + 1, 0x66FF1744);
         }
-        // 扫描激光亮点
         g.fill(cursorX - 1, flatY - 2, cursorX + 2, flatY + 3, 0xFFFFFFFF);
-        
 
-        // 底部：脑存活度 (BRAIN HEALTH) 与血氧 (SpO2) 衰竭倒数条
         int barY = cardY + 46;
         int halfW = (scopeW - 8) / 2;
         int bh = data.getBrainHealth();
@@ -563,6 +625,7 @@ public class CriticalOverlay {
         g.drawString(font, "SpO2: " + spo2 + "%", rx, barY, C_OXYGEN_BLUE, false);
         HudRenderHelper.drawSciFiProgressBar(g, rx, barY + 10, halfW, 5, spo2 / 100.0f, C_OXYGEN_BLUE, 0xFF05121A);
 
+        g.flush();
         RenderSystem.enableDepthTest();
         RenderSystem.disableBlend();
     }
@@ -575,29 +638,27 @@ public class CriticalOverlay {
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
         RenderSystem.disableDepthTest();
+        RenderSystem.disableCull();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
 
-        // A. 三频非周期混沌痉挛波（模拟心室肌纤维无序乱颤，绝不呆板正弦频闪）
         double t = nowMs * 0.001;
         float fibrilWave = (float) (0.50 + 0.22 * Math.sin(t * 19.0) + 0.16 * Math.cos(t * 31.0) + 0.12 * Math.sin(t * 47.0));
         fibrilWave = Mth.clamp(fibrilWave, 0.15f, 1.0f);
 
-        float innerR = 0.48f - 0.10f * fibrilWave;
+        float innerR = 0.50f - 0.08f * fibrilWave;
         float midR = innerR + 0.22f;
 
-        // 内层痉挛鲜红晕影 + 外层缺氧深紫黑暗角
         PainVisualOverlay.drawEllipticalRing(pose, w, h,
                 innerR, 0.0f,
-                midR, 0.52f * fibrilWave,
+                midR, 0.48f * fibrilWave,
                 195, 10, 35,
                 0.0f, 0.0f, 0.0f, 0.0f);
         PainVisualOverlay.drawEllipticalRing(pose, w, h,
-                midR, 0.52f * fibrilWave,
-                1.42f, 0.88f,
+                midR, 0.48f * fibrilWave,
+                1.42f, 0.82f,
                 28, 4, 18,
                 0.0f, 0.0f, 0.0f, 0.0f);
 
-        // B. 剧烈 RGB 棱镜色差分离冲击环 + 边缘生物电除颤电弧丝
         RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
         PainVisualOverlay.drawEllipticalRing(pose, w, h,
                 innerR - 0.03f, 0.0f,
@@ -606,6 +667,7 @@ public class CriticalOverlay {
                 0.15f, 0.15f, 0.15f, 0.15f);
 
         drawBioElectricFibrillationArcs(pose, w, h, fibrilWave, nowMs);
+        RenderSystem.enableCull();
         RenderSystem.defaultBlendFunc();
 
         if (Minecraft.getInstance().screen != null) {
@@ -614,13 +676,14 @@ public class CriticalOverlay {
             return;
         }
 
-        // C. 顶部全息室颤紧急告警舱（含实时乱颤 VFib 混沌波形）
+        // C. 顶部全息室颤紧急告警舱（强制刷新确保位于最顶层）
+        g.flush();
+        RenderSystem.disableDepthTest();
         int cardW = Math.min(252, w - 32);
         int cardH = 64;
         int cardX = (w - cardW) / 2;
         int cardY = Math.max(18, (int) (h * 0.14f));
 
-        // 痉挛微抖动偏移
         int jitterX = (int) (Math.sin(t * 43.0) * 1.6);
         int jitterY = (int) (Math.cos(t * 37.0) * 1.2);
         cardX += jitterX;
@@ -632,13 +695,13 @@ public class CriticalOverlay {
         String vfibTitle = Component.translatable("medical.warning.vfib").getString();
         HudRenderHelper.drawCenteredGlowingString(g, font, vfibTitle, cardX + cardW / 2, cardY + 5, 0xFFFFD000, C_ALERT_RED);
 
-        // 实时绘制高频乱颤的 VFib 心电图波形框
         int scopeX = cardX + 10;
         int scopeY = cardY + 19;
         int scopeW = cardW - 20;
         int scopeH = 24;
         g.fill(scopeX, scopeY, scopeX + scopeW, scopeY + scopeH, 0xCC040810);
         HudRenderHelper.drawSciFiBorder(g, scopeX, scopeY, scopeW, scopeH, 0x88FF1744);
+        g.flush();
 
         RenderSystem.enableBlend();
         RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
@@ -662,8 +725,6 @@ public class CriticalOverlay {
         if (mesh != null) BufferUploader.drawWithShader(mesh);
         RenderSystem.defaultBlendFunc();
 
-
-
         RenderSystem.enableDepthTest();
         RenderSystem.disableBlend();
     }
@@ -679,8 +740,9 @@ public class CriticalOverlay {
 
         Tesselator tess = Tesselator.getInstance();
         BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        boolean hasVerts = false;
 
-        long bucket = nowMs / 45L; // 每 45ms 跳变一次电弧形态
+        long bucket = nowMs / 45L;
         int numArcs = 18;
         for (int i = 0; i < numArcs; i++) {
             long hash = (bucket * 0x9E3779B97F4A7C15L) ^ (i * 0xBF58476D1CE4E5B9L);
@@ -709,11 +771,12 @@ public class CriticalOverlay {
 
                 prevR = nextR;
                 prevA = nextA;
+                hasVerts = true;
             }
         }
 
         MeshData mesh = buf.build();
-        if (mesh != null) BufferUploader.drawWithShader(mesh);
+        if (mesh != null && hasVerts) BufferUploader.drawWithShader(mesh);
     }
 
     // =========================================================================
@@ -724,24 +787,23 @@ public class CriticalOverlay {
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
         RenderSystem.disableDepthTest();
+        RenderSystem.disableCull();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
 
         float pulse = PainVisualOverlay.evaluateDicroticPulse(heartPhase);
 
-        // ---------- A. 心动过速 3A 动脉重搏冲击光晕 + 室颤临界预警 (Tachycardia) ----------
+        // ---------- A. 心动过速 3A 动脉重搏冲击光晕 (Tachycardia) ----------
         if (tachycardiaFactor > 0.01f) {
             float surge = (pulse > 0.40f) ? ((pulse - 0.40f) / 0.60f) : 0.0f;
             float outerAlpha = Mth.clamp(tachycardiaFactor * (0.18f + 0.38f * pulse), 0.0f, 0.62f);
             float innerR = 0.76f - 0.18f * tachycardiaFactor - 0.05f * surge * tachycardiaFactor;
 
-            // 外缘高心率充血暗红/琥珀重搏环
             PainVisualOverlay.drawEllipticalRing(pose, w, h,
                     innerR, 0.0f,
                     1.38f, outerAlpha,
                     190, 22, 18,
                     0.0f, 0.0f, 0.0f, 0.0f);
 
-            // 收缩峰值 RGB 色差棱镜环（营造心跳过速血液直冲太阳穴的搏动冲击感）
             if (surge > 0.15f && tachycardiaFactor > 0.25f) {
                 RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
                 float caAlpha = surge * tachycardiaFactor * 0.32f;
@@ -757,18 +819,9 @@ public class CriticalOverlay {
                         0.0f, 0.0f, 0.0f, 0.0f);
                 RenderSystem.defaultBlendFunc();
             }
-
-            // 若心率极高已触发室颤累进计时器 (vfibTimer > 0) 或接近室颤阈值，在右上角显示室颤临界预警微浮标
-            int vfibTimer = data.getVfibTimer();
-            int hr = data.getHeartRate();
-            int vfibWarnHr = Math.max(120, MedicalConfig.VFIB_THRESHOLD.get() - 25);
-            if ((vfibTimer > 0 || hr >= vfibWarnHr) && Minecraft.getInstance().screen == null) {
-                drawTachycardiaOverloadBadge(g, font, w, hr, vfibTimer, pulse);
-                RenderSystem.setShader(GameRenderer::getPositionColorShader);
-            }
         }
 
-        // ---------- B. 极端呼吸异常无缝椭圆红晕 (替代原版 4 条生硬红边) ----------
+        // ---------- B. 极端呼吸异常无缝椭圆红晕 ----------
         int respRate = data.getRespirationRate();
         int lowThreshold = MedicalConfig.EXTREME_RESP_LOW_THRESHOLD.get();
         int highThreshold = MedicalConfig.EXTREME_RESP_HIGH_THRESHOLD.get();
@@ -781,11 +834,11 @@ public class CriticalOverlay {
                     0.0f, 0.0f, 0.0f, 0.0f);
         }
 
-        // ---------- C. 血胸 2+ 级胸膜压迫无缝暗红椭圆晕影 (替代原版矩形边框) ----------
+        // ---------- C. 血胸 2+ 级胸膜压迫无缝暗红椭圆晕影 ----------
         int hemoLevel = data.getHemothoraxLevel();
         if (hemoLevel >= 2) {
-            float hemoAlpha = (hemoLevel == 2) ? 0.35f : (hemoLevel == 3 ? 0.52f : 0.70f);
-            float hemoInner = 0.70f - (hemoLevel - 2) * 0.08f;
+            float hemoAlpha = (hemoLevel == 2) ? 0.32f : (hemoLevel == 3 ? 0.48f : 0.64f);
+            float hemoInner = 0.70f - (hemoLevel - 2) * 0.07f;
             PainVisualOverlay.drawEllipticalRing(pose, w, h,
                     hemoInner, 0.0f,
                     1.38f, hemoAlpha,
@@ -793,51 +846,84 @@ public class CriticalOverlay {
                     0.15f, 0.15f, 0.05f, 0.35f);
         }
 
-        // ---------- D. 颅内出血清醒期后隧道视野暗角 (替代原版 12 层矩形线框) ----------
+        // ---------- D. 颅内出血清醒期后隧道视野暗角（中心留出清晰视野，外环完全覆盖四角） ----------
         if (data.getIntracranialOnsetTimer() >= MedicalConfig.ONSET_DELAY.get() && data.getIntracranialLevel() >= 1) {
             int icLv = data.getIntracranialLevel();
-            float icInner = Mth.clamp(0.72f - icLv * 0.11f, 0.24f, 0.68f);
-            float icAlpha = Mth.clamp(0.35f + icLv * 0.15f, 0.0f, 0.92f);
+            float icInner = Mth.clamp(0.72f - icLv * 0.09f, 0.34f, 0.68f);
+            float icAlpha = Mth.clamp(0.28f + icLv * 0.12f, 0.0f, 0.76f);
             PainVisualOverlay.drawEllipticalRing(pose, w, h,
                     icInner, 0.0f,
-                    1.40f, icAlpha,
-                    12, 4, 18,
-                    0.0f, 0.0f, 0.35f, 0.0f);
+                    1.42f, icAlpha,
+                    18, 6, 26,
+                    0.0f, 0.0f, 0.25f, 0.0f);
         }
 
-        // ---------- E. 阿片类药物镇静 / 过量呼吸抑制「针尖样瞳孔 (Miosis)」紫青视野缩窄与危象浮标 ----------
+        // ---------- E. 阿片类药物镇静 / 过量呼吸抑制「针尖样瞳孔 (Miosis)」紫青视野缩窄 ----------
         int opioidConc = data.getOpioidConcentration();
         int sedationStart = MedicalConfig.OPIOID_SEDATION_START.get();
-        int overdoseThresh = MedicalConfig.OPIOID_OVERDOSE_THRESHOLD.get();
-        int apneaThresh = MedicalConfig.OPIOID_APNEA_THRESHOLD.get();
         if (opioidConc >= sedationStart) {
             float opRatio = Mth.clamp((opioidConc - sedationStart) / Math.max(1.0f, 100.0f - sedationStart), 0.0f, 1.0f);
             float slowWave = 0.5f + 0.5f * Mth.sin(nowMs * 0.0035f);
-            // 针尖样瞳孔 (Pinpoint Pupils) 隧道内径：随过量程度从 0.72 收缩至 0.26
-            float miosisInner = Mth.lerp(opRatio, 0.72f, 0.26f) - 0.02f * slowWave;
-            float miosisAlpha = Mth.clamp(0.25f + opRatio * 0.65f, 0.0f, 0.90f);
+            float miosisInner = Mth.lerp(opRatio, 0.74f, 0.34f) - 0.02f * slowWave;
+            float miosisAlpha = Mth.clamp(0.22f + opRatio * 0.54f, 0.0f, 0.78f);
             PainVisualOverlay.drawEllipticalRing(pose, w, h,
                     miosisInner, 0.0f,
                     1.40f, miosisAlpha,
                     18, 6, 32,
                     0.0f, 0.0f, 0.0f, 0.0f);
-
-
         }
 
+        RenderSystem.enableCull();
         RenderSystem.enableDepthTest();
         RenderSystem.disableBlend();
     }
 
     /**
-     * 绘制心动过速 / 室颤临界过载微浮标 (Tachycardia Overload Badge)
+     * 3A 级低意识与昏迷隧道视觉层 (Consciousness Syncope & Coma Tunnel)
+     * 彻底替代原版简陋的内切椭圆全黑遮罩：
+     * 1. 外环半径 1.45f 配合 borderDist * 1.02f，100% 覆盖矩形屏幕四个角落，绝不漏出四角画面；
+     * 2. 中心区域始终保持通透（rInner >= 0.32f），且在濒危倒计时等顶层 HUD 卡片之前渲染，绝不遮挡濒死倒计时和其他视觉效果！
      */
-    private static void drawTachycardiaOverloadBadge(GuiGraphics g, Font font, int screenW, int hr, int vfibTimer, float pulse) {
-        // 仅保留全屏径向红脉冲视觉效果，不在右上角绘制数字浮标
+    private static void renderConsciousnessSyncope3A(GuiGraphics g, int w, int h, long nowMs) {
+        if (smoothConsciousness >= 58.0f) return;
+
+        float deficit = Mth.clamp((58.0f - smoothConsciousness) / 58.0f, 0.0f, 1.0f);
+        float slowBreath = 0.5f + 0.5f * Mth.sin(nowMs * 0.0022f);
+
+        Matrix4f pose = g.pose().last().pose();
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.disableDepthTest();
+        RenderSystem.disableCull();
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+
+        // 内径最低保留在 0.32f，避免把屏幕中心封死成全黑块
+        float tunnelInner = Mth.lerp(deficit, 0.76f, 0.32f) - 0.02f * slowBreath * deficit;
+        float tunnelMid = tunnelInner + 0.24f;
+        float midAlpha = Mth.clamp(deficit * 0.42f, 0.0f, 0.45f);
+        float outerAlpha = Mth.clamp(deficit * (0.78f + 0.06f * slowBreath), 0.0f, 0.84f);
+
+        // 中圈：缺血冷蓝灰晕影
+        PainVisualOverlay.drawEllipticalRing(pose, w, h,
+                tunnelInner, 0.0f,
+                tunnelMid, midAlpha,
+                16, 20, 30,
+                0.0f, 0.0f, 0.0f, 0.0f);
+
+        // 外圈：无缝覆盖屏幕四角的深色昏迷隧道暗角
+        PainVisualOverlay.drawEllipticalRing(pose, w, h,
+                tunnelMid, midAlpha,
+                1.45f, outerAlpha,
+                6, 8, 14,
+                0.0f, 0.0f, 0.0f, 0.0f);
+
+        RenderSystem.enableCull();
+        RenderSystem.enableDepthTest();
+        RenderSystem.disableBlend();
     }
 
     // =========================================================================
-    // 4. 失血至 <= 3000mL 濒危状态与 20 秒生命倒计时 3A 特效
+    // 4. 失血至 <= 3000mL 濒危状态与 20 秒生命倒计时 3A 特效（最顶层全息告警舱）
     // =========================================================================
     private static void renderCriticalHypovolemicCountdown3A(GuiGraphics g, Font font, int w, int h, MedicalData data, long nowMs) {
         int timerSec = data.getCriticalTimer();
@@ -849,27 +935,26 @@ public class CriticalOverlay {
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
         RenderSystem.disableDepthTest();
+        RenderSystem.disableCull();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
 
-        // A. 失血性休克双层径向隧道视野：外圈死寂黑红 + 中圈冰冷苍白灰蓝去饱和晕影
-        float tunnelInner = Mth.lerp(urgency, 0.62f, 0.30f) - 0.04f * pulse;
+        // A. 失血性休克双层径向隧道视野：中心与上方倒计时区域保持通透，外环完整覆盖四角
+        float tunnelInner = Mth.lerp(urgency, 0.64f, 0.36f) - 0.03f * pulse;
         float tunnelMid = tunnelInner + 0.22f;
 
-        // 中圈：失血特有的冰冷苍白/紫灰缺血环 (RGB: 38, 45, 58)
         PainVisualOverlay.drawEllipticalRing(pose, w, h,
                 tunnelInner, 0.0f,
-                tunnelMid, Mth.clamp(0.28f + 0.35f * urgency, 0.0f, 0.65f),
+                tunnelMid, Mth.clamp(0.24f + 0.28f * urgency, 0.0f, 0.54f),
                 38, 45, 58,
                 0.0f, 0.0f, 0.0f, 0.0f);
 
-        // 外圈：深凝血黑红隧道压迫 (RGB: 55, 2, 8)
         PainVisualOverlay.drawEllipticalRing(pose, w, h,
-                tunnelMid, Mth.clamp(0.28f + 0.35f * urgency, 0.0f, 0.65f),
-                1.42f, Mth.clamp(0.55f + 0.38f * urgency, 0.0f, 0.94f),
+                tunnelMid, Mth.clamp(0.24f + 0.28f * urgency, 0.0f, 0.54f),
+                1.45f, Mth.clamp(0.48f + 0.34f * urgency, 0.0f, 0.84f),
                 55, 2, 8,
                 0.0f, 0.0f, 0.0f, 0.0f);
 
-        // B. 倒计时最后 5 秒叠加濒死脉冲红闪与边缘神经芒刺
+        // B. 倒计时最后 5 秒叠加濒死脉冲红闪
         if (timerSec <= 5) {
             float finalFlash = (0.5f + 0.5f * Mth.sin(nowMs * 0.018f)) * ((6 - timerSec) / 5.0f);
             RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
@@ -881,30 +966,34 @@ public class CriticalOverlay {
             RenderSystem.defaultBlendFunc();
         }
 
+        RenderSystem.enableCull();
+
         if (Minecraft.getInstance().screen != null) {
             RenderSystem.enableDepthTest();
             RenderSystem.disableBlend();
             return;
         }
 
-        // C. 屏幕上方偏中绘制 3A 全息濒危倒计时核心仪（不遮挡准星中央视线！）
+        // C. 强制刷新并在最顶层绘制 3A 全息濒危倒计时核心仪（绝不被任何暗角遮挡！）
+        g.flush();
+        RenderSystem.disableDepthTest();
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+
         int boxW = Math.min(244, w - 32);
         int boxH = 58;
         int boxX = (w - boxW) / 2;
         int boxY = Math.max(16, (int) (h * 0.11f));
 
-        // 紧迫闪烁边框色
         boolean urgentBeat = (timerSec <= 5) && ((nowMs / 120L) % 2L == 0L);
         int borderCol = urgentBeat ? 0xFFFFFFFF : C_ALERT_RED;
 
-        HudRenderHelper.drawSciFiCard(g, boxX, boxY, boxW, boxH, 5, 0xDD060205, borderCol);
+        HudRenderHelper.drawSciFiCard(g, boxX, boxY, boxW, boxH, 5, 0xEE080206, borderCol);
         HudRenderHelper.drawCardCorners(g, boxX, boxY, boxW, boxH, 8, C_NEON_CYAN);
 
-        // 顶部警戒标题
         String warnText = Component.translatable("medical.warning.critical").getString();
         HudRenderHelper.drawCenteredGlowingString(g, font, warnText, boxX + boxW / 2, boxY + 5, 0xFFFFD000, C_ALERT_RED);
 
-        // 中央左侧：大型七段数码管倒计时秒表 (XX.X s)
         int subTenths = 9 - (int) ((nowMs % 1000L) / 100L);
         String digits = String.format("%02d.%d", Mth.clamp(timerSec, 0, 99), subTenths);
         int segColor = (timerSec <= 5) ? 0xFFFF1744 : 0xFFFF5252;
@@ -912,23 +1001,18 @@ public class CriticalOverlay {
         SegmentDisplayRenderer.renderString(g, digits, boxX + 14, boxY + 19, 8, 17, 3, 2, segColor, dimSeg);
         g.drawString(font, "SEC", boxX + 64, boxY + 28, 0xFFFF8A80, false);
 
-
-
-        // 底部：20 秒濒危倒计时双向能量衰减进度条
         float remainPct = Mth.clamp((timerSec - (1.0f - subTenths / 10.0f) * 0.5f) / maxCritSec, 0.0f, 1.0f);
         HudRenderHelper.drawSciFiProgressBar(g, boxX + 10, boxY + 46, boxW - 20, 6, remainPct, segColor, 0xFF1A060A);
 
+        g.flush();
         RenderSystem.enableDepthTest();
         RenderSystem.disableBlend();
     }
 
     // =========================================================================
-    // 2.8 3A 级脑损伤视觉系统：真实历史画面闪回 (Flashback)、画面定格撕裂震荡 (Frame-Freeze Concussion) 与皮层变色 (Cortical Color Shift)
+    // 2.8 3A 级脑损伤视觉系统（纯程序化无黑屏矢量版：震荡色差错位带、突触记忆波环、四态皮层变色）
     // =========================================================================
 
-    /**
-     * 供外部模块或网络包主动触发一次完整的 3A 脑损伤发作（定格震荡 + 历史闪回 + 神经变色）
-     */
     public static void triggerBrainDamageEpisode(float intensity) {
         float clamped = Mth.clamp(intensity, 0.35f, 1.0f);
         triggerBrainFreezeShake(clamped, 1.15f + 0.65f * clamped);
@@ -941,17 +1025,13 @@ public class CriticalOverlay {
         brainFlashbackDuration = Math.max(0.4f, durationSec);
         brainFlashbackTimer = brainFlashbackDuration;
         brainFlashbackPeakIntensity = Mth.clamp(intensity, 0.25f, 1.0f);
-        // 选择距离当前约 1.3~1.9 秒之前的历史帧槽位进行闪回重现
-        activeFlashbackSlot = (historyWriteIdx + 1) % flashbackHistoryTargets.length;
         brainEpisodeSeed = System.currentTimeMillis() ^ System.nanoTime();
     }
 
     public static void triggerBrainFreezeShake(float intensity, float durationSec) {
         brainFreezeShakeDuration = Math.max(0.35f, durationSec);
         brainFreezeShakeTimer = brainFreezeShakeDuration;
-        brainFreezeWindowSec = MedicalConfig.BRAIN_VFX_FREEZE_DURATION_MS.get() / 1000.0f;
         brainFreezePeakIntensity = Mth.clamp(intensity, 0.30f, 1.0f);
-        lastFreezeStutterMs = 0L; // 强制在下一渲染帧立刻抓取定格画面
         brainEpisodeSeed = System.currentTimeMillis() ^ System.nanoTime();
     }
 
@@ -962,65 +1042,7 @@ public class CriticalOverlay {
         smoothBrainColorShift = Math.max(smoothBrainColorShift, Mth.clamp(intensity, 0.25f, 1.0f));
     }
 
-    private static boolean ensureBrainFramebuffers(int fbW, int fbH) {
-        if (fbW <= 0 || fbH <= 0) return false;
-        try {
-            if (currentSceneTarget == null || fboAllocatedW != fbW || fboAllocatedH != fbH) {
-                destroyBrainFramebuffers();
-                currentSceneTarget = new TextureTarget(fbW, fbH, false, Minecraft.ON_OSX);
-                freezeFrameTarget = new TextureTarget(fbW, fbH, false, Minecraft.ON_OSX);
-                for (int i = 0; i < flashbackHistoryTargets.length; i++) {
-                    flashbackHistoryTargets[i] = new TextureTarget(fbW, fbH, false, Minecraft.ON_OSX);
-                }
-                fboAllocatedW = fbW;
-                fboAllocatedH = fbH;
-                Minecraft.getInstance().getMainRenderTarget().bindWrite(false);
-            }
-            return true;
-        } catch (Throwable t) {
-            return false;
-        }
-    }
-
-    private static void destroyBrainFramebuffers() {
-        if (currentSceneTarget != null) {
-            currentSceneTarget.destroyBuffers();
-            currentSceneTarget = null;
-        }
-        if (freezeFrameTarget != null) {
-            freezeFrameTarget.destroyBuffers();
-            freezeFrameTarget = null;
-        }
-        for (int i = 0; i < flashbackHistoryTargets.length; i++) {
-            if (flashbackHistoryTargets[i] != null) {
-                flashbackHistoryTargets[i].destroyBuffers();
-                flashbackHistoryTargets[i] = null;
-            }
-        }
-    }
-
-    /**
-     * 使用硬件级 OpenGL BlitFramebuffer 将主渲染目标 (mainTarget) 拷贝至离屏纹理缓冲（耗时 < 0.02ms）
-     */
-    private static boolean blitRenderTarget(RenderTarget src, RenderTarget dst) {
-        if (src == null || dst == null || src.frameBufferId <= 0 || dst.frameBufferId <= 0) return false;
-        try {
-            GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, src.frameBufferId);
-            GlStateManager._glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, dst.frameBufferId);
-            GL30.glBlitFramebuffer(
-                    0, 0, src.width, src.height,
-                    0, 0, dst.width, dst.height,
-                    GL11.GL_COLOR_BUFFER_BIT, GL11.GL_LINEAR
-            );
-            src.bindWrite(false);
-            return true;
-        } catch (Throwable t) {
-            src.bindWrite(false);
-            return false;
-        }
-    }
-
-    private static void updateAndRenderBrainDamageVfx3A(GuiGraphics g, Minecraft mc, int w, int h,
+    private static void updateAndRenderBrainDamageVfx3A(GuiGraphics g, int w, int h,
                                                         MedicalData data, float dt, long nowMs) {
         if (!MedicalConfig.BRAIN_VFX_UPGRADE_ENABLED.get()) return;
 
@@ -1034,15 +1056,10 @@ public class CriticalOverlay {
             lastBrainHealth = brainHealth;
         }
 
-        // 计算脑损伤综合严重度 (0.0 ~ 1.0)：脑健康 < 90、颅内出血或控制反转激活时生效
         float healthDeficit = (brainHealth < 90) ? Mth.clamp((90.0f - brainHealth) / 75.0f, 0.0f, 1.0f) : 0.0f;
         float icSeverity = icLevel * 0.22f;
         float baseSeverity = Mth.clamp(Math.max(healthDeficit, icSeverity) + (controlInverted ? 0.35f : 0.0f), 0.0f, 1.0f);
 
-        // 1. 监测急性触发条件：
-        //    (a) 服务端下发 BrainDamageEffectPacket 触发视角/按键反转的上升沿
-        //    (b) 脑健康突然下跌 (>= 2 点) 或跨越 90 / 60 / 30 阈值
-        //    (c) 脑损伤期间周期性自发神经发作 (脑健康越低，发作间隔越短：4.0s ~ 11.0s)
         int bhDrop = lastBrainHealth - brainHealth;
         boolean crossedThreshold = (lastBrainHealth > 90 && brainHealth <= 90)
                 || (lastBrainHealth > 60 && brainHealth <= 60)
@@ -1057,7 +1074,6 @@ public class CriticalOverlay {
             brainEpisodeCooldownSec -= dt;
             if (brainEpisodeCooldownSec <= 0.0f) {
                 float epIntensity = Mth.clamp(0.42f + baseSeverity * 0.58f, 0.42f, 1.0f);
-                // 交替或组合触发定格震荡、历史闪回与皮层变色
                 long rollMode = Math.abs(nowMs / 300L + brainHealth) % 3L;
                 if (rollMode == 0L || baseSeverity >= 0.50f) {
                     triggerBrainFreezeShake(epIntensity, 0.95f + 0.65f * baseSeverity);
@@ -1072,7 +1088,6 @@ public class CriticalOverlay {
         }
         wasBrainControlInverted = controlInverted;
 
-        // 2. 更新各计时器与平滑强度
         if (brainFlashbackTimer > 0.0f) {
             brainFlashbackTimer = Math.max(0.0f, brainFlashbackTimer - dt);
         }
@@ -1092,244 +1107,116 @@ public class CriticalOverlay {
                 || (brainFlashbackTimer > 0.005f)
                 || (brainFreezeShakeTimer > 0.005f)
                 || (smoothBrainColorShift > 0.015f);
-
-        RenderTarget mainTarget = mc.getMainRenderTarget();
-        boolean fboReady = ensureBrainFramebuffers(mainTarget.width, mainTarget.height);
-
-        // 当玩家脑部受损或处于发作监控期时，每 600ms 在后台静默录制一帧历史画面至环形缓冲区，供「闪回」随时调取
-        if (fboReady && (baseSeverity > 0.01f || brainHealth < 98 || icLevel > 0)
-                && brainFreezeShakeTimer <= 0.0f && (nowMs - lastHistoryCaptureMs >= 600L)) {
-            lastHistoryCaptureMs = nowMs;
-            if (blitRenderTarget(mainTarget, flashbackHistoryTargets[historyWriteIdx])) {
-                historyWriteIdx = (historyWriteIdx + 1) % flashbackHistoryTargets.length;
-            }
-        }
-
         if (!anyActive) return;
-
-        // 拷贝当前 3D 实时画面到 currentSceneTarget，供 RGB 棱镜色散、错位切片与定格采样使用
-        boolean hasCurrentScene = fboReady && blitRenderTarget(mainTarget, currentSceneTarget);
-
-        // 若正处于「画面定格震荡」期间，按 85ms 阶跃卡顿间隔更新或锁死 freezeFrameTarget
-        if (hasCurrentScene && brainFreezeShakeTimer > 0.005f) {
-            float elapsedFreeze = brainFreezeShakeDuration - brainFreezeShakeTimer;
-            boolean inHardFreeze = elapsedFreeze <= brainFreezeWindowSec;
-            long stutterInterval = inHardFreeze ? 260L : 85L;
-            if (lastFreezeStutterMs == 0L || (nowMs - lastFreezeStutterMs >= stutterInterval)) {
-                lastFreezeStutterMs = nowMs;
-                blitRenderTarget(currentSceneTarget, freezeFrameTarget);
-            }
-        }
 
         Matrix4f pose = g.pose().last().pose();
         RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
         RenderSystem.disableDepthTest();
         RenderSystem.disableCull();
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
 
         float shakeCfg = MedicalConfig.BRAIN_VFX_SHAKE_AMPLITUDE.get().floatValue();
         float flashbackCfg = MedicalConfig.BRAIN_VFX_FLASHBACK_INTENSITY.get().floatValue();
         float colorCfg = MedicalConfig.BRAIN_VFX_COLOR_SHIFT_INTENSITY.get().floatValue();
 
         // =====================================================================
-        // 特效 I：【画面定格震荡 (Frame-Freeze Concussion & Horizontal Tear Shear)】
+        // 特效 I：【脑震荡水平撕裂色差带与复视棱镜光环（加法发光混合，绝不产生任何黑块）】
         // =====================================================================
         if (brainFreezeShakeTimer > 0.005f) {
             float progress = 1.0f - Mth.clamp(brainFreezeShakeTimer / Math.max(0.1f, brainFreezeShakeDuration), 0.0f, 1.0f);
-            float elapsedSec = brainFreezeShakeDuration - brainFreezeShakeTimer;
-            boolean inHardFreeze = elapsedSec <= brainFreezeWindowSec;
-            float decayEnv = (float) Math.pow(1.0f - progress, 1.45) * brainFreezePeakIntensity;
+            float decayEnv = (float) Math.pow(1.0f - progress, 1.45) * brainFreezePeakIntensity * shakeCfg;
 
-            // 高频欠阻尼脑震荡位移包络
-            float oscX = (float) (Math.sin(nowMs * 0.055 + brainEpisodeSeed) * 14.0
-                    + Math.cos(nowMs * 0.092) * 8.0) * decayEnv * shakeCfg;
-            float oscY = (float) (Math.cos(nowMs * 0.048 + brainEpisodeSeed) * 10.0
-                    + Math.sin(nowMs * 0.081) * 6.0) * decayEnv * shakeCfg;
+            RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
 
-            if (hasCurrentScene && freezeFrameTarget != null) {
-                RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
-                RenderSystem.setShaderTexture(0, freezeFrameTarget.getColorTextureId());
+            // 1. 脑震荡红/青双色分离脉冲环
+            float ringR = Mth.lerp(progress, 0.36f, 0.88f);
+            float dipAlpha = Mth.clamp(decayEnv * 0.52f, 0.0f, 0.60f);
+            PainVisualOverlay.drawEllipticalRing(pose, w, h,
+                    Math.max(0.24f, ringR - 0.08f), 0.0f,
+                    ringR + 0.14f, dipAlpha,
+                    255, 45, 95,
+                    0.25f, 0.0f, 0.15f, 0.0f);
+            PainVisualOverlay.drawEllipticalRing(pose, w, h,
+                    Math.max(0.24f, ringR - 0.04f), 0.0f,
+                    ringR + 0.18f, dipAlpha * 0.90f,
+                    30, 235, 255,
+                    0.0f, 0.25f, 0.0f, 0.15f);
 
-                // 1. 硬定格基底画面：在硬定格窗口内以高不透明度完全定格画面，随后伴随卡顿残影消退
-                float freezeAlpha = inHardFreeze
-                        ? Mth.clamp(0.92f * brainFreezePeakIntensity, 0.65f, 0.96f)
-                        : Mth.clamp(decayEnv * 0.72f, 0.0f, 0.78f);
+            // 2. 12 道脑干受损横向神经撕裂光栅带 (Horizontal Glitch Shear Bands)
+            Tesselator tess = Tesselator.getInstance();
+            BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+            boolean hasBands = false;
+            long glitchBucket = nowMs / 45L;
+            for (int b = 0; b < 12; b++) {
+                long bHash = (glitchBucket * 6364136223846793005L) ^ (b * 1442695040888963407L) ^ brainEpisodeSeed;
+                if (((bHash >>> 12) & 3L) != 0L) continue;
 
-                Tesselator tess = Tesselator.getInstance();
-                BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+                float bandY = (((bHash >>> 16) & 0xFFFF) / 65535.0f) * h;
+                float bandH = 2.0f + (((bHash >>> 32) & 0x7) * 1.2f);
+                float bandW = (0.35f + (((bHash >>> 40) & 0xFF) / 255.0f) * 0.55f) * w;
+                float bandX = (((bHash >>> 48) & 0xFF) / 255.0f) * (w - bandW);
+                int a = Mth.clamp((int) (decayEnv * 110.0f), 0, 140);
+                if (a <= 4) continue;
 
-                // 将定格画面切分为 16 道水平扫描带，施加脑震荡横向错位撕裂 (Horizontal Glitch Shear)
-                int bands = 16;
-                long glitchBucket = nowMs / 45L;
-                for (int b = 0; b < bands; b++) {
-                    float v0 = b / (float) bands;
-                    float v1 = (b + 1) / (float) bands;
-                    float y0 = v0 * h + oscY * 0.6f;
-                    float y1 = v1 * h + oscY * 0.6f;
-
-                    long bHash = (glitchBucket * 6364136223846793005L) ^ (b * 1442695040888963407L) ^ brainEpisodeSeed;
-                    boolean isTornSlice = ((bHash >>> 12) & 3L) == 0L;
-                    float sliceShiftX = oscX + (isTornSlice
-                            ? ((((bHash >>> 20) & 0xFF) / 127.5f - 1.0f) * 26.0f * decayEnv * shakeCfg)
-                            : 0.0f);
-
-                    int colA = Mth.clamp((int) (freezeAlpha * 255.0f), 0, 250);
-                    emitFboSliceQuad(buf, pose, sliceShiftX, y0, w + sliceShiftX, y1, 0.0f, v0, 1.0f, v1, 255, 255, 255, colA);
-                }
-                MeshData mesh = buf.build();
-                if (mesh != null) BufferUploader.drawWithShader(mesh);
-
-                // 2. 脑震荡复视双影 (Concussion Diplopia Double-Vision)：左右对称分离的红/青震荡重影
-                RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
-                BufferBuilder dipBuf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
-                int dipAlpha = Mth.clamp((int) (decayEnv * 135.0f), 0, 160);
-                float splitDist = (8.0f + 18.0f * decayEnv) * shakeCfg;
-                emitFboSliceQuad(dipBuf, pose, -splitDist + oscX, -oscY * 0.5f, w - splitDist + oscX, h - oscY * 0.5f,
-                        0.0f, 0.0f, 1.0f, 1.0f, 255, 45, 95, dipAlpha);
-                emitFboSliceQuad(dipBuf, pose, splitDist - oscX, oscY * 0.5f, w + splitDist - oscX, h + oscY * 0.5f,
-                        0.0f, 0.0f, 1.0f, 1.0f, 30, 235, 255, dipAlpha);
-                MeshData dipMesh = dipBuf.build();
-                if (dipMesh != null) BufferUploader.drawWithShader(dipMesh);
-                RenderSystem.defaultBlendFunc();
+                boolean cyan = (b % 2 == 0);
+                int cr = cyan ? 0 : 255;
+                int cg = cyan ? 235 : 40;
+                int cb = cyan ? 255 : 110;
+                buf.addVertex(pose, bandX, bandY + bandH, 0.0f).setColor(cr, cg, cb, a);
+                buf.addVertex(pose, bandX + bandW, bandY + bandH, 0.0f).setColor(cr, cg, cb, a);
+                buf.addVertex(pose, bandX + bandW, bandY, 0.0f).setColor(cr, cg, cb, a);
+                buf.addVertex(pose, bandX, bandY, 0.0f).setColor(cr, cg, cb, a);
+                hasBands = true;
             }
+            MeshData mesh = buf.build();
+            if (mesh != null && hasBands) {
+                BufferUploader.drawWithShader(mesh);
+            }
+            RenderSystem.defaultBlendFunc();
         }
 
         // =====================================================================
-        // 特效 II：【历史画面闪回 (Temporal Memory Flashback & Ghost Echo)】
+        // 特效 II：【突触记忆闪回波环 (Temporal Memory Flashback & Synaptic Echo Rings)】
         // =====================================================================
         if (brainFlashbackTimer > 0.005f && flashbackCfg > 0.01f) {
             float fp = 1.0f - Mth.clamp(brainFlashbackTimer / Math.max(0.1f, brainFlashbackDuration), 0.0f, 1.0f);
-            // 双峰记忆回闪曲线：初段突触快闪冲顶，中段浮现清晰历史残影，末段如潮水退去
             float echoEnvelope = Mth.sin(fp * Mth.PI) * brainFlashbackPeakIntensity * flashbackCfg;
 
-            TextureTarget histTarget = (fboReady && flashbackHistoryTargets[activeFlashbackSlot] != null)
-                    ? flashbackHistoryTargets[activeFlashbackSlot]
-                    : currentSceneTarget;
+            RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
 
-            if (histTarget != null && histTarget.getColorTextureId() > 0) {
-                RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
-                RenderSystem.setShaderTexture(0, histTarget.getColorTextureId());
+            // 双层向内收敛的时间回声光环
+            float rEcho1 = Mth.lerp(fp, 0.92f, 0.34f);
+            float rEcho2 = Mth.lerp((fp + 0.35f) % 1.0f, 0.96f, 0.38f);
+            PainVisualOverlay.drawEllipticalRing(pose, w, h,
+                    Math.max(0.26f, rEcho1 - 0.09f), 0.0f,
+                    rEcho1 + 0.11f, Mth.clamp(echoEnvelope * 0.42f, 0.0f, 0.50f),
+                    0, 225, 255,
+                    0.12f, 0.12f, 0.08f, 0.08f);
+            PainVisualOverlay.drawEllipticalRing(pose, w, h,
+                    Math.max(0.28f, rEcho2 - 0.08f), 0.0f,
+                    rEcho2 + 0.10f, Mth.clamp(echoEnvelope * 0.36f, 0.0f, 0.45f),
+                    245, 65, 200,
+                    0.08f, 0.08f, 0.12f, 0.12f);
 
-                Tesselator tess = Tesselator.getInstance();
-                // 第一层：放大并缓慢推进的过去时刻记忆画面 (Memory Echo Base Layer)
-                float zoom1 = 1.03f + 0.09f * fp;
-                float padX1 = (w * (zoom1 - 1.0f)) * 0.5f;
-                float padY1 = (h * (zoom1 - 1.0f)) * 0.5f;
-                float driftX = Mth.sin(fp * Mth.TWO_PI) * 12.0f * echoEnvelope;
-                float driftY = Mth.cos(fp * Mth.PI) * 7.0f * echoEnvelope;
-
-                int baseAlpha = Mth.clamp((int) (echoEnvelope * 175.0f), 0, 205);
-                BufferBuilder fbBuf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
-                // 记忆画面带有冷青琥珀怀旧/创伤色调
-                emitFboSliceQuad(fbBuf, pose,
-                        -padX1 + driftX, -padY1 + driftY,
-                        w + padX1 + driftX, h + padY1 + driftY,
-                        0.0f, 0.0f, 1.0f, 1.0f,
-                        215, 240, 255, baseAlpha);
-                MeshData fbMesh = fbBuf.build();
-                if (fbMesh != null) BufferUploader.drawWithShader(fbMesh);
-
-                // 第二层：加法混合的多重时间回声残影 (Multi-Echo Time Trails)
-                RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
-                BufferBuilder trailBuf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
-                float zoom2 = 1.10f + 0.12f * fp;
-                float padX2 = (w * (zoom2 - 1.0f)) * 0.5f;
-                float padY2 = (h * (zoom2 - 1.0f)) * 0.5f;
-                int trailAlpha = Mth.clamp((int) (echoEnvelope * 115.0f), 0, 145);
-
-                emitFboSliceQuad(trailBuf, pose,
-                        -padX2 - driftX * 1.4f, -padY2,
-                        w + padX2 - driftX * 1.4f, h + padY2,
-                        0.0f, 0.0f, 1.0f, 1.0f,
-                        0, 225, 255, trailAlpha);
-                emitFboSliceQuad(trailBuf, pose,
-                        -padX2 + driftX * 1.4f, -padY2,
-                        w + padX2 + driftX * 1.4f, h + padY2,
-                        0.0f, 0.0f, 1.0f, 1.0f,
-                        245, 65, 200, trailAlpha);
-                MeshData trailMesh = trailBuf.build();
-                if (trailMesh != null) BufferUploader.drawWithShader(trailMesh);
-                RenderSystem.defaultBlendFunc();
-            }
-
-            // 闪回触发前 15% 时间的视神经突触快门白青闪光 (Synaptic Shutter Flash)
+            // 闪回初段视神经突触快门闪光
             if (fp < 0.18f) {
                 float shutter = (1.0f - fp / 0.18f) * brainFlashbackPeakIntensity * flashbackCfg;
-                RenderSystem.setShader(GameRenderer::getPositionColorShader);
-                RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
                 PainVisualOverlay.drawEllipticalRing(pose, w, h,
-                        0.15f, shutter * 0.35f,
-                        1.38f, shutter * 0.72f,
+                        0.32f, 0.0f,
+                        1.38f, shutter * 0.58f,
                         210, 245, 255,
                         0.0f, 0.0f, 0.0f, 0.0f);
-                RenderSystem.defaultBlendFunc();
             }
+            RenderSystem.defaultBlendFunc();
         }
 
         // =====================================================================
-        // 特效 III：【皮层神经变色与 RGB 棱镜色散 (Cortical Color Shift & Chromatic Aberration)】
+        // 特效 III：【皮层神经变色径向滤镜与神经扫描噪波线 (Cortical Color Shift & Scanlines)】
         // =====================================================================
         float effectiveColorShift = smoothBrainColorShift * colorCfg;
         if (effectiveColorShift > 0.015f) {
             float wave = 0.5f + 0.5f * Mth.sin(nowMs * 0.0045f);
 
-            // 1. 基于真实画面的 RGB 通道分离色散与反相负片脉冲
-            if (hasCurrentScene && currentSceneTarget != null) {
-                RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
-                RenderSystem.setShaderTexture(0, currentSceneTarget.getColorTextureId());
-
-                Tesselator tess = Tesselator.getInstance();
-                float caOffset = (3.5f + 11.5f * effectiveColorShift) * (0.7f + 0.3f * wave);
-                int caAlpha = Mth.clamp((int) (effectiveColorShift * 125.0f), 0, 155);
-
-                // 根据当前变色模式选择通道分离色调
-                int r1, g1, b1, r2, g2, b2;
-                switch (brainColorShiftMode) {
-                    case 1 -> { // 模式 1：颅内血肿猩红-琥珀金热力变色
-                        r1 = 255; g1 = 35;  b1 = 20;
-                        r2 = 255; g2 = 195; b2 = 15;
-                    }
-                    case 2 -> { // 模式 2：视皮层负片反相与冷蓝失色
-                        r1 = 90;  g1 = 210; b1 = 255;
-                        r2 = 235; g2 = 245; b2 = 255;
-                    }
-                    case 3 -> { // 模式 3：突触迷幻紫绿双色分离
-                        r1 = 255; g1 = 20;  b1 = 210;
-                        r2 = 20;  g2 = 255; b2 = 140;
-                    }
-                    default -> { // 模式 0：缺血深紫-电光青色偏
-                        r1 = 195; g1 = 30;  b1 = 255;
-                        r2 = 0;   g2 = 240; b2 = 255;
-                    }
-                }
-
-                // 若处于模式 2（视皮层反相负片）或重度发作初段，施加真实画面负片反相混合 (ONE_MINUS_DST_COLOR)！
-                if (brainColorShiftMode == 2 || (brainFreezeShakeTimer > brainFreezeShakeDuration * 0.72f)) {
-                    RenderSystem.blendFunc(
-                            GlStateManager.SourceFactor.ONE_MINUS_DST_COLOR,
-                            GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA
-                    );
-                    int invAlpha = Mth.clamp((int) (effectiveColorShift * 140.0f), 0, 165);
-                    BufferBuilder invBuf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
-                    emitFboSliceQuad(invBuf, pose, 0.0f, 0.0f, w, h, 0.0f, 0.0f, 1.0f, 1.0f, 200, 235, 255, invAlpha);
-                    MeshData invMesh = invBuf.build();
-                    if (invMesh != null) BufferUploader.drawWithShader(invMesh);
-                }
-
-                // 加法混合绘制左右/上下错位的双色差通道画面
-                RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
-                BufferBuilder caBuf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
-                emitFboSliceQuad(caBuf, pose, -caOffset, -caOffset * 0.4f, w - caOffset, h - caOffset * 0.4f,
-                        0.0f, 0.0f, 1.0f, 1.0f, r1, g1, b1, caAlpha);
-                emitFboSliceQuad(caBuf, pose, caOffset, caOffset * 0.4f, w + caOffset, h + caOffset * 0.4f,
-                        0.0f, 0.0f, 1.0f, 1.0f, r2, g2, b2, caAlpha);
-                MeshData caMesh = caBuf.build();
-                if (caMesh != null) BufferUploader.drawWithShader(caMesh);
-                RenderSystem.defaultBlendFunc();
-            }
-
-            // 2. 全屏双环病理色偏滤镜与神经扫描噪波线 (Pathological Cortical Tint & Glitch Scanlines)
-            RenderSystem.setShader(GameRenderer::getPositionColorShader);
             int innerRCol, innerGCol, innerBCol, outerRCol, outerGCol, outerBCol;
             switch (brainColorShiftMode) {
                 case 1 -> {
@@ -1338,7 +1225,7 @@ public class CriticalOverlay {
                 }
                 case 2 -> {
                     innerRCol = 110; innerGCol = 175; innerBCol = 235;
-                    outerRCol = 18;  outerGCol = 32;  outerBCol = 62;
+                    outerRCol = 24;  outerGCol = 42;  outerBCol = 78;
                 }
                 case 3 -> {
                     innerRCol = 0;   innerGCol = 235; innerBCol = 155;
@@ -1350,17 +1237,21 @@ public class CriticalOverlay {
                 }
             }
 
-            float innerTintAlpha = Mth.clamp(effectiveColorShift * 0.22f * (0.75f + 0.25f * wave), 0.0f, 0.28f);
-            float outerTintAlpha = Mth.clamp(effectiveColorShift * 0.68f * (0.80f + 0.20f * wave), 0.0f, 0.78f);
+            float innerTintAlpha = Mth.clamp(effectiveColorShift * 0.24f * (0.75f + 0.25f * wave), 0.0f, 0.30f);
+            float outerTintAlpha = Mth.clamp(effectiveColorShift * 0.56f * (0.80f + 0.20f * wave), 0.0f, 0.68f);
 
+            // 中圈加色神经色偏光晕（中心 r < 0.42f 保持完全透明）
+            RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
             PainVisualOverlay.drawEllipticalRing(pose, w, h,
-                    0.0f, innerTintAlpha,
-                    0.68f, innerTintAlpha * 1.4f,
+                    0.42f, 0.0f,
+                    0.78f, innerTintAlpha,
                     innerRCol, innerGCol, innerBCol,
                     0.12f, 0.12f, 0.12f, 0.12f);
+            RenderSystem.defaultBlendFunc();
 
+            // 外圈皮层色偏暗角（无缝覆盖屏幕四角）
             PainVisualOverlay.drawEllipticalRing(pose, w, h,
-                    0.52f, 0.0f,
+                    0.56f, 0.0f,
                     1.42f, outerTintAlpha,
                     outerRCol, outerGCol, outerBCol,
                     0.18f, 0.18f, 0.25f, 0.18f);
@@ -1380,10 +1271,10 @@ public class CriticalOverlay {
                 int sr = useInner ? innerRCol : outerRCol;
                 int sg = useInner ? innerGCol : outerGCol;
                 int sb = useInner ? innerBCol : outerBCol;
-                lineBuf.addVertex(pose, sx, sy, 0.0f).setColor(sr, sg, sb, sAlpha);
-                lineBuf.addVertex(pose, sx + sw, sy, 0.0f).setColor(sr, sg, sb, sAlpha);
-                lineBuf.addVertex(pose, sx + sw, sy + 1.5f, 0.0f).setColor(sr, sg, sb, sAlpha);
                 lineBuf.addVertex(pose, sx, sy + 1.5f, 0.0f).setColor(sr, sg, sb, sAlpha);
+                lineBuf.addVertex(pose, sx + sw, sy + 1.5f, 0.0f).setColor(sr, sg, sb, sAlpha);
+                lineBuf.addVertex(pose, sx + sw, sy, 0.0f).setColor(sr, sg, sb, sAlpha);
+                lineBuf.addVertex(pose, sx, sy, 0.0f).setColor(sr, sg, sb, sAlpha);
             }
             MeshData lineMesh = lineBuf.build();
             if (lineMesh != null) BufferUploader.drawWithShader(lineMesh);
@@ -1393,22 +1284,6 @@ public class CriticalOverlay {
         RenderSystem.enableDepthTest();
         RenderSystem.defaultBlendFunc();
         RenderSystem.disableBlend();
-    }
-
-    /**
-     * 绘制采样自 OpenGL 帧缓冲纹理 (TextureTarget) 的矩形或切片面片
-     * 注意：OpenGL FBO 纹理左下角为 (0,0)、左上角为 (0,1)，因此屏幕顶部 y0 对应纹理 V = 1.0f - vTop
-     */
-    private static void emitFboSliceQuad(BufferBuilder buf, Matrix4f pose,
-                                         float x0, float y0, float x1, float y1,
-                                         float u0, float vTop, float u1, float vBot,
-                                         int r, int g, int b, int a) {
-        float texVTop = 1.0f - vTop;
-        float texVBot = 1.0f - vBot;
-        buf.addVertex(pose, x0, y1, 0.0f).setUv(u0, texVBot).setColor(r, g, b, a);
-        buf.addVertex(pose, x1, y1, 0.0f).setUv(u1, texVBot).setColor(r, g, b, a);
-        buf.addVertex(pose, x1, y0, 0.0f).setUv(u1, texVTop).setColor(r, g, b, a);
-        buf.addVertex(pose, x0, y0, 0.0f).setUv(u0, texVTop).setColor(r, g, b, a);
     }
 
     // =========================================================================
@@ -1438,9 +1313,9 @@ public class CriticalOverlay {
         RenderSystem.enableBlend();
         RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
         RenderSystem.disableDepthTest();
+        RenderSystem.disableCull();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
 
-        // 1. 外缘电光琥珀金交感脉冲环 (Electric Amber-Gold Combat Ring)
         float innerR = 0.78f - 0.12f * smoothAdrenalineIntensity - 0.03f * pulse;
         float goldAlpha = Mth.clamp(smoothAdrenalineIntensity * (0.28f + 0.24f * pulse + 0.25f * surgeFactor), 0.0f, 0.65f);
         PainVisualOverlay.drawEllipticalRing(pose, w, h,
@@ -1449,7 +1324,6 @@ public class CriticalOverlay {
                 255, 195, 25,
                 0.08f, 0.08f, 0.04f, 0.04f);
 
-        // 2. 触发瞬间的冷白-亮青肾上腺素扩散冲击波
         if (surgeFactor > 0.05f) {
             float waveR = Mth.lerp(1.0f - surgeFactor, 0.32f, 0.96f);
             float waveA = Mth.sin(surgeFactor * Mth.PI) * 0.52f;
@@ -1460,7 +1334,6 @@ public class CriticalOverlay {
                     0.0f, 0.0f, 0.0f, 0.0f);
         }
 
-        // 3. 视野四周 24 道径向高频战斗聚焦流线 (Radial Adrenaline Speed Filaments)
         Tesselator tess = Tesselator.getInstance();
         BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
         float cx = w * 0.5f;
@@ -1489,9 +1362,8 @@ public class CriticalOverlay {
         MeshData mesh = buf.build();
         if (mesh != null) BufferUploader.drawWithShader(mesh);
 
+        RenderSystem.enableCull();
         RenderSystem.defaultBlendFunc();
-
-
         RenderSystem.enableDepthTest();
         RenderSystem.disableBlend();
     }

@@ -531,6 +531,8 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
                 dImpl.setOrthopedicFixed(sImpl.isOrthopedicFixed());
                 dImpl.setChestBraced(sImpl.isChestBraced());
                 dImpl.setDelayedHemothoraxStrain(sImpl.getDelayedHemothoraxStrain());
+                dImpl.setEmbeddedBulletCount(sImpl.getEmbeddedBulletCount());
+                dImpl.setPerforationPacked(sImpl.isPerforationPacked());
                 dImpl.setFractureTimerAuthoritative(sImpl.getFractureTimer());
             }
         }
@@ -648,6 +650,8 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
                 limbTag.putBoolean("orthopedicFixed", lImpl.isOrthopedicFixed());
                 limbTag.putBoolean("chestBraced", lImpl.isChestBraced());
                 limbTag.putInt("delayedHemothoraxStrain", lImpl.getDelayedHemothoraxStrain());
+                limbTag.putInt("embeddedBulletCount", lImpl.getEmbeddedBulletCount());
+                limbTag.putBoolean("perforationPacked", lImpl.isPerforationPacked());
             }
             tag.put(limb.name(), limbTag);
         }
@@ -779,6 +783,8 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
                 lImpl.setOrthopedicFixed(limbTag.contains("orthopedicFixed") && limbTag.getBoolean("orthopedicFixed"));
                 lImpl.setChestBraced(limbTag.contains("chestBraced") && limbTag.getBoolean("chestBraced"));
                 lImpl.setDelayedHemothoraxStrain(limbTag.contains("delayedHemothoraxStrain") ? limbTag.getInt("delayedHemothoraxStrain") : 0);
+                lImpl.setEmbeddedBulletCount(limbTag.contains("embeddedBulletCount") ? limbTag.getInt("embeddedBulletCount") : 0);
+                lImpl.setPerforationPacked(limbTag.contains("perforationPacked") && limbTag.getBoolean("perforationPacked"));
             }
         }
     }
@@ -823,6 +829,8 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         private boolean orthopedicFixed = false;
         private boolean chestBraced = false;
         private int delayedHemothoraxStrain = 0;
+        private int embeddedBulletCount = 0;
+        private boolean perforationPacked = false;
 
         // ====== 烧伤 ======
         private float burnLoad = 0.0f; // 热力缓冲负荷（未定型）
@@ -892,7 +900,12 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         @Override public synchronized void setDislocation(boolean dislocation) { this.dislocation = dislocation; }
 
         @Override public synchronized boolean hasPerforation() { return perforation; }
-        @Override public synchronized void setPerforation(boolean perforation) { this.perforation = perforation; }
+        @Override public synchronized void setPerforation(boolean perforation) {
+            this.perforation = perforation;
+            if (!perforation) {
+                this.perforationPacked = false;
+            }
+        }
 
         @Override public synchronized int getNaturalClottingTimer() { return naturalClottingTimer; }
         @Override public synchronized void setNaturalClottingTimer(int seconds) { this.naturalClottingTimer = Math.max(0, seconds); }
@@ -913,7 +926,13 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         }
 
         @Override public synchronized boolean isAmputated() { return amputated; }
-        @Override public synchronized void setAmputated(boolean amputated) { this.amputated = amputated; }
+        @Override public synchronized void setAmputated(boolean amputated) {
+            this.amputated = amputated;
+            if (amputated) {
+                this.embeddedBulletCount = 0;
+                this.perforationPacked = false;
+            }
+        }
 
         public synchronized int getTourniquetTimer() { return tourniquetTimer; }
         public synchronized void setTourniquetTimer(int seconds) { this.tourniquetTimer = Math.max(0, seconds); }
@@ -950,6 +969,12 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
 
         public synchronized int getDelayedHemothoraxStrain() { return delayedHemothoraxStrain; }
         public synchronized void setDelayedHemothoraxStrain(int strain) { this.delayedHemothoraxStrain = Math.max(0, strain); }
+
+        public synchronized int getEmbeddedBulletCount() { return embeddedBulletCount; }
+        public synchronized void setEmbeddedBulletCount(int count) { this.embeddedBulletCount = Math.max(0, Math.min(16, count)); }
+
+        public synchronized boolean isPerforationPacked() { return perforationPacked; }
+        public synchronized void setPerforationPacked(boolean packed) { this.perforationPacked = packed && this.perforation; }
 
         @Override public synchronized float getBurnLoad() { return burnLoad; }
         @Override public synchronized void setBurnLoad(float load) { this.burnLoad = Math.max(0.0f, load); }

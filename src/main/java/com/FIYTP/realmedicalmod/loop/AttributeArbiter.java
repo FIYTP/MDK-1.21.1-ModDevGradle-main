@@ -140,6 +140,14 @@ public class AttributeArbiter {
                     else hasUnsplintedLegFracture = true;
                 }
             }
+            MedicalData.LimbData leftLegLd = data.getLimb(MedicalData.Limb.LEFT_LEG);
+            MedicalData.LimbData rightLegLd = data.getLimb(MedicalData.Limb.RIGHT_LEG);
+            boolean bothLegsDown = ModItems.isLegUnableToStand(leftLegLd) && ModItems.isLegUnableToStand(rightLegLd);
+            if (bothLegsDown) {
+                float proneCrawlMult = Math.max(0.06f, MedicalConfig.AMPUTATION_DOUBLE_LEG_SPEED_MULTIPLIER.get().floatValue());
+                suggest(player, Dimension.MOVEMENT_SPEED, "bilateral_leg_prone", proneCrawlMult);
+                if (player.isSprinting()) player.setSprinting(false);
+            }
             if (hasUnsplintedLegFracture) {
                 suggest(player, Dimension.MOVEMENT_SPEED, "fracture_leg",
                         MedicalConfig.FRACTURE_UNSPLINTED_LEG_SPEED_MULT.get().floatValue());

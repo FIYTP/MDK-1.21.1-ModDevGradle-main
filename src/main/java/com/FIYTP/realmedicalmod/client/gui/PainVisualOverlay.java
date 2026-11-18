@@ -18,6 +18,7 @@ import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
 import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
@@ -25,15 +26,14 @@ import net.neoforged.neoforge.client.event.ViewportEvent;
 import org.joml.Matrix4f;
 
 /**
- * 3A 级疼痛视觉与镜头反馈系统 (PainVisualOverlay - 边缘血管精确锚定与有机分叉升级版)
+ * 3A 级疼痛视觉与镜头反馈系统 (PainVisualOverlay - 边缘血管精确锚定、四角无缝覆盖与层级排序修复版)
  *
  * 核心升级：
  * 1. 精确屏幕边界射线锚定 (Exact Screen-Border Ray Intersection)：
- *    采用 rBorder = 1.0 / max(|cos|, |sin|) 精确计算每条血管在矩形屏幕四边上的物理交点，
- *    保证 100% 的血管与痛觉神经丝严格从屏幕四边最外缘长出，彻底消除四角或半空悬空出现的现象。
- * 2. 14 段平滑有机蜿蜒曲线 + 双层发光血管鞘 + 三级树状微血管分叉：
- *    每条主血管由 14 段连续平滑曲线构成，包含外层弥散暗红血管晕与内层高亮动脉芯，
- *    并按解剖学锐角自然分叉出二级、三级微血管与流动的痛觉神经电冲动光点。
+ *    采用 rBorder = 1.0 / max(|cos|, |sin|) 精确计算外圈暗角与每条血管在矩形屏幕四边上的物理交点，
+ *    外圈（rOuter >= 0.98）自适应延伸至屏幕四角，内圈（rOuter < 0.98）严格保持自身半径不误铺全屏。
+ * 2. 显式关闭背面剔除 (disableCull) 并采用 EventPriority.HIGH 底层渲染，
+ *    确保疼痛暗角永远处于 CriticalOverlay 濒死倒计时全息舱的下层，绝不遮挡倒计时。
  */
 @EventBusSubscriber(modid = "realmedicalmod", value = Dist.CLIENT)
 public class PainVisualOverlay {
@@ -125,7 +125,6 @@ public class PainVisualOverlay {
         }
 
         if (burnCam > 0.01f) {
-            // 烧伤灼痛热浪引起的视野高频微幅热折射颤动
             tremorPitch += (float) (Math.sin(timeSec * 16.5) * 0.22 + Math.cos(timeSec * 24.3) * 0.14) * burnCam;
             tremorYaw += (float) (Math.cos(timeSec * 14.2) * 0.18) * burnCam;
             tremorRoll += (smoothBurnRight - smoothBurnLeft) * 0.42f * burnCam;
@@ -145,7 +144,7 @@ public class PainVisualOverlay {
         }
     }
 
-    @SubscribeEvent
+    @SubscribeEvent(priority = EventPriority.HIGH)
     public static void onRenderGuiPost(RenderGuiEvent.Post event) {
         if (!MedicalConfig.PAIN_VIGNETTE_ENABLED.get()) return;
 
@@ -189,7 +188,6 @@ public class PainVisualOverlay {
         smoothLeftPain = Mth.lerp(limbLerp, smoothLeftPain, targetLeft);
         smoothRightPain = Mth.lerp(limbLerp, smoothRightPain, targetRight);
 
-        // 计算全身与各方位烧伤强度（用于 3A 烧伤独特视觉效果）
         updateBurnVisualState(player, data, dt);
 
         float startThreshold = MedicalConfig.PAIN_VIGNETTE_START_THRESHOLD.get().floatValue();
@@ -218,34 +216,28 @@ public class PainVisualOverlay {
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
         RenderSystem.disableDepthTest();
+        RenderSystem.disableCull();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
 
         // ---------- 层级 1：重度剧痛边缘冷灰去饱和隧道暗角 ----------
         if (smoothPain >= grayThreshold) {
             float maxPerceived = Math.max(10.0f, MedicalConfig.MAX_PERCEIVED_PAIN.get().floatValue());
-        float grayFactor = Mth.clamp((smoothPain - grayThreshold) / Math.max(1.0f, maxPerceived - grayThreshold), 0.0f, 1.0f);
+            float grayFactor = Mth.clamp((smoothPain - grayThreshold) / Math.max(1.0f, maxPerceived - grayThreshold), 0.0f, 1.0f);
             float grayMaxAlpha = MedicalConfig.PAIN_GRAY_WASH_MAX_ALPHA.get().floatValue();
-            float outerTunnelAlpha = Mth.clamp(grayFactor * grayMaxAlpha * 2.4f * consciousnessBudget, 0.0f, 0.65f);
-            float centerTintAlpha = Mth.clamp(grayFactor * grayMaxAlpha * 0.28f * consciousnessBudget, 0.0f, 0.12f);
+            float outerTunnelAlpha = Mth.clamp(grayFactor * grayMaxAlpha * 2.0f * consciousnessBudget, 0.0f, 0.55f);
 
             drawEllipticalRing(pose, w, h,
-                    0.46f - 0.10f * grayFactor, 0.0f,
+                    0.50f - 0.08f * grayFactor, 0.0f,
                     1.45f, outerTunnelAlpha,
                     22, 26, 34,
                     0.0f, 0.0f, 0.0f, 0.0f);
-
-            if (centerTintAlpha > 0.005f) {
-                int cAlpha = (int) (centerTintAlpha * 255.0f);
-                graphics.fill(0, 0, w, h, (cAlpha << 24) | (135 << 16) | (150 << 8) | 170);
-                RenderSystem.setShader(GameRenderer::getPositionColorShader);
-            }
         }
 
         // ---------- 层级 2：主血管搏动无缝椭圆暗红晕影 ----------
         float baseVignetteAlpha = (painFactor > 0.002f) ? (painFactor * maxAlphaCfg * consciousnessBudget) : 0.0f;
-        float outerPulseAlpha = Mth.clamp(baseVignetteAlpha * (0.68f + 0.32f * pulse), 0.0f, 0.88f);
+        float outerPulseAlpha = Mth.clamp(baseVignetteAlpha * (0.68f + 0.32f * pulse), 0.0f, 0.82f);
 
-        float innerRadius = 0.74f - 0.20f * painFactor - 0.04f * pulse * painFactor;
+        float innerRadius = 0.74f - 0.18f * painFactor - 0.04f * pulse * painFactor;
         float midRadius = innerRadius + 0.22f;
 
         float topBoost = smoothHeadPain * 0.45f + smoothChestPain * 0.15f;
@@ -303,17 +295,20 @@ public class PainVisualOverlay {
             }
         }
 
-        // ---------- 层级 5：3A 级烧伤独特视觉系统（焦化热浪暗角 + 热空气折射波纹 + 表皮焦裂火纹 + 飞散火星） ----------
+        // ---------- 层级 5：3A 级烧伤独特视觉系统 ----------
         if (hasBurnVfx) {
             renderThermalBurnVisuals(graphics, pose, w, h, dt, pulse, consciousnessBudget);
         }
 
+        RenderSystem.enableCull();
         RenderSystem.enableDepthTest();
         RenderSystem.disableBlend();
     }
 
     /**
-     * 绘制无缝椭圆径向渐变环
+     * 绘制无缝椭圆径向渐变环：
+     * - 当 rOuter >= 0.98f（外圈边缘遮罩）时，外径自适应延伸至矩形屏幕角点距离 1 / max(|cos|, |sin|) * 1.02f，100% 消除四角漏边；
+     * - 当 rOuter < 0.98f（内/中过渡环）时，严格保持真实 rOuter 半径，绝不错误拉伸至全屏。
      */
     public static void drawEllipticalRing(
             Matrix4f pose, int w, int h,
@@ -329,6 +324,7 @@ public class PainVisualOverlay {
         float rx = w * 0.5f;
         float ry = h * 0.5f;
 
+        RenderSystem.disableCull();
         Tesselator tesselator = Tesselator.getInstance();
         BufferBuilder buffer = tesselator.begin(VertexFormat.Mode.TRIANGLE_STRIP, DefaultVertexFormat.POSITION_COLOR);
 
@@ -343,21 +339,27 @@ public class PainVisualOverlay {
             if (sin < 0) dirWeight += (-sin) * topBoost;
             else dirWeight += sin * bottomBoost;
 
-            // 外环半径自适应矩形屏幕角点距离 1 / max(|cos|, |sin|)，彻底保证四角完全覆盖无断层
-            float borderDist = 1.0f / Math.max(0.001f, Math.max(Math.abs(cos), Math.abs(sin)));
-            float actualOuterR = Math.max(rOuter, borderDist * 1.02f);
+            float localInnerR = Math.max(0.22f, rInner - (dirWeight - 1.0f) * 0.12f);
 
-            float localInnerR = Math.max(0.18f, rInner - (dirWeight - 1.0f) * 0.14f);
-            float aIn = Mth.clamp(alphaInner * dirWeight, 0.0f, 0.96f);
-            float aOut = Mth.clamp(alphaOuter * dirWeight, 0.0f, 0.96f);
+            float actualOuterR;
+            if (rOuter >= 0.98f) {
+                float borderDist = 1.0f / Math.max(0.001f, Math.max(Math.abs(cos), Math.abs(sin)));
+                actualOuterR = Math.max(rOuter, borderDist * 1.02f);
+            } else {
+                actualOuterR = Math.max(localInnerR + 0.02f, rOuter - (dirWeight - 1.0f) * 0.06f);
+            }
+
+            float aIn = Mth.clamp(alphaInner * dirWeight, 0.0f, 0.92f);
+            float aOut = Mth.clamp(alphaOuter * dirWeight, 0.0f, 0.94f);
 
             float xIn = cx + cos * rx * localInnerR;
             float yIn = cy + sin * ry * localInnerR;
             float xOut = cx + cos * rx * actualOuterR;
             float yOut = cy + sin * ry * actualOuterR;
 
-            buffer.addVertex(pose, xIn, yIn, 0.0f).setColor(r, g, b, (int) (aIn * 255.0f));
+            // 先外后内使正面朝向 +Z (CCW)，同时配合 disableCull 双重保险
             buffer.addVertex(pose, xOut, yOut, 0.0f).setColor(r, g, b, (int) (aOut * 255.0f));
+            buffer.addVertex(pose, xIn, yIn, 0.0f).setColor(r, g, b, (int) (aIn * 255.0f));
         }
 
         MeshData mesh = buffer.build();
@@ -368,12 +370,6 @@ public class PainVisualOverlay {
 
     /**
      * 3A 级屏幕四边精确锚定的有机蜿蜒毛细血管与痛觉神经丝网络
-     *
-     * 核心改进：
-     * 1. 每条血管根部严格通过屏幕边界周长参数化采样 (Top / Bottom / Left / Right 四条物理边)，
-     *    起点 100% 位于屏幕最外边缘像素上（外延 2px），绝不会出现半空悬空生长的血管！
-     * 2. 主血管采用 14 段平滑正弦谐波有机曲率向屏幕内侧生长，并按解剖学 Y 型夹角派生二级、三级细微毛细血管。
-     * 3. 双通道渲染：底层柔和暗红血管壁晕染 + 顶层高亮动脉血芯与随心跳奔涌的痛觉神经脉冲亮点。
      */
     private static void drawScreenEdgeAnchoredCapillaries(
             Matrix4f pose, int w, int h, float baseAlpha, float painFactor, float pulse,
@@ -382,7 +378,6 @@ public class PainVisualOverlay {
         float cx = w * 0.5f;
         float cy = h * 0.5f;
 
-        // 沿屏幕四条物理边界均匀分布 32 条主干血管根部锚点
         int totalRoots = 32;
         int mainSteps = 14;
         float timeSec = (System.currentTimeMillis() % 60000L) / 1000.0f;
@@ -391,41 +386,38 @@ public class PainVisualOverlay {
         BufferBuilder buffer = tesselator.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
 
         for (int i = 0; i < totalRoots; i++) {
-            // 将 i 映射到屏幕矩形周长 u ∈ [0, 4)，分别对应：0=顶边, 1=右边, 2=底边, 3=左边
             float perimeterPos = (i + 0.5f) / (float) totalRoots * 4.0f;
             int edgeIndex = ((int) perimeterPos) % 4;
-            float edgeFrac = perimeterPos - (int) perimeterPos; // [0, 1)
+            float edgeFrac = perimeterPos - (int) perimeterPos;
 
-            // 伪随机抖动让分布自然不呆板，但始终严格锁死在屏幕物理边界上
             float jitter = (Mth.sin(i * 12.9898f + 78.233f) * 0.5f) * 0.04f;
             edgeFrac = Mth.clamp(edgeFrac + jitter, 0.02f, 0.98f);
 
             float rootX, rootY;
             float dirBoost = 1.0f;
             switch (edgeIndex) {
-                case 0 -> { // 顶边 (y = -2)
+                case 0 -> {
                     rootX = edgeFrac * w;
                     rootY = -2.0f;
                     dirBoost += topBoost * 0.65f;
                 }
-                case 1 -> { // 右边 (x = w + 2)
+                case 1 -> {
                     rootX = w + 2.0f;
                     rootY = edgeFrac * h;
                     dirBoost += rightBoost * 0.65f;
                 }
-                case 2 -> { // 底边 (y = h + 2)
+                case 2 -> {
                     rootX = (1.0f - edgeFrac) * w;
                     rootY = h + 2.0f;
                     dirBoost += bottomBoost * 0.65f;
                 }
-                default -> { // 左边 (x = -2)
+                default -> {
                     rootX = -2.0f;
                     rootY = (1.0f - edgeFrac) * h;
                     dirBoost += leftBoost * 0.65f;
                 }
             }
 
-            // 计算从屏幕边缘锚点指向视野中心的内向单位向量 (inwardX, inwardY)
             float toCenterX = cx - rootX;
             float toCenterY = cy - rootY;
             float distToCenter = Mth.sqrt(toCenterX * toCenterX + toCenterY * toCenterY);
@@ -433,11 +425,9 @@ public class PainVisualOverlay {
 
             float inX = toCenterX / distToCenter;
             float inY = toCenterY / distToCenter;
-            // 垂直于生长方向的法向量 (perpX, perpY)，用于控制血管有机蜿蜒摆动
             float perpX = -inY;
             float perpY = inX;
 
-            // 血管向内生长的最大长度：严格控制在边缘 14% ~ 32% 区域内，绝不侵占中央准星区
             float seedVar = 0.75f + 0.50f * (0.5f + 0.5f * Mth.sin(i * 43.17f));
             float maxReachPx = Math.min(w, h) * (0.13f + 0.15f * painFactor * dirBoost + 0.035f * pulse) * seedVar;
             float rootAlpha = Mth.clamp(baseAlpha * dirBoost * (0.75f + 0.25f * seedVar), 0.0f, 0.92f);
@@ -454,7 +444,6 @@ public class PainVisualOverlay {
                 float t = s / (float) mainSteps;
                 float prevT = (s - 1) / (float) mainSteps;
 
-                // 双频正弦叠加构造逼真的生物血管曲率（在根部 s=0 时偏移严格为 0，确保起点锁死在屏幕边缘）
                 float env = Mth.sin(t * (float) Math.PI * 0.85f);
                 float lateralOffset = (Mth.sin(t * freq1 + phaseOffset + pulse * 0.6f) * 0.65f
                         + Mth.cos(t * freq2 - phaseOffset * 1.3f) * 0.35f) * wiggleAmp * env;
@@ -462,7 +451,6 @@ public class PainVisualOverlay {
                 float currX = rootX + inX * (t * maxReachPx) + perpX * lateralOffset;
                 float currY = rootY + inY * (t * maxReachPx) + perpY * lateralOffset;
 
-                // 血管半径与透明度随向内延伸平滑锥形衰减至 0
                 float taperStart = (float) Math.pow(1.0f - prevT, 1.35);
                 float taperEnd = (float) Math.pow(1.0f - t, 1.35);
 
@@ -471,13 +459,10 @@ public class PainVisualOverlay {
                 int aStart = (int) (rootAlpha * taperStart * 255.0f);
                 int aEnd = (int) (rootAlpha * taperEnd * 255.0f);
 
-                // 1) 外层柔和暗红血管鞘晕光 (Outer Soft Vascular Sheath)
                 addTaperedQuadSegment(buffer, pose, prevX, prevY, currX, currY,
                         wStart * 2.1f, wEnd * 2.1f,
                         120, 6, 14, aStart / 3, aEnd / 3);
 
-                // 2) 内层鲜红动脉核心与神经脉冲高亮 (Inner Arterial Core)
-                // 神经冲动光包沿血管向内传导
                 float impulseWave = Mth.clamp(1.0f - Math.abs(t - ((timeSec * 1.4f + i * 0.13f) % 1.0f)) * 5.0f, 0.0f, 1.0f);
                 int coreR = (int) Mth.lerp(impulseWave * painFactor, 205, 255);
                 int coreG = (int) Mth.lerp(impulseWave * painFactor, 16, 75);
@@ -487,14 +472,12 @@ public class PainVisualOverlay {
                         wStart * 0.85f, wEnd * 0.85f,
                         coreR, coreG, coreB, aStart, aEnd);
 
-                // 3) 在主干 35% 与 65% 处生成符合解剖学锐角的二级、三级自然分叉微血管 (Bifurcating Sub-Branches)
                 if ((s == 5 || s == 9) && painFactor > 0.22f) {
                     float branchSign = ((i + s) % 2 == 0) ? 1.0f : -1.0f;
-                    float branchAngle = branchSign * (0.48f + (i % 3) * 0.09f); // 约 28°~38° 锐角分叉
+                    float branchAngle = branchSign * (0.48f + (i % 3) * 0.09f);
                     float cosB = Mth.cos(branchAngle);
                     float sinB = Mth.sin(branchAngle);
 
-                    // 旋转当前生长方向向量
                     float bDirX = inX * cosB - inY * sinB;
                     float bDirY = inX * sinB + inY * cosB;
                     float bPerpX = -bDirY;
@@ -516,9 +499,6 @@ public class PainVisualOverlay {
         }
     }
 
-    /**
-     * 绘制 7 段平滑弯曲的二级/三级微血管与痛觉神经末梢分叉
-     */
     private static void drawCurvedSubBranch(
             BufferBuilder buffer, Matrix4f pose,
             float startX, float startY, float dirX, float dirY, float perpX, float perpY,
@@ -552,9 +532,6 @@ public class PainVisualOverlay {
         }
     }
 
-    /**
-     * 支持首尾不同线宽 (锥形渐变) 的高精度平滑线段绘制
-     */
     public static void addTaperedQuadSegment(
             BufferBuilder buffer, Matrix4f pose,
             float x1, float y1, float x2, float y2,
@@ -574,9 +551,6 @@ public class PainVisualOverlay {
         buffer.addVertex(pose, x2 - nx * halfW2, y2 - ny * halfW2, 0.0f).setColor(r, g, b, a2);
     }
 
-    /**
-     * 兼容等宽线段的通用绘制接口
-     */
     public static void addQuadSegment(
             BufferBuilder buffer, Matrix4f pose,
             float x1, float y1, float x2, float y2,
@@ -651,13 +625,6 @@ public class PainVisualOverlay {
         return Mth.clamp(areaNorm * 0.65f + degFactor * 0.45f + heatBoost, 0.0f, 1.0f);
     }
 
-    /**
-     * 渲染 3A 级独特烧伤视觉效果：
-     * 1. 外圈焦黑碳化痂壳 (III/IV度) + 中圈水疱灼伤烈焰橙晕影 + 内圈加色混合白炽热浪脉动
-     * 2. 屏幕四边上升的扭曲热空气折射波纹带 (Thermal Mirage Convection Ribbons)
-     * 3. 锚定屏幕四边的表皮焦裂熔岩火纹 (Epidermal Crackling Ember Fissures)
-     * 4. 随热气流飘升的灼热火星与焦灰粒子 (Rising Ember Sparks & Char Ash)
-     */
     private static void renderThermalBurnVisuals(
             GuiGraphics graphics, Matrix4f pose, int w, int h,
             float dt, float pulse, float consciousnessBudget) {
@@ -677,9 +644,8 @@ public class PainVisualOverlay {
         float innerR = 0.76f - 0.18f * intensity - 0.03f * thermalWave * intensity;
         float midR = innerR + 0.20f;
 
-        // 1) 重度烧伤 (III/IV度) 外缘焦黑碳化痂壳层 (Charred Eschar Outer Ring)
         if (currentMaxBurnDegree >= 3 || intensity > 0.55f) {
-            float charAlpha = Mth.clamp(intensity * (currentMaxBurnDegree >= 4 ? 0.82f : 0.62f), 0.0f, 0.80f);
+            float charAlpha = Mth.clamp(intensity * (currentMaxBurnDegree >= 4 ? 0.78f : 0.58f), 0.0f, 0.76f);
             drawEllipticalRing(pose, w, h,
                     midR - 0.04f, 0.0f,
                     1.45f, charAlpha,
@@ -687,7 +653,6 @@ public class PainVisualOverlay {
                     bLeft, bRight, bTop, bBottom);
         }
 
-        // 2) 中层灼伤烈焰红橙水疱热晕 (Blistering Scald Orange-Red Vignette)
         float midAlpha = Mth.clamp(intensity * (0.52f + 0.25f * thermalWave), 0.0f, 0.76f);
         drawEllipticalRing(pose, w, h,
                 innerR, 0.0f,
@@ -695,7 +660,6 @@ public class PainVisualOverlay {
                 235, 58, 8,
                 bLeft, bRight, bTop, bBottom);
 
-        // 3) 内层加色混合白炽琥珀热浪光晕与上升热气流波纹 (Additive Thermal Shimmer & Convection Ripples)
         RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
 
         float glowAlpha = Mth.clamp(intensity * (0.28f + 0.30f * pulse + 0.18f * thermalWave), 0.0f, 0.58f);
@@ -708,12 +672,10 @@ public class PainVisualOverlay {
         drawThermalConvectionWaves(pose, w, h, intensity, timeSec, bLeft, bRight, bTop, bBottom);
         RenderSystem.defaultBlendFunc();
 
-        // 4) 严格锚定屏幕边缘的表皮焦裂火纹 (Epidermal Crackling Ember Fissures)
         if (intensity > 0.12f) {
             drawThermalFissureCracks(pose, w, h, intensity, timeSec, pulse, bLeft, bRight, bTop, bBottom);
         }
 
-        // 5) 实时上升火星与焦灰粒子 (Rising Ember Sparks & Ash)
         updateAndRenderBurnEmbers(pose, w, h, dt, intensity, timeSec);
     }
 
@@ -789,7 +751,6 @@ public class PainVisualOverlay {
                 float t = s / (float) crackSteps;
                 float prevT = (s - 1) / (float) crackSteps;
 
-                // 折线形焦裂折角（不同于平滑正弦血管，呈现干裂灼伤纹路）
                 float zig = Mth.sin(s * 2.45f + i * 3.1f) * maxLen * 0.12f * Mth.sin(t * (float) Math.PI);
                 float curX = rx + inX * (t * maxLen) + pX * zig;
                 float curY = ry + inY * (t * maxLen) + pY * zig;
@@ -799,12 +760,10 @@ public class PainVisualOverlay {
                 int a1 = (int) (baseA * tap1 * 255.0f);
                 int a2 = (int) (baseA * tap2 * 255.0f);
 
-                // 外层焦黑碳化裂口边缘
                 addTaperedQuadSegment(buf, pose, prevX, prevY, curX, curY,
                         baseW * tap1 * 2.0f, baseW * tap2 * 2.0f,
                         38, 8, 2, a1 * 2 / 3, a2 * 2 / 3);
 
-                // 内层炽热熔金橙红火芯
                 float sparkPulse = 0.5f + 0.5f * Mth.sin(timeSec * 6.5f - t * 4.5f + i);
                 int cr = 255;
                 int cg = (int) Mth.lerp(sparkPulse, 85, 215);
@@ -831,7 +790,6 @@ public class PainVisualOverlay {
             for (BurnEmberParticle p : BURN_EMBERS) {
                 if (!p.active) {
                     p.active = true;
-                    // 主要从屏幕底部与左右烧伤边缘升起
                     int side = (int) (Math.random() * 10);
                     if (side < 6) {
                         p.x = (float) (Math.random() * w);
