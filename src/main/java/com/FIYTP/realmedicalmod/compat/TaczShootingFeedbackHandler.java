@@ -71,6 +71,15 @@ import java.util.concurrent.ConcurrentHashMap;
 @EventBusSubscriber(modid = RealMedicalMod.MODID)
 public final class TaczShootingFeedbackHandler {
 
+    /** 独立内置枪械弹道分类枚举（零跨包耦合，无论 TaczDamageCompatHandler 在 campat 还是 compat 均 100% 编译通过） */
+    public enum BallisticProfile {
+        PISTOL_SMG,
+        RIFLE_MG,
+        HEAVY_SNIPER_AMR,
+        SHOTGUN,
+        EXPLOSIVE_LAUNCHER
+    }
+
     private static final String TACZ_MOD_ID = "tacz";
     private static final String EVENT_GUN_SHOOT = "com.tacz.guns.api.event.common.GunShootEvent";
     private static final String EVENT_GUN_FIRE = "com.tacz.guns.api.event.common.GunFireEvent";
@@ -140,7 +149,7 @@ public final class TaczShootingFeedbackHandler {
 
     public static HandlingPenaltyProfile evaluateHandlingProfile(Player player,
                                                                  MedicalData data,
-                                                                 TaczDamageCompatHandler.BallisticProfile gunProfile) {
+                                                                 BallisticProfile gunProfile) {
         HandlingPenaltyProfile out = new HandlingPenaltyProfile();
         if (player == null || data == null) return out;
 
@@ -187,18 +196,18 @@ public final class TaczShootingFeedbackHandler {
         // 3) 单臂截肢或双臂未固定骨折时的开镜限制与耐力上限
         boolean oneArmAmputated = leftAmp ^ rightAmp;
         if (oneArmAmputated) {
-            if (gunProfile == TaczDamageCompatHandler.BallisticProfile.HEAVY_SNIPER_AMR
-                    || gunProfile == TaczDamageCompatHandler.BallisticProfile.EXPLOSIVE_LAUNCHER) {
+            if (gunProfile == BallisticProfile.HEAVY_SNIPER_AMR
+                    || gunProfile == BallisticProfile.EXPLOSIVE_LAUNCHER) {
                 // 单手无法端起 .50 BMG 反器材重狙或火箭筒进行精确开镜瞄准
                 out.blockAds = true;
-            } else if (gunProfile != TaczDamageCompatHandler.BallisticProfile.PISTOL_SMG) {
+            } else if (gunProfile != BallisticProfile.PISTOL_SMG) {
                 // 单手端步枪/霰弹枪最多只能勉强支撑 2.8 秒即肌肉力竭退镜
                 out.maxHoldAdsSeconds = 2.8f;
             }
         } else if (leftUnfixedFrac && rightUnfixedFrac) {
-            if (gunProfile == TaczDamageCompatHandler.BallisticProfile.HEAVY_SNIPER_AMR) {
+            if (gunProfile == BallisticProfile.HEAVY_SNIPER_AMR) {
                 out.blockAds = true;
-            } else if (gunProfile != TaczDamageCompatHandler.BallisticProfile.PISTOL_SMG) {
+            } else if (gunProfile != BallisticProfile.PISTOL_SMG) {
                 out.maxHoldAdsSeconds = 3.5f;
             }
         } else if ((leftUnfixedFrac || rightUnfixedFrac) && gunWeightFactor >= 1.0f) {
@@ -230,7 +239,7 @@ public final class TaczShootingFeedbackHandler {
                 + consDeficit * 0.45f
                 + bleedShockRatio * 0.25f) * gunWeightFactor * (adsSlowStrength / 1.8f);
         if (oneArmAmputated) {
-            rawAdsPenalty += (gunProfile == TaczDamageCompatHandler.BallisticProfile.PISTOL_SMG) ? 0.45f : 0.75f;
+            rawAdsPenalty += (gunProfile == BallisticProfile.PISTOL_SMG) ? 0.45f : 0.75f;
         }
         // 使用非线性衰减让带伤开镜明显变慢（重伤/剧痛时 adsSpeedMultiplier 低至 0.08 ~ 0.22，开镜耗时延长 4~10 倍）
         float adrAdsBoost = (adrLevel >= 20.0f && combinedArmImpairment < 0.20f && painRatio < 0.25f) ? 0.10f : 0.0f;
@@ -349,7 +358,7 @@ public final class TaczShootingFeedbackHandler {
         if (data == null) return;
 
         ItemStack heldGun = shooter.getMainHandItem();
-        TaczDamageCompatHandler.BallisticProfile profile = resolveHeldGunProfile(heldGun);
+        BallisticProfile profile = resolveHeldGunProfile(heldGun);
         HandlingPenaltyProfile handling = evaluateHandlingProfile(shooter, data, profile);
 
         // 若处于双臂截肢/昏迷/骤停状态，直接拦截销毁非法射出的子弹
@@ -394,9 +403,9 @@ public final class TaczShootingFeedbackHandler {
 
         // 2) 重武器带伤强行开火的反冲二次创伤：
         //    当手臂存在未固定骨折或脱臼时，强行发射反器材重狙/霰弹/大威力步枪会震伤伤臂
-        if (profile == TaczDamageCompatHandler.BallisticProfile.HEAVY_SNIPER_AMR
-                || profile == TaczDamageCompatHandler.BallisticProfile.SHOTGUN
-                || profile == TaczDamageCompatHandler.BallisticProfile.EXPLOSIVE_LAUNCHER) {
+        if (profile == BallisticProfile.HEAVY_SNIPER_AMR
+                || profile == BallisticProfile.SHOTGUN
+                || profile == BallisticProfile.EXPLOSIVE_LAUNCHER) {
             aggravateWoundedArmsFromHeavyRecoil(shooter, data, profile);
         }
     }
@@ -412,7 +421,7 @@ public final class TaczShootingFeedbackHandler {
         MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
         if (data == null) return;
 
-        TaczDamageCompatHandler.BallisticProfile profile = resolveHeldGunProfile(held);
+        BallisticProfile profile = resolveHeldGunProfile(held);
         HandlingPenaltyProfile handling = evaluateHandlingProfile(player, data, profile);
 
         Object operator = getServerGunOperator(player);
@@ -432,7 +441,7 @@ public final class TaczShootingFeedbackHandler {
 
     private static void aggravateWoundedArmsFromHeavyRecoil(ServerPlayer player,
                                                             MedicalData data,
-                                                            TaczDamageCompatHandler.BallisticProfile profile) {
+                                                            BallisticProfile profile) {
         int maxPain = ModItems.safeCfgInt(MedicalConfig.MAX_PAIN_LEVEL, 10);
         boolean aggravated = false;
 
@@ -442,7 +451,7 @@ public final class TaczShootingFeedbackHandler {
 
             boolean unfixedFrac = arm.hasFracture() && !(arm.hasSplint() || ModItems.isLimbOrthopedicFixed(arm));
             if (unfixedFrac || arm.hasDislocation()) {
-                float chance = (profile == TaczDamageCompatHandler.BallisticProfile.HEAVY_SNIPER_AMR) ? 0.75f : 0.40f;
+                float chance = (profile == BallisticProfile.HEAVY_SNIPER_AMR) ? 0.75f : 0.40f;
                 if (player.getRandom().nextFloat() < chance) {
                     arm.setPainLevel(Math.min(maxPain, arm.getPainLevel() + 2));
                     if (arm.hasOpenWound()) {
@@ -521,7 +530,7 @@ public final class TaczShootingFeedbackHandler {
                 gunStack = player.getMainHandItem();
             }
 
-            TaczDamageCompatHandler.BallisticProfile profile = resolveHeldGunProfile(gunStack);
+            BallisticProfile profile = resolveHeldGunProfile(gunStack);
             HandlingPenaltyProfile handling = evaluateHandlingProfile(player, data, profile);
 
             // 若双臂皆断或处于昏迷/心脏骤停，直接取消开火事件
@@ -599,7 +608,7 @@ public final class TaczShootingFeedbackHandler {
         private ClientHandler() {
         }
 
-        static void notifyClientGunShot(TaczDamageCompatHandler.BallisticProfile profile,
+        static void notifyClientGunShot(BallisticProfile profile,
                                          HandlingPenaltyProfile handling) {
             float baseKick = switch (profile) {
                 case HEAVY_SNIPER_AMR, EXPLOSIVE_LAUNCHER -> 3.4f;
@@ -632,7 +641,7 @@ public final class TaczShootingFeedbackHandler {
             MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
             if (data == null) return;
 
-            TaczDamageCompatHandler.BallisticProfile profile = resolveHeldGunProfile(held);
+            BallisticProfile profile = resolveHeldGunProfile(held);
             HandlingPenaltyProfile handling = evaluateHandlingProfile(player, data, profile);
 
             if (adsExhaustionCooldownTicks > 0) {
@@ -705,7 +714,7 @@ public final class TaczShootingFeedbackHandler {
             float dt = Mth.clamp((nowNs - lastFrameNs) / 1_000_000_000.0f, 0.0005f, 0.08f);
             lastFrameNs = nowNs;
 
-            TaczDamageCompatHandler.BallisticProfile profile = resolveHeldGunProfile(held);
+            BallisticProfile profile = resolveHeldGunProfile(held);
             HandlingPenaltyProfile handling = evaluateHandlingProfile(player, data, profile);
 
             // ---------- A. 真实举枪速度 (ADS Progress) 强力阻尼与时间戳锁控 ----------
@@ -808,7 +817,7 @@ public final class TaczShootingFeedbackHandler {
             MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
             if (data == null) return;
 
-            TaczDamageCompatHandler.BallisticProfile profile = resolveHeldGunProfile(held);
+            BallisticProfile profile = resolveHeldGunProfile(held);
             HandlingPenaltyProfile handling = evaluateHandlingProfile(player, data, profile);
 
             if (handling.adsSpeedMultiplier < 0.92f && smoothVisualAdsProgress > 0.005f && smoothVisualAdsProgress < 0.995f) {
@@ -836,7 +845,7 @@ public final class TaczShootingFeedbackHandler {
             MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
             if (data == null) return;
 
-            TaczDamageCompatHandler.BallisticProfile profile = resolveHeldGunProfile(held);
+            BallisticProfile profile = resolveHeldGunProfile(held);
             HandlingPenaltyProfile handling = evaluateHandlingProfile(player, data, profile);
 
             Object clientOp = getClientGunOperator(player);
@@ -887,7 +896,7 @@ public final class TaczShootingFeedbackHandler {
             MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
             if (data == null || data.isCardiacArrest()) return;
 
-            TaczDamageCompatHandler.BallisticProfile profile = resolveHeldGunProfile(held);
+            BallisticProfile profile = resolveHeldGunProfile(held);
             HandlingPenaltyProfile handling = evaluateHandlingProfile(player, data, profile);
             if (handling.overallInstability <= 0.06f && crosshairBloomSpread <= 0.2f) return;
 
@@ -1090,10 +1099,10 @@ public final class TaczShootingFeedbackHandler {
         }
     }
 
-    public static TaczDamageCompatHandler.BallisticProfile resolveHeldGunProfile(ItemStack stack) {
+    public static BallisticProfile resolveHeldGunProfile(ItemStack stack) {
         ResourceLocation gunId = extractGunIdFromStack(stack);
         if (gunId == null) {
-            return TaczDamageCompatHandler.BallisticProfile.RIFLE_MG;
+            return BallisticProfile.RIFLE_MG;
         }
 
         String gunType = "";
@@ -1127,21 +1136,21 @@ public final class TaczShootingFeedbackHandler {
 
         if (gunType.contains("rpg") || gunType.contains("heavy") || gunType.contains("launcher")
                 || path.contains("rpg") || path.contains("m320") || path.contains("mgl")) {
-            return TaczDamageCompatHandler.BallisticProfile.EXPLOSIVE_LAUNCHER;
+            return BallisticProfile.EXPLOSIVE_LAUNCHER;
         }
         if (pelletCount > 1 || gunType.contains("shotgun") || ammoPath.contains("12g")
                 || path.contains("m870") || path.contains("aa12") || path.contains("db_")) {
-            return TaczDamageCompatHandler.BallisticProfile.SHOTGUN;
+            return BallisticProfile.SHOTGUN;
         }
         if (gunType.contains("sniper") || ammoPath.contains("50bmg") || ammoPath.contains("338")
                 || path.contains("m95") || path.contains("m107") || path.contains("awp") || path.contains("awm")) {
-            return TaczDamageCompatHandler.BallisticProfile.HEAVY_SNIPER_AMR;
+            return BallisticProfile.HEAVY_SNIPER_AMR;
         }
         if (gunType.contains("pistol") || gunType.contains("smg")
                 || ammoPath.contains("9mm") || ammoPath.contains("45acp") || ammoPath.contains("57x28")) {
-            return TaczDamageCompatHandler.BallisticProfile.PISTOL_SMG;
+            return BallisticProfile.PISTOL_SMG;
         }
-        return TaczDamageCompatHandler.BallisticProfile.RIFLE_MG;
+        return BallisticProfile.RIFLE_MG;
     }
 
     private static ResourceLocation extractGunIdFromStack(ItemStack stack) {

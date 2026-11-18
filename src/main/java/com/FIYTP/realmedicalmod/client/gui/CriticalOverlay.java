@@ -399,7 +399,7 @@ public class CriticalOverlay {
 
         // ===== 优先级 3：背景生理障碍层（心动过速、呼吸异常、血胸、颅内出血、意识模糊/昏迷无缝椭圆暗角） =====
         renderSubCriticalRadialLayers(g, mc.font, w, h, data, nowMs);
-        renderConsciousnessSyncope3A(g, w, h, nowMs);
+        renderConsciousnessSyncope3A(g, w, h, data, nowMs);
 
         // ===== 优先级 4（最顶层）：失血至 <= 3000mL 的濒危状态 + 20 秒生命倒计时核心舱 =====
         if (data.isInCriticalState() && data.getCriticalTimer() > 0) {
@@ -884,12 +884,7 @@ public class CriticalOverlay {
      * 1. 外环半径 1.45f 配合 borderDist * 1.02f，100% 覆盖矩形屏幕四个角落，绝不漏出四角画面；
      * 2. 中心区域始终保持通透（rInner >= 0.32f），且在濒危倒计时等顶层 HUD 卡片之前渲染，绝不遮挡濒死倒计时和其他视觉效果！
      */
-    private static void renderConsciousnessSyncope3A(GuiGraphics g, int w, int h, long nowMs) {
-        if (smoothConsciousness >= 58.0f) return;
-
-        float deficit = Mth.clamp((58.0f - smoothConsciousness) / 58.0f, 0.0f, 1.0f);
-        float slowBreath = 0.5f + 0.5f * Mth.sin(nowMs * 0.0022f);
-
+    private static void renderConsciousnessSyncope3A(GuiGraphics g, int w, int h, MedicalData data, long nowMs) {
         Matrix4f pose = g.pose().last().pose();
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
@@ -897,25 +892,117 @@ public class CriticalOverlay {
         RenderSystem.disableCull();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
 
-        // 内径最低保留在 0.32f，避免把屏幕中心封死成全黑块
-        float tunnelInner = Mth.lerp(deficit, 0.76f, 0.32f) - 0.02f * slowBreath * deficit;
-        float tunnelMid = tunnelInner + 0.24f;
-        float midAlpha = Mth.clamp(deficit * 0.42f, 0.0f, 0.45f);
-        float outerAlpha = Mth.clamp(deficit * (0.78f + 0.06f * slowBreath), 0.0f, 0.84f);
+        // 1) 缺氧/气胸/血胸「紫绀窒息视野与视网膜静电雪花噪点 (Hypoxia Retinal Visual Snow)」
+        int pneumoType = ModItems.getPneumothoraxType(data);
+        float pleuralAir = ModItems.getPleuralAirMl(data);
+        int hemoLv = data.getHemothoraxLevel();
+        float spo2Deficit = Mth.clamp((92.0f - data.getBloodOxygenFloat()) / 26.0f, 0.0f, 1.0f);
+        float asphyxiaFactor = Mth.clamp(
+                spo2Deficit + (pneumoType > 0 ? 0.25f + pneumoType * 0.18f : 0.0f)
+                        + (pleuralAir / 1200.0f) * 0.45f + hemoLv * 0.18f,
+                0.0f, 1.0f
+        ) * MedicalConfig.TRAUMA_HYPOXIA_VISUAL_SNOW_INTENSITY.get().floatValue();
 
-        // 中圈：缺血冷蓝灰晕影
-        PainVisualOverlay.drawEllipticalRing(pose, w, h,
-                tunnelInner, 0.0f,
-                tunnelMid, midAlpha,
-                16, 20, 30,
-                0.0f, 0.0f, 0.0f, 0.0f);
+        if (asphyxiaFactor > 0.02f) {
+            float gaspWave = 0.5f + 0.5f * Mth.sin(nowMs * 0.0055f);
+            float cyanInner = Mth.lerp(Mth.clamp(asphyxiaFactor, 0.0f, 1.0f), 0.72f, 0.34f) - 0.03f * gaspWave;
+            PainVisualOverlay.drawEllipticalRing(pose, w, h,
+                    cyanInner, 0.0f,
+                    cyanInner + 0.24f, Mth.clamp(asphyxiaFactor * 0.52f, 0.0f, 0.68f),
+                    10, 22, 48,
+                    0.15f, 0.15f, 0.20f, 0.20f);
+            PainVisualOverlay.drawEllipticalRing(pose, w, h,
+                    cyanInner + 0.20f, Mth.clamp(asphyxiaFactor * 0.50f, 0.0f, 0.65f),
+                    1.48f, Mth.clamp(asphyxiaFactor * 0.88f, 0.0f, 0.94f),
+                    0, 2, 8,
+                    0.15f, 0.15f, 0.20f, 0.20f);
 
-        // 外圈：无缝覆盖屏幕四角的深色昏迷隧道暗角
-        PainVisualOverlay.drawEllipticalRing(pose, w, h,
-                tunnelMid, midAlpha,
-                1.45f, outerAlpha,
-                6, 8, 14,
-                0.0f, 0.0f, 0.0f, 0.0f);
+            // 视网膜缺氧静电雪花噪点 (Retinal Visual Snow)
+            Tesselator snowTess = Tesselator.getInstance();
+            BufferBuilder snowBuf = snowTess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+            long frameBucket = nowMs / 35L;
+            int grainCount = Math.min(140, Math.round(45 + asphyxiaFactor * 85));
+            boolean hasSnow = false;
+            float cx = w * 0.5f;
+            float cy = h * 0.5f;
+            for (int i = 0; i < grainCount; i++) {
+                long h1 = (frameBucket * 0x9E3779B97F4A7C15L) ^ (i * 0xBF58476D1CE4E5B9L);
+                h1 = (h1 ^ (h1 >>> 30)) * 0xBF58476D1CE4E5B9L;
+                float uAngle = ((h1 & 0xFFFF) / 65535.0f) * Mth.TWO_PI;
+                float uRad = Mth.lerp(((h1 >>> 16) & 0xFFFF) / 65535.0f, cyanInner * 0.85f, 1.25f);
+                float gx = cx + Mth.cos(uAngle) * (w * 0.5f) * uRad;
+                float gy = cy + Mth.sin(uAngle) * (h * 0.5f) * uRad;
+                if (gx < 0 || gx >= w || gy < 0 || gy >= h) continue;
+
+                boolean darkGrain = ((h1 >>> 33) & 1L) == 0L;
+                int gr = darkGrain ? 0 : 95;
+                int gg = darkGrain ? 4 : 175;
+                int gb = darkGrain ? 12 : 235;
+                int ga = Mth.clamp(Math.round(asphyxiaFactor * (darkGrain ? 195.0f : 115.0f)), 0, 225);
+                float sz = 1.2f + (((h1 >>> 40) & 0xFF) / 255.0f) * 1.8f;
+                snowBuf.addVertex(pose, gx - sz, gy + sz, 0.0f).setColor(gr, gg, gb, ga);
+                snowBuf.addVertex(pose, gx + sz, gy + sz, 0.0f).setColor(gr, gg, gb, ga);
+                snowBuf.addVertex(pose, gx + sz, gy - sz, 0.0f).setColor(gr, gg, gb, ga);
+                snowBuf.addVertex(pose, gx - sz, gy - sz, 0.0f).setColor(gr, gg, gb, ga);
+                hasSnow = true;
+            }
+            MeshData snowMesh = snowBuf.build();
+            if (snowMesh != null && hasSnow) {
+                BufferUploader.drawWithShader(snowMesh);
+            }
+        }
+
+        // 2) 大失血休克「冷汗水雾霜化与失色暗角 (Hypovolemic Cold-Sweat Frost)」
+        float bloodLossRatio = Mth.clamp((data.getMaxBloodVolume() - data.getBloodVolume()) / 2000.0f, 0.0f, 1.0f)
+                * MedicalConfig.TRAUMA_COLD_SWEAT_FROST_INTENSITY.get().floatValue();
+        if (bloodLossRatio > 0.08f) {
+            float frostInner = Mth.lerp(Mth.clamp(bloodLossRatio, 0.0f, 1.0f), 0.76f, 0.38f);
+            PainVisualOverlay.drawEllipticalRing(pose, w, h,
+                    frostInner, 0.0f,
+                    frostInner + 0.22f, Mth.clamp(bloodLossRatio * 0.38f, 0.0f, 0.52f),
+                    155, 185, 210,
+                    0.10f, 0.10f, 0.15f, 0.15f);
+        }
+
+        // 3) 低意识与昏迷深黑隧道暗角 + 沉重眼皮下垂闭合幕 (Consciousness Blackout & Eyelid Droop)
+        if (smoothConsciousness < 78.0f) {
+            float deficit = Mth.clamp((78.0f - smoothConsciousness) / 78.0f, 0.0f, 1.0f);
+            float slowBreath = 0.5f + 0.5f * Mth.sin(nowMs * 0.0022f);
+            float minInnerR = MedicalConfig.TRAUMA_BLACK_CORNER_MIN_INNER_RADIUS.get().floatValue();
+            float maxBlackAlpha = MedicalConfig.TRAUMA_BLACK_CORNER_MAX_ALPHA.get().floatValue();
+
+            float tunnelInner = Mth.lerp(deficit, 0.76f, minInnerR) - 0.025f * slowBreath * deficit;
+            float tunnelMid = tunnelInner + 0.20f;
+            float midAlpha = Mth.clamp(deficit * 0.68f, 0.0f, 0.78f);
+            float outerAlpha = Mth.clamp(deficit * (0.88f + 0.08f * slowBreath), 0.0f, maxBlackAlpha);
+
+            // 中圈：深渊暗黑过渡
+            PainVisualOverlay.drawEllipticalRing(pose, w, h,
+                    tunnelInner, 0.0f,
+                    tunnelMid, midAlpha,
+                    4, 6, 10,
+                    0.0f, 0.0f, 0.25f, 0.25f);
+
+            // 外圈：纯黑 (#000000) 四角严丝合缝封边
+            PainVisualOverlay.drawEllipticalRing(pose, w, h,
+                    tunnelMid, midAlpha,
+                    1.48f, outerAlpha,
+                    0, 0, 0,
+                    0.0f, 0.0f, 0.35f, 0.35f);
+
+            // 意识低于 52% 时叠加「沉重眼皮缓慢眨眼下垂感」（上下黑幕随呼吸沉重合拢又强撑睁开）
+            float eyelidStrengthCfg = MedicalConfig.TRAUMA_EYELID_DROOP_MAX_STRENGTH.get().floatValue();
+            if (smoothConsciousness < 52.0f && eyelidStrengthCfg > 0.01f) {
+                float lidFactor = Mth.clamp((52.0f - smoothConsciousness) / 52.0f, 0.0f, 1.0f) * eyelidStrengthCfg;
+                float blinkWave = (float) Math.pow(0.5 + 0.5 * Math.sin(nowMs * 0.0019), 2.2);
+                int lidDepthH = Math.round(h * (0.08f + 0.24f * lidFactor * (0.65f + 0.35f * blinkWave)));
+                int solidH = Math.max(2, lidDepthH / 3);
+                g.fill(0, 0, w, solidH, 0xF2000000);
+                g.fillGradient(0, solidH, w, lidDepthH, 0xF2000000, 0x00000000);
+                g.fill(0, h - solidH, w, h, 0xF2000000);
+                g.fillGradient(0, h - lidDepthH, w, h - solidH, 0x00000000, 0xF2000000);
+            }
+        }
 
         RenderSystem.enableCull();
         RenderSystem.enableDepthTest();
@@ -949,9 +1036,9 @@ public class CriticalOverlay {
                 0.0f, 0.0f, 0.0f, 0.0f);
 
         PainVisualOverlay.drawEllipticalRing(pose, w, h,
-                tunnelMid, Mth.clamp(0.24f + 0.28f * urgency, 0.0f, 0.54f),
-                1.45f, Mth.clamp(0.48f + 0.34f * urgency, 0.0f, 0.84f),
-                55, 2, 8,
+                tunnelMid, Mth.clamp(0.42f + 0.32f * urgency, 0.0f, 0.76f),
+                1.48f, Mth.clamp(0.78f + 0.18f * urgency, 0.0f, 0.96f),
+                0, 0, 0,
                 0.0f, 0.0f, 0.0f, 0.0f);
 
         // B. 倒计时最后 5 秒叠加濒死脉冲红闪

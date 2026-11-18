@@ -194,11 +194,22 @@ public class PainVisualOverlay {
         float fullThreshold = MedicalConfig.PAIN_VIGNETTE_FULL_THRESHOLD.get().floatValue();
         float grayThreshold = MedicalConfig.PAIN_GRAY_WASH_THRESHOLD.get().floatValue();
 
-        float painFactor = (smoothPain >= startThreshold * 0.85f)
-                ? Mth.clamp((smoothPain - startThreshold) / Math.max(1.0f, fullThreshold - startThreshold), 0.0f, 1.0f)
+        float painFactor = (smoothPain >= startThreshold * 0.75f)
+                ? Mth.clamp((smoothPain - startThreshold * 0.75f) / Math.max(1.0f, fullThreshold - startThreshold * 0.75f), 0.0f, 1.0f)
                 : 0.0f;
+        float maxLimbRaw = Math.max(Math.max(targetHead, targetChest), Math.max(targetLeft, targetRight));
+        painFactor = Math.max(painFactor, Mth.clamp((maxLimbRaw - 0.15f) / 0.75f, 0.0f, 1.0f) * 0.85f);
+
+        float bloodDeficit = Mth.clamp((data.getMaxBloodVolume() - data.getBloodVolume()) / 2200.0f, 0.0f, 1.0f);
+        float hypoxiaFactor = Mth.clamp((94.0f - data.getBloodOxygenFloat()) / 28.0f, 0.0f, 1.0f);
+        int pneumoType = com.FIYTP.realmedicalmod.treatment.ModItems.getPneumothoraxType(data);
+        float traumaCornerIntensity = Mth.clamp(
+                Math.max(painFactor * 0.92f, Math.max(bloodDeficit * 0.95f, hypoxiaFactor * 0.90f))
+                        + (pneumoType > 0 ? 0.22f * pneumoType : 0.0f),
+                0.0f, 1.0f
+        );
         boolean hasBurnVfx = MedicalConfig.BURN_VFX_ENABLED.get() && smoothBurnIntensity > 0.004f;
-        if (painFactor <= 0.002f && !hasBurnVfx) return;
+        if (painFactor <= 0.002f && traumaCornerIntensity <= 0.005f && !hasBurnVfx) return;
 
         float consciousness = data.getConsciousness();
         float consciousnessBudget = (consciousness < 40.0f)
@@ -219,6 +230,37 @@ public class PainVisualOverlay {
         RenderSystem.disableCull();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
 
+        float topBoost = smoothHeadPain * 0.48f + smoothChestPain * 0.18f;
+        float bottomBoost = smoothChestPain * 0.38f;
+        float leftBoost = smoothLeftPain * 0.48f;
+        float rightBoost = smoothRightPain * 0.48f;
+
+        // ---------- 层级 0：常驻深邃纯黑边角压迫层 (Pitch-Black Corner Vignette —— 回归经典深黑压迫感且零漏角) ----------
+        if (MedicalConfig.TRAUMA_BLACK_CORNER_VIGNETTE_ENABLED.get() && traumaCornerIntensity > 0.005f) {
+            float maxBlackAlpha = MedicalConfig.TRAUMA_BLACK_CORNER_MAX_ALPHA.get().floatValue();
+            float minInnerR = MedicalConfig.TRAUMA_BLACK_CORNER_MIN_INNER_RADIUS.get().floatValue();
+            float breathWave = 0.5f + 0.5f * Mth.sin((System.currentTimeMillis() % 60000L) * 0.0045f);
+            float blackInnerR = Mth.lerp(traumaCornerIntensity, 0.78f, minInnerR + 0.06f)
+                    - 0.035f * pulse * traumaCornerIntensity
+                    - 0.025f * breathWave * hypoxiaFactor;
+            float blackMidR = blackInnerR + 0.22f;
+            float midBlackAlpha = Mth.clamp(traumaCornerIntensity * maxBlackAlpha * 0.58f, 0.0f, 0.78f);
+            float outerBlackAlpha = Mth.clamp(traumaCornerIntensity * maxBlackAlpha * (0.86f + 0.14f * pulse), 0.0f, maxBlackAlpha);
+
+            // 内圈羽化深黑过渡带
+            drawEllipticalRing(pose, w, h,
+                    blackInnerR, 0.0f,
+                    blackMidR, midBlackAlpha,
+                    0, 0, 0,
+                    leftBoost * 0.6f, rightBoost * 0.6f, topBoost * 0.6f, bottomBoost * 0.6f);
+            // 外圈四角浓重纯黑封边带（RGB 0,0,0，完全锁死屏幕四边与四角）
+            drawEllipticalRing(pose, w, h,
+                    blackMidR, midBlackAlpha,
+                    1.48f, outerBlackAlpha,
+                    0, 0, 0,
+                    leftBoost * 0.6f, rightBoost * 0.6f, topBoost * 0.6f, bottomBoost * 0.6f);
+        }
+
         // ---------- 层级 1：重度剧痛边缘冷灰去饱和隧道暗角 ----------
         if (smoothPain >= grayThreshold) {
             float maxPerceived = Math.max(10.0f, MedicalConfig.MAX_PERCEIVED_PAIN.get().floatValue());
@@ -229,7 +271,7 @@ public class PainVisualOverlay {
             drawEllipticalRing(pose, w, h,
                     0.50f - 0.08f * grayFactor, 0.0f,
                     1.45f, outerTunnelAlpha,
-                    22, 26, 34,
+                    12, 14, 20,
                     0.0f, 0.0f, 0.0f, 0.0f);
         }
 
@@ -240,10 +282,7 @@ public class PainVisualOverlay {
         float innerRadius = 0.74f - 0.18f * painFactor - 0.04f * pulse * painFactor;
         float midRadius = innerRadius + 0.22f;
 
-        float topBoost = smoothHeadPain * 0.45f + smoothChestPain * 0.15f;
-        float bottomBoost = smoothChestPain * 0.35f;
-        float leftBoost = smoothLeftPain * 0.45f;
-        float rightBoost = smoothRightPain * 0.45f;
+
 
         float midAlpha = outerPulseAlpha * 0.48f;
         drawEllipticalRing(pose, w, h,
@@ -344,13 +383,13 @@ public class PainVisualOverlay {
             float actualOuterR;
             if (rOuter >= 0.98f) {
                 float borderDist = 1.0f / Math.max(0.001f, Math.max(Math.abs(cos), Math.abs(sin)));
-                actualOuterR = Math.max(rOuter, borderDist * 1.02f);
+                actualOuterR = Math.max(rOuter, borderDist * 1.05f);
             } else {
                 actualOuterR = Math.max(localInnerR + 0.02f, rOuter - (dirWeight - 1.0f) * 0.06f);
             }
 
-            float aIn = Mth.clamp(alphaInner * dirWeight, 0.0f, 0.92f);
-            float aOut = Mth.clamp(alphaOuter * dirWeight, 0.0f, 0.94f);
+            float aIn = Mth.clamp(alphaInner * dirWeight, 0.0f, 0.96f);
+            float aOut = Mth.clamp(alphaOuter * dirWeight, 0.0f, 0.98f);
 
             float xIn = cx + cos * rx * localInnerR;
             float yIn = cy + sin * ry * localInnerR;

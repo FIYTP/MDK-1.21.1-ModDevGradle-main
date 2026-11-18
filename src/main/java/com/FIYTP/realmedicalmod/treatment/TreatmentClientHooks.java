@@ -2978,6 +2978,13 @@ public class TreatmentClientHooks {
     // 独立手术界面 A：《野战弹道取弹包 (ballistic_extraction_kit)》专属深部探查与大托盘取弹界面
     // =========================================================================
     public static class BulletExtractionScreen extends Screen {
+        private static final class SurgicalParticle {
+            boolean active = false;
+            float x, y, vx, vy, size, age, maxAge;
+            int color;
+            boolean isStain, isSpark;
+        }
+
         private final InteractionHand hand;
         private final MedicalData.Limb limb;
 

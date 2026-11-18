@@ -61,21 +61,36 @@ public class PainShockOverlay {
         RenderSystem.disableCull();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
 
-        // ---------- 1. 重创边缘深红压迫环（中心视野保持通透 rInner >= 0.46f，外环完整覆盖四角，绝不产生中央黑屏） ----------
+        // ---------- 1. 突发重创“眼前一黑”深黑边角隧道猛烈收缩（外环纯黑 #000000 锁死四角，中心留出准星求生窗） ----------
         if (blackout > 0.002f) {
-            float tunnelInner = Mth.clamp(0.68f - 0.22f * blackout, 0.46f, 0.68f);
+            float minInnerCfg = MedicalConfig.TRAUMA_BLACK_CORNER_MIN_INNER_RADIUS.get().floatValue();
+            float maxAlphaCfg = MedicalConfig.TRAUMA_BLACK_CORNER_MAX_ALPHA.get().floatValue();
+            float tunnelInner = Mth.clamp(0.64f - 0.38f * blackout, minInnerCfg, 0.64f);
+            float tunnelMid = tunnelInner + 0.18f;
+            float tunnelOuterStart = tunnelInner + 0.32f;
+
+            // 内过渡环：深暗血红向黑渊过渡
             PainVisualOverlay.drawEllipticalRing(
                     pose, w, h,
                     tunnelInner, 0.0f,
-                    tunnelInner + 0.22f, Mth.clamp(blackout * 0.48f, 0.0f, 0.55f),
-                    135, 8, 18,
+                    tunnelMid, Mth.clamp(blackout * 0.68f, 0.0f, 0.75f),
+                    48, 2, 6,
                     leftBoost, rightBoost, topBoost, bottomBoost
             );
+            // 中层黑视环：浓重墨黑压迫
             PainVisualOverlay.drawEllipticalRing(
                     pose, w, h,
-                    tunnelInner + 0.18f, Mth.clamp(blackout * 0.28f, 0.0f, 0.36f),
-                    1.45f, Mth.clamp(blackout * 0.72f, 0.0f, 0.76f),
-                    32, 4, 10,
+                    tunnelMid, Mth.clamp(blackout * 0.68f, 0.0f, 0.75f),
+                    tunnelOuterStart, Mth.clamp(blackout * 0.90f, 0.0f, 0.92f),
+                    6, 0, 2,
+                    leftBoost, rightBoost, topBoost, bottomBoost
+            );
+            // 外圈四角纯黑封边层（RGB 0,0,0，无缝锁死屏幕四角）
+            PainVisualOverlay.drawEllipticalRing(
+                    pose, w, h,
+                    tunnelOuterStart, Mth.clamp(blackout * 0.88f, 0.0f, 0.92f),
+                    1.48f, Mth.clamp(blackout * maxAlphaCfg, 0.0f, maxAlphaCfg),
+                    0, 0, 0,
                     leftBoost, rightBoost, topBoost, bottomBoost
             );
         }

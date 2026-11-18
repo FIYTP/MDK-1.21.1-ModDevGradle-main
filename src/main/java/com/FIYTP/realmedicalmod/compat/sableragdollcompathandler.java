@@ -61,7 +61,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *    - 遭受 TaCZ 榴弹/RPG 或原版/模组爆炸冲击时，按爆炸中心指向玩家的气浪向量掀飞并触发暂时布娃娃翻滚摔倒，数秒后恢复站立。
  */
 @EventBusSubscriber(modid = RealMedicalMod.MODID)
-public final class SableRagdollCompatHandler {
+final class SableRagdollCompatHandler {
 
     private static final String[] SABLE_RAGDOLL_MOD_IDS = {
             "sable_player_ragdoll",
@@ -107,7 +107,7 @@ public final class SableRagdollCompatHandler {
                                           MedicalData.LimbData ld,
                                           Entity bullet,
                                           LivingEntity attacker,
-                                          TaczDamageCompatHandler.BallisticProfile profile,
+                                          boolean isHeavySniperAmr,
                                           float penetratingDmg,
                                           float bluntDmg,
                                           float totalRawDamage) {
@@ -131,7 +131,7 @@ public final class SableRagdollCompatHandler {
 
         // 3) 大口径反器材武器 (HEAVY_SNIPER_AMR) 或超阈值重击 -> 直接全身物理击飞瘫软
         float heavyCaliberThresh = (float) ModItems.safeCfgDouble(MedicalConfig.RAGDOLL_HEAVY_CALIBER_KNOCKDOWN_DAMAGE, 13.5);
-        if (profile == TaczDamageCompatHandler.BallisticProfile.HEAVY_SNIPER_AMR
+        if (isHeavySniperAmr
                 || totalRawDamage >= heavyCaliberThresh
                 || effectiveTrauma >= heavyCaliberThresh * 0.85f) {
             int durTicks = ModItems.safeCfgInt(MedicalConfig.RAGDOLL_HEAVY_CALIBER_DURATION_TICKS, 85);
@@ -233,7 +233,7 @@ public final class SableRagdollCompatHandler {
 
         DamageSource source = event.getSource();
         // TaCZ 枪伤已在 onTaczBallisticHit 中精确处理，此处仅处理非 TaCZ 伤害（如近战重击、摔落、原版爆炸等）
-        if (TaczDamageCompatHandler.isTaczDamageSource(source)) return;
+        if (isTaczDamageSourceLocal(source)) return;
 
         MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
         if (data == null) return;
@@ -297,7 +297,7 @@ public final class SableRagdollCompatHandler {
         ItemStack stackToDrop = player.getItemInHand(targetHand);
         if (stackToDrop.isEmpty() && armLimb == MedicalData.Limb.LEFT_ARM) {
             ItemStack mainStack = player.getMainHandItem();
-            if (!mainStack.isEmpty() && (structuralArmFailure || TaczShootingFeedbackHandler.isTaczGunStack(mainStack))) {
+            if (!mainStack.isEmpty() && (structuralArmFailure || isTaczGunStackLocal(mainStack))) {
                 targetHand = InteractionHand.MAIN_HAND;
                 stackToDrop = mainStack;
             }
@@ -611,6 +611,26 @@ public final class SableRagdollCompatHandler {
             }
         }
         return null;
+    }
+
+    private static boolean isTaczDamageSourceLocal(DamageSource source) {
+        if (source == null) return false;
+        String msgId = source.getMsgId();
+        if (msgId != null && (msgId.startsWith("tacz") || msgId.contains("bullet"))) {
+            return true;
+        }
+        Entity direct = source.getDirectEntity();
+        return direct != null && direct.getClass().getName().contains("tacz");
+    }
+
+    private static boolean isTaczGunStackLocal(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
+        try {
+            var key = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem());
+            return key != null && "tacz".equals(key.getNamespace());
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private static Vec3 computeImpactDirection(ServerPlayer player, Entity projectile, LivingEntity attacker) {

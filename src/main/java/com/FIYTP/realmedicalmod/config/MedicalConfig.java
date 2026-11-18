@@ -805,6 +805,20 @@ public class MedicalConfig {
     public static ModConfigSpec.DoubleValue RAGDOLL_EXPLOSION_MIN_DAMAGE;
     public static ModConfigSpec.IntValue RAGDOLL_EXPLOSION_DURATION_TICKS;
 
+    // --- 3A 深黑边角回归、病理视觉噪点与程序化窒息/紧张杂音引擎配置 (12项) ---
+    public static ModConfigSpec.BooleanValue TRAUMA_BLACK_CORNER_VIGNETTE_ENABLED;
+    public static ModConfigSpec.DoubleValue TRAUMA_BLACK_CORNER_MAX_ALPHA;
+    public static ModConfigSpec.DoubleValue TRAUMA_BLACK_CORNER_MIN_INNER_RADIUS;
+    public static ModConfigSpec.DoubleValue TRAUMA_EYELID_DROOP_MAX_STRENGTH;
+    public static ModConfigSpec.DoubleValue TRAUMA_HYPOXIA_VISUAL_SNOW_INTENSITY;
+    public static ModConfigSpec.DoubleValue TRAUMA_COLD_SWEAT_FROST_INTENSITY;
+    public static ModConfigSpec.BooleanValue TRAUMA_SOUNDSCAPE_ENGINE_ENABLED;
+    public static ModConfigSpec.DoubleValue TRAUMA_SOUND_MASTER_VOLUME;
+    public static ModConfigSpec.DoubleValue TRAUMA_SOUND_TINNITUS_VOLUME;
+    public static ModConfigSpec.DoubleValue TRAUMA_SOUND_ASPHYXIA_WHEEZE_VOLUME;
+    public static ModConfigSpec.DoubleValue TRAUMA_SOUND_BLOOD_WHOOSH_VOLUME;
+    public static ModConfigSpec.DoubleValue TRAUMA_SOUND_CRITICAL_DRONE_VOLUME;
+
 
 
 
@@ -3141,6 +3155,42 @@ public class MedicalConfig {
         RAGDOLL_EXPLOSION_DURATION_TICKS = builder
                 .comment("爆炸导致暂时摔倒的基准持续时间 (Tick，默认 90 即 4.5 秒)")
                 .defineInRange("ragdollExplosionDurationTicks", 90, 20, 400);
+        TRAUMA_BLACK_CORNER_VIGNETTE_ENABLED = builder
+                .comment("是否启用重伤/失血/缺氧时的纯正深黑边角压迫暗角 (Black Corner Vignette，默认 true)")
+                .define("traumaBlackCornerVignetteEnabled", true);
+        TRAUMA_BLACK_CORNER_MAX_ALPHA = builder
+                .comment("深黑边角压迫层在屏幕四角与边缘的最大不透明度 (默认 0.96)")
+                .defineInRange("traumaBlackCornerMaxAlpha", 0.96, 0.10, 1.0);
+        TRAUMA_BLACK_CORNER_MIN_INNER_RADIUS = builder
+                .comment("极重伤/濒死时深黑边角向屏幕中心收拢的最小通透内径 (默认 0.25，确保中心视野可见)")
+                .defineInRange("traumaBlackCornerMinInnerRadius", 0.25, 0.15, 0.75);
+        TRAUMA_EYELID_DROOP_MAX_STRENGTH = builder
+                .comment("低意识与濒死状态下上下眼皮沉重闭合黑幕的最大强度 (默认 0.85)")
+                .defineInRange("traumaEyelidDroopMaxStrength", 0.85, 0.0, 1.0);
+        TRAUMA_HYPOXIA_VISUAL_SNOW_INTENSITY = builder
+                .comment("气胸/血胸/低血氧窒息时的紫绀视网膜静电雪花噪点强度 (默认 0.85)")
+                .defineInRange("traumaHypoxiaVisualSnowIntensity", 0.85, 0.0, 2.0);
+        TRAUMA_COLD_SWEAT_FROST_INTENSITY = builder
+                .comment("大失血休克时的屏幕边缘冷汗水雾霜化折射强度 (默认 0.80)")
+                .defineInRange("traumaColdSweatFrostIntensity", 0.80, 0.0, 2.0);
+        TRAUMA_SOUNDSCAPE_ENGINE_ENABLED = builder
+                .comment("是否启用程序化生理杂音与窒息/紧张合成音效引擎 (默认 true)")
+                .define("traumaSoundscapeEngineEnabled", true);
+        TRAUMA_SOUND_MASTER_VOLUME = builder
+                .comment("受伤生理杂音与窒息声学引擎主音量倍率 (默认 0.75)")
+                .defineInRange("traumaSoundMasterVolume", 0.75, 0.0, 2.0);
+        TRAUMA_SOUND_TINNITUS_VOLUME = builder
+                .comment("头部受创/爆震/剧痛时的 3800Hz 尖锐耳鸣与颅内低频嗡鸣音量 (默认 0.70)")
+                .defineInRange("traumaSoundTinnitusVolume", 0.70, 0.0, 2.0);
+        TRAUMA_SOUND_ASPHYXIA_WHEEZE_VOLUME = builder
+                .comment("气胸/血胸/低血氧时的破风箱窒息哮鸣、胸壁漏气嘶鸣与喘息杂音音量 (默认 0.85)")
+                .defineInRange("traumaSoundAsphyxiaWheezeVolume", 0.85, 0.0, 2.0);
+        TRAUMA_SOUND_BLOOD_WHOOSH_VOLUME = builder
+                .comment("失血与心动过速时的双音内耳心搏及颈动脉血液冲刷杂音音量 (默认 0.80)")
+                .defineInRange("traumaSoundBloodWhooshVolume", 0.80, 0.0, 2.0);
+        TRAUMA_SOUND_CRITICAL_DRONE_VOLUME = builder
+                .comment("濒死倒计时/室颤/大出血时的暗黑低频紧张压迫氛围音音量 (默认 0.85)")
+                .defineInRange("traumaSoundCriticalDroneVolume", 0.85, 0.0, 2.0);
 
         builder.pop();
 

@@ -599,8 +599,9 @@ public final class TaczDamageCompatHandler {
             ModItems.triggerTraumaAdrenalineRush(player, data, totalRawDamage);
         }
         if (!isMultiPelletSubsequent || ctx.apiHitsThisTick == 1) {
-            SableRagdollCompatHandler.onTaczBallisticHit(
-                    player, data, hitLimb, ld, bullet, attacker, profile,
+            dispatchRagdollBallisticHit(
+                    player, data, hitLimb, ld, bullet, attacker,
+                    profile == BallisticProfile.HEAVY_SNIPER_AMR,
                     penetratingDmg, bluntAbsorbedDmg, totalRawDamage
             );
         }
@@ -1005,7 +1006,7 @@ public final class TaczDamageCompatHandler {
         if (data.getBrainHealth() > 0) {
             ModItems.triggerTraumaAdrenalineRush(player, data, rawExplosionDamage);
         }
-        SableRagdollCompatHandler.onTaczExplosionHit(player, data, directProjectile, attacker, rawExplosionDamage);
+        dispatchRagdollExplosionHit(player, data, directProjectile, attacker, rawExplosionDamage);
         player.syncData(MedicalDataCapability.MEDICAL_DATA);
         if (data.getBrainHealth() <= 0 && player.isAlive()) {
             player.hurt(player.damageSources().genericKill(), Float.MAX_VALUE);
