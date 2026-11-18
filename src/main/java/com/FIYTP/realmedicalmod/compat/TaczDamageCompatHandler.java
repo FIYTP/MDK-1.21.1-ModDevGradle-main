@@ -264,6 +264,9 @@ public final class TaczDamageCompatHandler {
             // 清除原版无敌帧，确保霰弹枪同帧多颗弹丸全部命中并结算嵌留铅丸
             player.invulnerableTime = 0;
 
+            ModItems.ensureLegacyDamageHandlersCleanedUp();
+            ModItems.markCoreDamageSettledThisTick(player);
+
             // 执行完整的 TaCZ 创伤弹道学结算
             applyBallisticTraumaToPlayer(player, bullet, attacker, meta, totalRawDamage, isHeadShot, ctx);
 
@@ -316,10 +319,13 @@ public final class TaczDamageCompatHandler {
         long nowTick = player.level().getGameTime();
         ShotTickContext ctx = PLAYER_SHOT_CONTEXT.computeIfAbsent(player.getUUID(), k -> new ShotTickContext());
 
+        ModItems.ensureLegacyDamageHandlersCleanedUp();
+
         // 情况 A：本 Tick 内已经通过 TaCZ 官方 EntityHurtByGunEvent.Pre 完成了权威合并创伤结算
-        // 此时直接将 NewDamage 置 0，既保留原版 hurt() 已经触发的受击红闪、受击音效与镜头受击摇晃，又阻止旧 HitPartHandler 重复叠加两次！
+        // 此时将 NewDamage 与 DamageContainer.originalDamage 同步清零，既保留原版 hurt() 的受击红闪/音效，又彻底杜绝旧 HitPartHandler 重复叠加胸部伤害！
         if (ctx.gameTime == nowTick && ctx.apiHitsThisTick > 0) {
-            event.setNewDamage(0.0f);
+            ModItems.markCoreDamageSettledThisTick(player);
+            ModItems.zeroDamageContainer(event);
             MedicalData checkData = player.getData(MedicalDataCapability.MEDICAL_DATA);
             if (checkData != null && checkData.getBrainHealth() <= 0 && player.isAlive()) {
                 player.hurt(player.damageSources().genericKill(), Float.MAX_VALUE);
@@ -362,8 +368,9 @@ public final class TaczDamageCompatHandler {
             meta.armorIgnore = 0.0f;
         }
         boolean headHit = isRayHitHeadFallback(player, directEntity);
+        ModItems.markCoreDamageSettledThisTick(player);
         applyBallisticTraumaToPlayer(player, directEntity, attacker, meta, rawDmg, headHit, ctx);
-        event.setNewDamage(0.0f);
+        ModItems.zeroDamageContainer(event);
     }
 
     // =========================================================================
@@ -1089,67 +1096,44 @@ public final class TaczDamageCompatHandler {
                                                      Entity bullet,
                                                      LivingEntity attacker,
                                                      boolean isHeadShot) {
-        if (isHeadShot) {
-            return MedicalData.Limb.HEAD;
+        // 直接委托 Mod 本体高精度 3D 解剖脊柱截面与部位射线求解器
+        return ModItems.resolvePreciseHitLimb3D(player, bullet, attacker, isHeadShot);
+    }
+
+    private static void dispatchRagdollBallisticHit(ServerPlayer player,
+                                                    MedicalData data,
+                                                    MedicalData.Limb hitLimb,
+                                                    MedicalData.LimbData ld,
+                                                    Entity bullet,
+                                                    LivingEntity attacker,
+                                                    boolean isHeavySniperAmr,
+                                                    float penetratingDmg,
+                                                    float bluntDmg,
+                                                    float totalRawDamage) {
+        // 直接调用 Mod 本体核心摔倒与无提示手部脱手系统（100% 第一人称）
+        float effectiveTrauma = penetratingDmg + bluntDmg * 0.55f;
+        ModItems.applyCoreTraumaKnockdownAndDisarm(
+                player, data, hitLimb, ld, bullet, attacker,
+                isHeavySniperAmr, effectiveTrauma, totalRawDamage
+        );
+    }
+
+    private static void dispatchRagdollExplosionHit(ServerPlayer player,
+                                                    MedicalData data,
+                                                    Entity directProjectile,
+                                                    LivingEntity attacker,
+                                                    float rawExplosionDamage) {
+        Vec3 blastDir = ModItems.computeCoreImpactDirection(player, directProjectile, attacker);
+        float blastStrength = Mth.clamp(0.42f + rawExplosionDamage * 0.045f, 0.40f, 1.45f);
+        Vec3 blastVel = new Vec3(blastDir.x * blastStrength, Math.min(0.85, 0.28 + rawExplosionDamage * 0.022), blastDir.z * blastStrength);
+
+        if (rawExplosionDamage >= 5.5f) {
+            MedicalData.LimbData rightArm = data.getLimb(MedicalData.Limb.RIGHT_ARM);
+            ModItems.checkAndTriggerCoreArmDisarm(player, MedicalData.Limb.RIGHT_ARM, rightArm, rawExplosionDamage * 0.65f, blastDir);
         }
-
-        Vec3 hitVec = null;
-        if (bullet != null) {
-            Vec3 curPos = bullet.position();
-            Vec3 vel = bullet.getDeltaMovement();
-            Vec3 prevPos = new Vec3(bullet.xo, bullet.yo, bullet.zo);
-            Vec3 rayStart = vel.lengthSqr() > 1.0E-4 ? curPos.subtract(vel.scale(1.5)) : prevPos;
-            Vec3 rayEnd = vel.lengthSqr() > 1.0E-4 ? curPos.add(vel.scale(1.5)) : curPos;
-
-            AABB expandedBox = player.getBoundingBox().inflate(0.18);
-            Optional<Vec3> clipHit = expandedBox.clip(rayStart, rayEnd);
-            hitVec = clipHit.orElse(curPos);
-        } else if (attacker != null) {
-            Vec3 eyeStart = attacker.getEyePosition();
-            Vec3 lookEnd = eyeStart.add(attacker.getLookAngle().scale(64.0));
-            Optional<Vec3> clipHit = player.getBoundingBox().inflate(0.18).clip(eyeStart, lookEnd);
-            hitVec = clipHit.orElse(null);
-        }
-
-        if (hitVec == null) {
-            return MedicalData.Limb.CHEST;
-        }
-
-        double bbHeight = Math.max(0.5, player.getBbHeight());
-        double relY = Mth.clamp((hitVec.y - player.getY()) / bbHeight, 0.0, 1.0);
-
-        // 计算命中点相对于玩家身体朝向 (yBodyRot) 的左右横向偏距
-        double dx = hitVec.x - player.getX();
-        double dz = hitVec.z - player.getZ();
-        float bodyYawRad = player.yBodyRot * ((float) Math.PI / 180.0f);
-        // 玩家右手方向单位向量: (-cos(yaw), -sin(yaw))
-        double rightX = -Mth.cos(bodyYawRad);
-        double rightZ = -Mth.sin(bodyYawRad);
-        double lateralOffset = dx * rightX + dz * rightZ;
-
-        // 1) 头部与上颈区域 (relY >= 0.78)
-        if (relY >= 0.78) {
-            return MedicalData.Limb.HEAD;
-        }
-
-        // 2) 下肢区域 (relY < 0.38)
-        if (relY < 0.38) {
-            return lateralOffset >= 0.0 ? MedicalData.Limb.RIGHT_LEG : MedicalData.Limb.LEFT_LEG;
-        }
-
-        // 3) 躯干与双臂区域 (0.38 <= relY < 0.78)
-        if (lateralOffset > 0.145) {
-            return MedicalData.Limb.RIGHT_ARM;
-        } else if (lateralOffset < -0.145) {
-            return MedicalData.Limb.LEFT_ARM;
-        }
-
-        // 正面胸前持握武器时，正中偏外侧弹道有 22% 概率先击中前伸的手臂
-        if (Math.abs(lateralOffset) > 0.08 && player.getRandom().nextFloat() < 0.22f) {
-            return lateralOffset >= 0.0 ? MedicalData.Limb.RIGHT_ARM : MedicalData.Limb.LEFT_ARM;
-        }
-
-        return MedicalData.Limb.CHEST;
+        int baseDur = ModItems.safeCfgInt(MedicalConfig.RAGDOLL_EXPLOSION_DURATION_TICKS, 90);
+        int scaledDur = Mth.clamp(Math.round(baseDur * (0.75f + rawExplosionDamage / 24.0f)), 40, 200);
+        ModItems.triggerCoreTemporaryKnockdown(player, scaledDur, blastVel);
     }
 
     /**

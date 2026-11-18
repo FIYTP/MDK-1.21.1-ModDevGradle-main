@@ -3136,7 +3136,7 @@ public class MedicalConfig {
                 .defineInRange("ragdollArmDisarmDamageThreshold", 6.0, 1.0, 50.0);
         RAGDOLL_ARM_HEAVY_HIT_DISARM_CHANCE = builder
                 .comment("手部承受超过阈值的重伤时，手中物品脱手抛出的概率 (默认 0.78；若触发骨折/脱臼/截肢则 100% 脱手)")
-                .defineInRange("ragdollArmHeavyHitDisarmChance", 0.78, 0.0, 1.0);
+                .defineInRange("ragdollArmHeavyHitDisarmChance", 0.88, 0.0, 1.0);
         RAGDOLL_ARM_DISARM_THROW_SPEED = builder
                 .comment("手部重伤导致手中物品脱手飞出时的物理抛射初速度 (默认 0.42)")
                 .defineInRange("ragdollArmDisarmThrowSpeed", 0.42, 0.05, 2.0);

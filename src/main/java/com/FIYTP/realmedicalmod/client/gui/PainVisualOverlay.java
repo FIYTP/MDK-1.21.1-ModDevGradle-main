@@ -100,13 +100,14 @@ public class PainVisualOverlay {
         float tremorYaw = 0.0f;
 
         if (painFactor > 0.05f) {
-            float pulseKick = (pulse > 0.5f) ? (pulse - 0.5f) * 2.0f : 0.0f;
-            tremorPitch += pulseKick * painFactor * 0.35f;
+            // 采用连续平滑的心搏余弦包络与超低频大范围呼吸/失稳漂移（彻底消除高频抽搐感）
+            float smoothPulseWave = (float) (0.5 - 0.5 * Math.cos(Mth.clamp(pulse, 0.0f, 1.0f) * Math.PI));
+            tremorPitch += smoothPulseWave * painFactor * 0.42f;
 
-            float neuroTremor = painFactor * painFactor;
-            tremorRoll += (float) (Math.sin(timeSec * 11.3) * 0.45 + Math.cos(timeSec * 19.7) * 0.25) * neuroTremor;
-            tremorYaw += (float) (Math.sin(timeSec * 8.7) * 0.30 + Math.sin(timeSec * 15.1) * 0.18) * neuroTremor;
-            tremorPitch += (float) (Math.cos(timeSec * 9.5) * 0.28) * neuroTremor;
+            float slowSway = painFactor * (0.45f + 0.55f * painFactor);
+            tremorRoll += (float) (Math.sin(timeSec * 1.35) * 0.75 + Math.cos(timeSec * 0.78) * 0.45) * slowSway;
+            tremorYaw += (float) (Math.sin(timeSec * 1.12) * 0.85 + Math.cos(timeSec * 0.64 + 1.1) * 0.55) * slowSway;
+            tremorPitch += (float) (Math.cos(timeSec * 1.24) * 0.72 + Math.sin(timeSec * 0.72 + 0.6) * 0.42) * slowSway;
 
             float sideBias = (smoothRightPain - smoothLeftPain) * 0.65f * painFactor;
             tremorRoll += sideBias;
@@ -125,8 +126,8 @@ public class PainVisualOverlay {
         }
 
         if (burnCam > 0.01f) {
-            tremorPitch += (float) (Math.sin(timeSec * 16.5) * 0.22 + Math.cos(timeSec * 24.3) * 0.14) * burnCam;
-            tremorYaw += (float) (Math.cos(timeSec * 14.2) * 0.18) * burnCam;
+            tremorPitch += (float) (Math.sin(timeSec * 1.55) * 0.45 + Math.cos(timeSec * 0.92) * 0.28) * burnCam;
+            tremorYaw += (float) (Math.cos(timeSec * 1.18) * 0.42) * burnCam;
             tremorRoll += (smoothBurnRight - smoothBurnLeft) * 0.42f * burnCam;
         }
 

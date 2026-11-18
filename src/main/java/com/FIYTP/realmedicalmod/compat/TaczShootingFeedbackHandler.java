@@ -275,16 +275,16 @@ public final class TaczShootingFeedbackHandler {
             withdrawalTremor = (wTier >= 3) ? 0.95f : 0.58f;
         }
 
-        // 疼痛本身也会引发全身交感神经痉挛与持枪大幅度画 8 字晃动
-        float painSwayBase = painRatio * 0.72f * (1.0f - adrRelief * 0.55f) + bleedShockRatio * 0.35f;
+        // 疼痛与手臂伤残引发大范围、深沉平滑的 8 字形/李萨如轨迹漂移（将原先刺眼的高频抽搐完全转化为大范围低频漂移幅度）
+        float painSwayBase = painRatio * 0.95f * (1.0f - adrRelief * 0.55f) + bleedShockRatio * 0.45f;
+        float extraDriftFromFracAndWithdrawal = (leftUnfixedFrac || rightUnfixedFrac ? 0.85f : 0.0f) + withdrawalTremor * 0.75f;
 
-        out.horizontalSwayDeg = (combinedArmImpairment * 0.88f + painSwayBase * 0.75f + vestibularDrift * 0.72f)
+        out.horizontalSwayDeg = (combinedArmImpairment * 1.45f + painSwayBase * 1.25f + vestibularDrift * 1.10f + extraDriftFromFracAndWithdrawal * 0.90f)
                 * gunWeightFactor * swayAmpMult;
-        out.verticalSwayDeg = (combinedArmImpairment * 0.95f + painSwayBase * 0.82f + respDistress * 0.92f + vestibularDrift * 0.58f)
+        out.verticalSwayDeg = (combinedArmImpairment * 1.55f + painSwayBase * 1.35f + respDistress * 1.40f + vestibularDrift * 0.95f + extraDriftFromFracAndWithdrawal * 0.85f)
                 * gunWeightFactor * swayAmpMult;
-        out.highFreqTremorDeg = (painRatio * 0.68f * (1.0f - adrRelief * 0.55f)
-                + (leftUnfixedFrac || rightUnfixedFrac ? 0.75f : 0.0f)
-                + withdrawalTremor) * Math.max(0.85f, gunWeightFactor) * (swayAmpMult * 0.65f);
+        // 彻底禁用高频抽搐分量，将其全部并入上方的平滑大范围低频游走
+        out.highFreqTremorDeg = 0.0f;
 
         // 左右臂伤势差导致的枪身歪斜角 (Roll)
         out.weaponCantRollDeg = Mth.clamp((rightImpairment - leftImpairment) * 6.5f * gunWeightFactor, -12.0f, 12.0f);
@@ -601,7 +601,11 @@ public final class TaczShootingFeedbackHandler {
         private static float recoilRollKick = 0.0f;
         private static float crosshairBloomSpread = 0.0f;
 
-        // 上一帧施加的微震角度（用于零漂移差分修正）
+        // 二阶临界阻尼低通滤波状态与上一帧施加的平滑漂移角度（彻底消除任何帧间突变与高频抽搐）
+        private static float stage1SwayYaw = 0.0f;
+        private static float stage1SwayPitch = 0.0f;
+        private static float smoothSwayYaw = 0.0f;
+        private static float smoothSwayPitch = 0.0f;
         private static float prevAppliedSwayYaw = 0.0f;
         private static float prevAppliedSwayPitch = 0.0f;
 
@@ -732,39 +736,54 @@ public final class TaczShootingFeedbackHandler {
                 throttleClientAimingProgress(clientOp, handling.adsSpeedMultiplier, handling.blockAds || handling.blockFireAndAim, smoothVisualAdsProgress, dt);
             }
 
-            // ---------- B. 真实准星晃动 (Aim Sway & Tremor) ----------
+            // ---------- B. 大范围超平滑准星漂移 (Large-Range Ultra-Smooth Aim Drift) ----------
             float hr = Mth.clamp(data.getHeartRate(), 40.0f, 220.0f);
             float respRate = Mth.clamp(data.getRespirationRate(), 6.0f, 45.0f);
 
-            swayPhase += dt * (1.15f + (hr - 70.0f) * 0.008f);
-            breathPhase += dt * (respRate / 60.0f) * ((float) Math.PI * 2.0f);
-            tremorPhase += dt * 42.0f;
+            float baseFreqHz = getOptionalConfigFloat("TACZ_INJURY_SWAY_FREQUENCY", 0.38f);
+            float smoothRate = getOptionalConfigFloat("TACZ_INJURY_SWAY_SMOOTHING", 4.2f);
 
-            // 开镜瞄准时：若存在疼痛或手臂伤势，开镜不仅不能稳住准星，反而因肌肉剧痛痉挛触发 1.45 倍大幅度晃动！
-            float adsSwayScale = (handling.overallInstability < 0.12f)
+            // 使用超低频（约 0.25~0.55 Hz，即 2~4 秒完成一次完整的大范围画 8 字游走）连续相位推进，彻底杜绝高频抽搐
+            float omega = baseFreqHz * ((float) Math.PI * 2.0f) * (0.85f + Mth.clamp((hr - 70.0f) / 180.0f, 0.0f, 0.45f));
+            swayPhase += dt * omega;
+            breathPhase += dt * Mth.clamp(respRate / 60.0f, 0.15f, 0.58f) * ((float) Math.PI * 2.0f);
+            tremorPhase += dt * (omega * 0.62f);
+
+            // 开镜瞄准时：若存在疼痛或手臂伤势，开镜会因手臂无力支撑枪重而呈现 1.55 倍的大范围沉重漂移
+            float adsSwayScale = (handling.overallInstability < 0.10f)
                     ? Mth.lerp(smoothVisualAdsProgress, 1.0f, 0.55f)
-                    : Mth.lerp(smoothVisualAdsProgress, 1.0f, 1.45f);
+                    : Mth.lerp(smoothVisualAdsProgress, 1.0f, 1.55f);
 
-            // 耐力接近极限时，手部剧烈酸痛颤抖预警
+            // 耐力接近极限时，枪口画圈漂移范围进一步平滑扩大
             float fatigueBoost = 1.0f;
             if (handling.maxHoldAdsSeconds > 0.0f && adsHoldSeconds > handling.maxHoldAdsSeconds * 0.50f) {
                 float fRatio = Mth.clamp((adsHoldSeconds - handling.maxHoldAdsSeconds * 0.50f) / (handling.maxHoldAdsSeconds * 0.50f), 0.0f, 1.0f);
-                fatigueBoost = 1.0f + fRatio * 1.75f;
+                fatigueBoost = 1.0f + fRatio * 1.55f;
             }
 
-            float targetSwayYaw = (Mth.sin(swayPhase * 1.85f) * 0.68f + Mth.cos(swayPhase * 3.1f) * 0.32f)
-                    * handling.horizontalSwayDeg * adsSwayScale * fatigueBoost
-                    + Mth.sin(tremorPhase * 1.4f) * handling.highFreqTremorDeg * 0.75f * fatigueBoost;
+            // 双谐波无理数比值李萨如曲线 (Lissajous Curve)：形成永不机械重复、如真实手臂脱力般大范围丝滑游走的轨迹
+            float rawWaveX = Mth.sin(swayPhase * 0.72f) * 0.62f
+                    + Mth.sin(swayPhase * 0.37f + 1.15f) * 0.28f
+                    + Mth.cos(tremorPhase * 0.53f + 0.45f) * 0.10f;
+            float rawWaveY = Mth.sin(breathPhase * 0.85f) * 0.54f
+                    + Mth.cos(swayPhase * 0.58f + 0.75f) * 0.34f
+                    + Mth.sin(tremorPhase * 0.41f + 2.10f) * 0.12f;
 
-            float targetSwayPitch = (Mth.sin(breathPhase) * 0.68f + Mth.cos(swayPhase * 2.3f) * 0.32f)
-                    * handling.verticalSwayDeg * adsSwayScale * fatigueBoost
-                    + Mth.cos(tremorPhase * 1.8f) * handling.highFreqTremorDeg * 0.75f * fatigueBoost;
+            float targetSwayYaw = rawWaveX * handling.horizontalSwayDeg * adsSwayScale * fatigueBoost;
+            float targetSwayPitch = rawWaveY * handling.verticalSwayDeg * adsSwayScale * fatigueBoost;
 
-            // 采用差分微元施加到玩家真实朝向 (yRot / xRot)，既让准星与弹道真实晃动，又允许玩家随时自由移动鼠标控枪
-            float deltaYaw = (targetSwayYaw - prevAppliedSwayYaw);
-            float deltaPitch = (targetSwayPitch - prevAppliedSwayPitch);
-            prevAppliedSwayYaw = targetSwayYaw;
-            prevAppliedSwayPitch = targetSwayPitch;
+            // 二阶串联指数低通滤波（保证位置、一阶导数速度与二阶导数加速度连续，100% 丝滑无抽搐）
+            float alpha = 1.0f - (float) Math.exp(-dt * smoothRate);
+            stage1SwayYaw = Mth.lerp(alpha, stage1SwayYaw, targetSwayYaw);
+            stage1SwayPitch = Mth.lerp(alpha, stage1SwayPitch, targetSwayPitch);
+            smoothSwayYaw = Mth.lerp(alpha, smoothSwayYaw, stage1SwayYaw);
+            smoothSwayPitch = Mth.lerp(alpha, smoothSwayPitch, stage1SwayPitch);
+
+            // 采用差分微元施加到玩家真实朝向 (yRot / xRot)，既让准星与弹道产生真实大范围漂移，又允许玩家随时自由移动鼠标控枪
+            float deltaYaw = (smoothSwayYaw - prevAppliedSwayYaw);
+            float deltaPitch = (smoothSwayPitch - prevAppliedSwayPitch);
+            prevAppliedSwayYaw = smoothSwayYaw;
+            prevAppliedSwayPitch = smoothSwayPitch;
 
             // 叠加开火后坐力失控速度包络
             if (Math.abs(recoilPitchVelocity) > 0.005f || Math.abs(recoilYawVelocity) > 0.005f) {
@@ -941,10 +960,27 @@ public final class TaczShootingFeedbackHandler {
             }
         }
 
+        private static float getOptionalConfigFloat(String fieldName, float defaultVal) {
+            try {
+                Field f = MedicalConfig.class.getField(fieldName);
+                Object specVal = f.get(null);
+                if (specVal instanceof net.neoforged.neoforge.common.ModConfigSpec.ConfigValue<?> cv) {
+                    Object v = cv.get();
+                    if (v instanceof Number n) return n.floatValue();
+                }
+            } catch (Throwable ignored) {
+            }
+            return defaultVal;
+        }
+
         private static void resetClientGunState() {
             lastInterceptedAimProgress = 0.0f;
             smoothVisualAdsProgress = 0.0f;
             adsHoldSeconds = 0.0f;
+            stage1SwayYaw = 0.0f;
+            stage1SwayPitch = 0.0f;
+            smoothSwayYaw = 0.0f;
+            smoothSwayPitch = 0.0f;
             prevAppliedSwayYaw = 0.0f;
             prevAppliedSwayPitch = 0.0f;
             recoilPitchVelocity = 0.0f;

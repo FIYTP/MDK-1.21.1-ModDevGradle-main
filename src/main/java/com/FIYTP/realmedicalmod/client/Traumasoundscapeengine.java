@@ -38,7 +38,7 @@ import javax.sound.sampled.SourceDataLine;
  *    同步叠加变频心跳、窒息喘息与耳鸣泛音，确保在任何音频驱动环境下均具备极强的紧张感与窒息沉浸感。
  */
 @EventBusSubscriber(modid = RealMedicalMod.MODID, value = Dist.CLIENT)
-public final class TraumaSoundscapeEngine {
+final class TraumaSoundscapeEngine {
 
     private static final int SAMPLE_RATE = 22050;
     private static final int BUFFER_SAMPLES = 1024; // ~46ms 低延迟缓冲块
