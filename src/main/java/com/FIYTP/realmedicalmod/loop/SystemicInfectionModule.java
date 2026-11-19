@@ -98,8 +98,8 @@ public class SystemicInfectionModule implements UpdateModule {
                     data.setSirsProgressionTimer(0);
                 }
             }
-        } else {
-            // 感染值仍高于恢复门槛，重置降级计时器
+        } else if (com.FIYTP.realmedicalmod.treatment.ModItems.getMeropenemConcentration(data) < 6.0f) {
+            // 感染值仍高于恢复门槛且无美罗培南+氢化可的松压制时，重置降级计时器
             data.setSirsRecoveryTimer(0);
         }
     }

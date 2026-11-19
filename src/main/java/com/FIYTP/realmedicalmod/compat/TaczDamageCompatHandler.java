@@ -354,8 +354,15 @@ public final class TaczDamageCompatHandler {
 
         if (source.is(DamageTypeTags.IS_EXPLOSION) || source.getMsgId().toLowerCase().contains("explosion")) {
             // TaCZ 爆炸物（RPG-7 / 40mm 榴弹 / 爆炸弹药）冲击波超压 + 破片复合创伤
+            ModItems.markCoreDamageSettledThisTick(player);
             applyTaczExplosionTrauma(player, directEntity, attacker, rawDmg, ctx);
-            event.setNewDamage(0.0f);
+            MedicalData afterExpData = player.getData(MedicalDataCapability.MEDICAL_DATA);
+            if (afterExpData != null && afterExpData.getBrainHealth() <= 0) {
+                player.invulnerableTime = 0;
+                event.setNewDamage(Math.max(rawDmg, 10000.0f));
+            } else {
+                ModItems.zeroDamageContainer(event);
+            }
             return;
         }
 

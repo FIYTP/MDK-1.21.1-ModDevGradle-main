@@ -9,6 +9,8 @@ import com.FIYTP.realmedicalmod.hitbox.HitPartDetector;
 import com.FIYTP.realmedicalmod.system.BleedingSystem;
 import com.FIYTP.realmedicalmod.system.PainSystem;
 import com.FIYTP.realmedicalmod.system.AmputationSystem;
+import com.FIYTP.realmedicalmod.treatment.ModItems;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -29,7 +31,19 @@ public class HitPartHandler {
         LivingEntity victim = event.getEntity();
         if (!(victim instanceof Player player)) return;
 
-        if ("genericKill".equals(source.getMsgId()) || "outOfWorld".equals(source.getMsgId())) {
+        // 1) 已被 TaCZ 专属兼容层 (TaczDamageCompatHandler, EventPriority.HIGHEST) 或同 Tick 补偿引擎结算并清零的伤害，直接跳过防重复结算！
+        if (amount <= 0.001f) {
+            return;
+        }
+
+        if ("genericKill".equals(source.getMsgId()) || "generic_kill".equals(source.getMsgId()) || "outOfWorld".equals(source.getMsgId())) {
+            return;
+        }
+
+        MedicalData preCheckData = player.getData(MedicalDataCapability.MEDICAL_DATA);
+        if (preCheckData != null && preCheckData.getBrainHealth() <= 0) {
+            player.invulnerableTime = 0;
+            container.setNewDamage(Math.max(amount, 10000.0f));
             return;
         }
 
@@ -213,6 +227,23 @@ public class HitPartHandler {
                     data.setIntracranialBleedRate(bleedRate);
                     data.setIntracranialOnsetTimer(0);
                 }
+            }
+        }
+
+        // 接入本体核心战斗反馈：伤腿摔倒、伤手无提示脱手、胸口直接致死概率与急性失血 3~5 次累计致死
+        if (player instanceof ServerPlayer sp && !sp.level().isClientSide()) {
+            boolean died = false;
+            if (hitLimb == MedicalData.Limb.CHEST) {
+                died = ModItems.checkAndExecuteChestDirectKill(sp, data, limbData, amount, amount, false, category == DamageCategory.PIERCING);
+            }
+            if (!died) {
+                died = ModItems.applyAcuteBloodLossAndCumulativeLethality(sp, data, hitLimb, limbData, amount, amount, false);
+            }
+            if (died || data.getBrainHealth() <= 0) {
+                sp.invulnerableTime = 0;
+                container.setNewDamage(Math.max(amount, 10000.0f));
+            } else {
+                ModItems.applyCoreTraumaKnockdownAndDisarm(sp, data, hitLimb, limbData, source.getDirectEntity(), attacker, false, amount, amount);
             }
         }
 

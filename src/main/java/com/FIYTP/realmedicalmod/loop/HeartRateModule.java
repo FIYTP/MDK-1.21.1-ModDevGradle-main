@@ -151,7 +151,15 @@ public class HeartRateModule implements UpdateModule {
             default -> 0.0f;
         };
 
-        float baseHr = MedicalConfig.RESTING_HEART_RATE.get() + bloodMod + painMod + consciousnessMod + exerciseMod + opioidMod + respMod + cushingMod + bpReflexMod + sirsMod + hemoHeartMod;
+        // 张力性气胸（梗阻性休克）交感代偿心动过速：按胸膜腔正压与配置强度联动
+        float pneumoHeartMod = 0.0f;
+        if (ModItems.getPneumothoraxType(data) == 3) {
+            float pleuralP = Math.max(0.0f, ModItems.getPleuralPressureCmH2O(data));
+            float tensionBpDrop = MedicalConfig.PNEUMOTHORAX_TENSION_BP_DROP_PER_SEC.get();
+            pneumoHeartMod = Math.min(55.0f, (12.0f + pleuralP * 1.4f) * Math.max(0.5f, tensionBpDrop / 2.0f));
+        }
+
+        float baseHr = MedicalConfig.RESTING_HEART_RATE.get() + bloodMod + painMod + consciousnessMod + exerciseMod + opioidMod + respMod + cushingMod + bpReflexMod + sirsMod + hemoHeartMod + pneumoHeartMod;
 
         // ★ 肾上腺素心率修正：受伤内源性应激绝不推高心率致室颤；单支注射器安全封顶，仅多支过量(III级)可冲入室颤区 ★
         float adrLevel = ModItems.getAdrenalineLevel(data);

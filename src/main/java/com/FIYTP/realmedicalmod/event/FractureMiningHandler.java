@@ -41,7 +41,8 @@ public class FractureMiningHandler {
 
         if (leftArm != null && leftArm.hasFracture()) {
             hasFracture = true;
-            float m = leftArm.hasSplint()
+            boolean stabilized = leftArm.hasSplint() || com.FIYTP.realmedicalmod.treatment.ModItems.isLimbOrthopedicFixed(leftArm);
+            float m = stabilized
                     ? MedicalConfig.ARM_FRACTURE_SPLINT_MINING_MULTIPLIER.get().floatValue()
                     : MedicalConfig.ARM_FRACTURE_NO_SPLINT_MINING_MULTIPLIER.get().floatValue();
             miningMultiplier = Math.min(miningMultiplier, m);
@@ -49,7 +50,8 @@ public class FractureMiningHandler {
 
         if (rightArm != null && rightArm.hasFracture()) {
             hasFracture = true;
-            float m = rightArm.hasSplint()
+            boolean stabilized = rightArm.hasSplint() || com.FIYTP.realmedicalmod.treatment.ModItems.isLimbOrthopedicFixed(rightArm);
+            float m = stabilized
                     ? MedicalConfig.ARM_FRACTURE_SPLINT_MINING_MULTIPLIER.get().floatValue()
                     : MedicalConfig.ARM_FRACTURE_NO_SPLINT_MINING_MULTIPLIER.get().floatValue();
             miningMultiplier = Math.min(miningMultiplier, m);

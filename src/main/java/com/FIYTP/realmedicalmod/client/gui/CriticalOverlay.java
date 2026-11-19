@@ -389,9 +389,15 @@ public class CriticalOverlay {
         if (ModItems.isInWithdrawalMovementRestriction(data)) {
             int tier = ModItems.getAddictionTier(data.getAddictionLevel());
             float wPulse = 0.55f + 0.45f * Mth.sin(nowMs * 0.008f);
+            RenderSystem.enableBlend();
+            RenderSystem.defaultBlendFunc();
+            RenderSystem.setShader(GameRenderer::getPositionColorShader);
+            RenderSystem.disableCull();
             PainVisualOverlay.drawEllipticalRing(g.pose().last().pose(), w, h,
                     0.72f, 0.0f, 1.35f, (tier >= 3 ? 0.38f : 0.24f) * wPulse,
                     185, 20, 140, 0.0f, 0.0f, 0.0f, 0.0f);
+            RenderSystem.enableCull();
+            RenderSystem.disableBlend();
         }
 
         // ===== 优先级 2.8：3A 脑损伤视觉层（无黑屏纯程序化色差错位、突触回闪光环与四态皮层变色） =====

@@ -67,6 +67,15 @@ public class BloodPressureModule implements UpdateModule {
         };
         tpr *= hemoMod;
 
+        // 张力性气胸梗阻性休克：胸膜腔正压压迫腔静脉导致静脉回流骤降、血压崩盘
+        if (com.FIYTP.realmedicalmod.treatment.ModItems.getPneumothoraxType(data) == 3) {
+            float pleuralP = Math.max(0.0f, com.FIYTP.realmedicalmod.treatment.ModItems.getPleuralPressureCmH2O(data));
+            float dropCfg = MedicalConfig.PNEUMOTHORAX_TENSION_BP_DROP_PER_SEC.get();
+            float obstructiveFactor = Math.max(0.35f, 1.0f - Math.min(0.60f, (0.18f + pleuralP * 0.018f) * Math.max(0.5f, dropCfg / 2.0f)));
+            cardiacOutput *= obstructiveFactor;
+            data.setCardiacOutput(cardiacOutput);
+        }
+
         data.setPeripheralResistance(tpr);
 
         // 3. 目标 MAP

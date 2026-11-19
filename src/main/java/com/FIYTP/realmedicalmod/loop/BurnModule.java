@@ -14,8 +14,8 @@ import net.minecraft.world.entity.player.Player;
  */
 public class BurnModule implements UpdateModule {
 
-    // 每肢体每秒疼痛小数累加器（int 制疼痛换算）
-    private final float[] painAccumulators = new float[MedicalData.Limb.values().length];
+    // 按玩家 MedicalData 隔离的每肢体每秒疼痛小数累加器（避免多人联机串号）
+    private final java.util.Map<MedicalData, float[]> painAccumulatorsByData = new java.util.WeakHashMap<>();
 
     @Override
     public void process(MedicalData data) {
@@ -26,6 +26,8 @@ public class BurnModule implements UpdateModule {
         if (data == null) return;
 
         boolean wet = isWetEnvironment(player);
+        float[] painAccumulators = painAccumulatorsByData.computeIfAbsent(
+                data, k -> new float[MedicalData.Limb.values().length]);
         float tbsa = 0.0f;
         boolean anyBurnActive = false;
 

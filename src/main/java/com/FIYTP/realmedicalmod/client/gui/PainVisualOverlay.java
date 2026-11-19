@@ -653,7 +653,7 @@ public class PainVisualOverlay {
 
     private static float computeLimbBurnSeverity(MedicalData.LimbData ld) {
         if (ld == null || !ld.hasBurn()) return 0.0f;
-        float areaNorm = Mth.clamp(ld.getBurnArea() / 28.0f, 0.08f, 1.0f);
+        float areaNorm = Mth.clamp((ld.getBurnArea() * 100.0f) / 28.0f, 0.08f, 1.0f);
         float degFactor = switch (ld.getBurnDegree()) {
             case 1 -> 0.38f;
             case 2 -> 0.65f;

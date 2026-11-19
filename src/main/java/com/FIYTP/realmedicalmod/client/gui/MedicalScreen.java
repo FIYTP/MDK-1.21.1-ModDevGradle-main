@@ -1056,7 +1056,7 @@ public class MedicalScreen extends Screen {
                         ld.isBandaged() ? tr("medical.detail.bandaged") : tr("medical.detail.unbandaged"),
                         ld.isBandaged() ? C_SAFE_GREEN : 0xFF90A4AE);
                 drawTomographyMetric(g, rightX, metricY + 56, rightW, "烧伤",
-                        ld.hasBurn() ? String.format("%d° (%.1f%%)", ld.getBurnDegree(), ld.getBurnArea()) : "无",
+                        ld.hasBurn() ? String.format("%d° (%.1f%%)", ld.getBurnDegree(), ld.getBurnArea() * 100.0f) : "无",
                         ld.hasBurn() ? 0xFFFF6D00 : C_SAFE_GREEN);
                 drawTomographyMetric(g, rightX, metricY + 84, rightW, "凝血计时",
                         ld.getNaturalClottingTimer() > 0 ? ld.getNaturalClottingTimer() + " s" : "待命",
@@ -1167,7 +1167,7 @@ public class MedicalScreen extends Screen {
             case 0 -> {
                 // ========== LAYER 01: 表皮、真皮乳头层、皮下脂肪蜂窝网与创口/敷料 ==========
                 boolean hasWound = ld.getBleeding() > 0 || ld.hasOpenWound();
-                float burnRatio = ld.hasBurn() ? Mth.clamp(ld.getBurnArea() / 30.0f, 0.15f, 1.0f) : 0.0f;
+                float burnRatio = ld.hasBurn() ? Mth.clamp((ld.getBurnArea() * 100.0f) / 30.0f, 0.15f, 1.0f) : 0.0f;
 
                 for (int i = 0; i < segs; i++) {
                     float u1 = i / (float) segs;
@@ -2003,7 +2003,7 @@ public class MedicalScreen extends Screen {
             }
             if (ld.hasBurn()) {
                 y = drawFullRow(g, font, x, y, w, "烧伤 (" + ld.getBurnDegree() + "°)",
-                        String.format("%.1f%%", ld.getBurnArea()), Mth.clamp(ld.getBurnArea() / 25.0f, 0.0f, 1.0f), 0xFFFF6D00);
+                        String.format("%.1f%%", ld.getBurnArea() * 100.0f), Mth.clamp((ld.getBurnArea() * 100.0f) / 25.0f, 0.0f, 1.0f), 0xFFFF6D00);
             }
             if (limb != MedicalData.Limb.HEAD && limb != MedicalData.Limb.CHEST && !ld.isAmputated()) {
                 float icp = com.FIYTP.realmedicalmod.treatment.ModItems.getCompartmentPressure(ld);

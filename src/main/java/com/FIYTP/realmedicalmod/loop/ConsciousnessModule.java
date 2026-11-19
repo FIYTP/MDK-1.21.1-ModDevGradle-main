@@ -20,7 +20,8 @@ import net.minecraft.util.Mth;
  */
 public class ConsciousnessModule implements UpdateModule {
 
-    private int addictionDecayTick = 0;
+    // 按玩家 MedicalData 隔离戒断衰减计时器（避免多人联机共享状态）
+    private final java.util.Map<MedicalData, Integer> addictionDecayTicks = new java.util.WeakHashMap<>();
 
     @Override
     public void process(MedicalData data) {
@@ -38,12 +39,15 @@ public class ConsciousnessModule implements UpdateModule {
                 data.setOpioidConcentration(Math.round(nextOpioid));
             }
             opioidConc = nextOpioid;
-            addictionDecayTick = 0;
+            addictionDecayTicks.remove(data);
         } else if (data.getAddictionLevel() > 0) {
             int decayInterval = Math.max(5, MedicalConfig.ADDICTION_DECAY_INTERVAL_SEC.get());
-            if (++addictionDecayTick >= decayInterval) {
-                addictionDecayTick = 0;
+            int tick = addictionDecayTicks.getOrDefault(data, 0) + 1;
+            if (tick >= decayInterval) {
+                addictionDecayTicks.put(data, 0);
                 data.setAddictionLevel(Math.max(0, data.getAddictionLevel() - 1));
+            } else {
+                addictionDecayTicks.put(data, tick);
             }
         }
 

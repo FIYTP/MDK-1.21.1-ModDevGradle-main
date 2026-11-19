@@ -37,7 +37,7 @@ public class ConsciousnessVisualOverlay {
         float wobbleX = (float) Math.sin(time * Math.PI * 2) * intensity * 3.0f;
         float wobbleY = (float) Math.cos(time * Math.PI * 2 * 0.7) * intensity * 2.0f;
 
-        event.getGuiGraphics().pose().translate(wobbleX, wobbleY, 0);
+        // 移除未配对 pushPose/popPose 的矩阵平移（旧版意识叠层已由 CriticalOverlay.renderConsciousnessSyncope3A 接管）
     }
 
     @SubscribeEvent

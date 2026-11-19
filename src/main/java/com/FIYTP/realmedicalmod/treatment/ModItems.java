@@ -954,19 +954,20 @@ public class ModItems {
             }
             if (w <= 0.0f) continue;
 
-            float addArea = areaDelta * w;
-            float nextArea = Mth.clamp(ld.getBurnArea() + addArea, 0.0f, 100.0f);
-            ld.setBurnArea(nextArea);
-            ld.setBurnLoad(ld.getBurnLoad() + addArea * 1.4f);
-            ld.setBurnConv(ld.getBurnConv() + addArea * 1.2f);
+            float addAreaPct = areaDelta * w;
+            float nextAreaRatio = Mth.clamp(ld.getBurnArea() + (addAreaPct / 100.0f), 0.0f, 1.0f);
+            float nextAreaPct = nextAreaRatio * 100.0f;
+            ld.setBurnArea(nextAreaRatio);
+            ld.setBurnLoad(ld.getBurnLoad() + addAreaPct * 1.4f);
+            ld.setBurnConv(ld.getBurnConv() + addAreaPct * 1.2f);
             ld.setBurnHeatTimer(Math.max(ld.getBurnHeatTimer(), isLava ? 12 : 6));
             ld.setBandaged(false);
 
-            int newDeg = computeBurnDegreeFromAreaAndConv(nextArea, ld.getBurnConv(), isLava);
+            int newDeg = computeBurnDegreeFromAreaAndConv(nextAreaPct, ld.getBurnConv(), isLava);
             if (newDeg > ld.getBurnDegree()) {
                 ld.setBurnDegree(newDeg);
             }
-            int minBurnPain = Math.min(maxPain, Math.max(2, newDeg * 2 + (nextArea >= 25.0f ? 1 : 0)));
+            int minBurnPain = Math.min(maxPain, Math.max(2, newDeg * 2 + (nextAreaPct >= 25.0f ? 1 : 0)));
             if (ld.getPainLevel() < minBurnPain) {
                 ld.setPainLevel(minBurnPain);
             }
@@ -996,7 +997,7 @@ public class ModItems {
                 case LEFT_ARM, RIGHT_ARM -> 0.09f;
                 case LEFT_LEG, RIGHT_LEG -> 0.18f;
             };
-            totalTbsa += Mth.clamp(ld.getBurnArea(), 0.0f, 100.0f) * limbWeight;
+            totalTbsa += Mth.clamp(ld.getBurnArea(), 0.0f, 1.0f) * 100.0f * limbWeight;
         }
         data.setBurnTBSA(Mth.clamp(totalTbsa, 0.0f, 100.0f));
     }
@@ -1453,7 +1454,7 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
 
             // 非线性深筋膜顺应性曲线计算骨筋膜室室内压 (mmHg) + III/IV度环状焦痂紧缩加成
             float fillRatio = Mth.clamp(curCompBlood / Math.max(1.0f, maxBloodCapMl), 0.0f, 1.0f);
-            float escharConstruct = (ld.getBurnDegree() >= 3) ? (ld.getBurnArea() * 0.28f) : 0.0f;
+            float escharConstruct = (ld.getBurnDegree() >= 3) ? (ld.getBurnArea() * 100.0f * 0.28f) : 0.0f;
             float icpMmHg = 4.0f + (float) Math.pow(fillRatio, 1.45) * (fullTamponadeMmHg - 2.0f) + escharConstruct;
             if (Math.abs(icpMmHg - getCompartmentPressure(ld)) > 0.2f) {
                 setCompartmentPressure(ld, icpMmHg);
@@ -1548,44 +1549,43 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
             MedicalData.LimbData ld = data.getLimb(limb);
             if (ld == null) continue;
 
-            float curArea = ld.getBurnArea();
+            float curAreaPct = Mth.clamp(ld.getBurnArea(), 0.0f, 1.0f) * 100.0f;
             float curLoad = ld.getBurnLoad();
             float curConv = ld.getBurnConv();
 
             if (inLava || onFire) {
                 float envGain = (inLava ? lavaRate : fireRate) * (burnMult / 4.0f);
                 float limbFactor = (limb == MedicalData.Limb.HEAD && !inLava) ? 0.65f : 1.0f;
-                curArea = Mth.clamp(curArea + envGain * limbFactor, 0.0f, 100.0f);
+                curAreaPct = Mth.clamp(curAreaPct + envGain * limbFactor, 0.0f, 100.0f);
                 curConv += envGain * limbFactor;
-                ld.setBurnArea(curArea);
+                ld.setBurnArea(curAreaPct / 100.0f);
                 ld.setBurnConv(curConv);
                 ld.setBurnHeatTimer(Math.max(ld.getBurnHeatTimer(), inLava ? 10 : 5));
                 ld.setBandaged(false);
                 anyBurnChanged = true;
             } else if (curLoad > 0.01f) {
-                // 将残留热力缓冲负荷快速转化为实际烧伤面积
+                // 将残留热力缓冲负荷转化为实际烧伤面积（统一 0.0~1.0 比例写入 LimbData）
                 float transfer = Math.min(curLoad, Math.max(0.5f, curLoad * 0.45f * burnMult));
                 curLoad = Math.max(0.0f, curLoad - transfer);
                 curConv += transfer * burnMult;
-                curArea = Mth.clamp(curArea + transfer * burnMult * 1.8f, 0.0f, 100.0f);
+                curAreaPct = Mth.clamp(curAreaPct + transfer * burnMult * 1.8f, 0.0f, 100.0f);
                 ld.setBurnLoad(curLoad);
                 ld.setBurnConv(curConv);
-                ld.setBurnArea(curArea);
+                ld.setBurnArea(curAreaPct / 100.0f);
                 anyBurnChanged = true;
-            } else if (curConv > 0.05f && curArea < Math.min(100.0f, curConv * 3.5f)) {
-                // 兼容原版 BurnModule 小数值转正负荷，将其放大映射到直观的百分比烧伤面积
-                curArea = Mth.clamp(Math.max(curArea, curConv * 3.5f * (burnMult / 3.0f)), 0.0f, 100.0f);
-                ld.setBurnArea(curArea);
+            } else if (curConv > 0.05f && curAreaPct < Math.min(100.0f, curConv * 3.5f)) {
+                curAreaPct = Mth.clamp(Math.max(curAreaPct, curConv * 3.5f * (burnMult / 3.0f)), 0.0f, 100.0f);
+                ld.setBurnArea(curAreaPct / 100.0f);
                 anyBurnChanged = true;
             }
 
-            if (ld.hasBurn() || curArea > 0.05f) {
-                int targetDeg = computeBurnDegreeFromAreaAndConv(curArea, curConv, inLava);
+            if (ld.hasBurn() || curAreaPct > 0.05f) {
+                int targetDeg = computeBurnDegreeFromAreaAndConv(curAreaPct, curConv, inLava);
                 if (targetDeg > ld.getBurnDegree()) {
                     ld.setBurnDegree(targetDeg);
                     anyBurnChanged = true;
                 }
-                int minBurnPain = Math.min(maxPainCfg, Math.max(1, ld.getBurnDegree() * 2 + (curArea >= 25.0f ? 1 : 0)));
+                int minBurnPain = Math.min(maxPainCfg, Math.max(1, ld.getBurnDegree() * 2 + (curAreaPct >= 25.0f ? 1 : 0)));
                 if (ld.getPainLevel() < minBurnPain) {
                     ld.setPainLevel(minBurnPain);
                     anyBurnChanged = true;
@@ -1930,16 +1930,8 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                 if (pType == 3) {
                     float o2Loss = ((float) safeCfgDouble(MedicalConfig.PNEUMOTHORAX_TENSION_O2_LOSS_PER_SEC, 0.85));
                     data.setBloodOxygenFloat(Math.max(0.0f, data.getBloodOxygenFloat() - o2Loss));
-                    int bpDrop = safeCfgInt(MedicalConfig.PNEUMOTHORAX_TENSION_BP_DROP_PER_SEC, 2);
-                    if (bpDrop > 0) {
-                        int nextSys = Math.max(42, data.getSystolicBP() - bpDrop);
-                        int nextDia = Math.max(24, data.getDiastolicBP() - Math.max(1, bpDrop - 1));
-                        data.setSystolicBP(nextSys);
-                        data.setDiastolicBP(nextDia);
-                        data.setMeanArterialPressure(Math.max(30.0f, nextDia + (nextSys - nextDia) / 3.0f));
-                    }
-                    int vfibCap = Math.max(155, safeCfgInt(MedicalConfig.VFIB_THRESHOLD, 185) - 6);
-                    data.setHeartRate(Math.min(vfibCap, data.getHeartRate() + 3));
+                    // 张力性气胸梗阻性休克的血压崩盘与代偿性心动过速已原生接入 BloodPressureModule / HeartRateModule，
+                    // 此处不再写临时覆盖值。
                     if (player.tickCount % 40 == 0) {
                         player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                                 SoundEvents.WARDEN_HEARTBEAT, SoundSource.PLAYERS, 0.90f, 1.35f);
@@ -1976,11 +1968,7 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                 data.setChestBloodAccumulation(curChestBlood);
                 dirty = true;
             }
-            int expectedHemoLv = (curChestBlood >= 900.0f) ? 3 : ((curChestBlood >= 450.0f) ? 2 : ((curChestBlood >= 150.0f) ? 1 : 0));
-            if (data.getHemothoraxLevel() != expectedHemoLv) {
-                data.setHemothoraxLevel(expectedHemoLv);
-                dirty = true;
-            }
+            // 血胸分级 (0~4级) 统一交由 HemothoraxModule 按 MedicalConfig 阈值评定，此处不再硬编码覆盖 0~3 级。
         } else if (data.getHemothoraxLevel() > 0) {
             data.setHemothoraxLevel(0);
             dirty = true;
@@ -2156,7 +2144,7 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                     nextAcc += drop;
                     dirty = true;
                 }
-                ld.setInfectionAccumulator(Math.max(0.0f, nextAcc));
+                ld.setInfectionAccumulator(nextAcc);
             }
         }
 
@@ -2314,19 +2302,7 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
         } catch (Throwable ignored) {
         }
 
-        // 2) 注销旧版 HitPartHandler
-        try {
-            Class<?> oldHitPartCls = Class.forName("com.FIYTP.realmedicalmod.event.HitPartHandler", false, cl);
-            NeoForge.EVENT_BUS.unregister(oldHitPartCls);
-        } catch (Throwable ignored) {
-        }
-    }
-
-    /**
-     * 保留空方法桩以兼容旧调用，绝不调用任何会向聊天框输出调试文本的第三方布娃娃方法
-     */
-    public static void cancelSableThirdPersonRagdollOnPlayer(Player player) {
-        // No-op: First-person view is enforced purely via vanilla Camera state in ComputeCameraAngles & ComputeFov
+        // 保留原装 event.HitPartHandler 作为原版伤害唯一权威入口（与 TaczDamageCompatHandler 零冲突分工）
     }
 
     /**
@@ -2379,10 +2355,28 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
      * 若 Sable: Ragdolls 或其它模组在玩家处于布娃娃状态时取消了 ProjectileImpactEvent 或 LivingIncomingDamageEvent，
      * 在最低优先级强制解除取消 (setCanceled(false))，确保远程箭矢与子弹正常命中并造成伤害！
      */
+    /**
+     * 严格判定实体当前是否真正处于布娃娃/倒地状态，避免无差别清除其他模组 Boss 护盾或剧情无敌。
+     */
+    private static boolean isEntityInRagdollState(LivingEntity le) {
+        if (le == null || !le.isAlive()) return false;
+        if (le instanceof Player p) {
+            if (p.isCreative() || p.isSpectator()) return false;
+            MedicalData pData = p.getData(MedicalDataCapability.MEDICAL_DATA);
+            if (shouldForcePlayerProne(p, pData)) return true;
+        }
+        if (!le.isPickable() || !le.canBeHitByProjectile()) {
+            return true;
+        }
+        return !le.level().getEntitiesOfClass(Entity.class, le.getBoundingBox().inflate(2.5),
+                e -> e != null && e != le && e.getClass().getName().toLowerCase().contains("ragdoll")).isEmpty();
+    }
+
     @SubscribeEvent(priority = EventPriority.LOWEST, receiveCanceled = true)
     public static void onProjectileImpactUncancelForRagdoll(ProjectileImpactEvent event) {
         if (event.isCanceled() && event.getRayTraceResult() instanceof net.minecraft.world.phys.EntityHitResult ehr) {
-            if (ehr.getEntity() instanceof LivingEntity le && !(le instanceof Player p && (p.isCreative() || p.isSpectator()))) {
+            if (ehr.getEntity() instanceof LivingEntity le && !(le instanceof Player p && (p.isCreative() || p.isSpectator()))
+                    && isEntityInRagdollState(le)) {
                 event.setCanceled(false);
             }
         }
@@ -2391,7 +2385,8 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
     @SubscribeEvent(priority = EventPriority.LOWEST, receiveCanceled = true)
     public static void onLivingIncomingDamageUncancelForRagdoll(LivingIncomingDamageEvent event) {
         LivingEntity le = event.getEntity();
-        if (le != null && !le.level().isClientSide() && !(le instanceof Player p && (p.isCreative() || p.isSpectator()))) {
+        if (le != null && !le.level().isClientSide() && !(le instanceof Player p && (p.isCreative() || p.isSpectator()))
+                && isEntityInRagdollState(le)) {
             if (le.isInvulnerable()) {
                 le.setInvulnerable(false);
             }
@@ -2403,20 +2398,20 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
 
     /**
      * 【打破其他生物 (僵尸/怪物/村民等所有 LivingEntity) 布娃娃状态无敌】
-     * 当第三方布娃娃模组使非玩家生物进入布娃娃时，自动清除其无敌标记并在弹射物/子弹飞经时强制结算命中！
+     * 仅在检测到实体确实处于布娃娃状态时清除无敌并补算弹射物命中，绝不干扰正常实体的无敌机制。
      */
     @SubscribeEvent
     public static void onLivingTickBreakMobRagdollInvuln(net.neoforged.neoforge.event.tick.EntityTickEvent.Pre event) {
         if (!(event.getEntity() instanceof LivingEntity le) || le instanceof Player) return;
         if (le.level().isClientSide() || !le.isAlive()) return;
-        if (le.isInvulnerable()) {
-            le.setInvulnerable(false);
-        }
-        // 每 2 tick 扫描周围高速飞行的投射物/TaCZ子弹，防止非玩家生物在布娃娃姿态下躲过射线检测
+        // 每 2 tick 扫描一次，避免对全服正常实体每 tick 扫描
         if ((le.tickCount & 1) != 0) return;
         boolean hasNearbyRagdoll = !le.level().getEntitiesOfClass(Entity.class, le.getBoundingBox().inflate(2.5),
                 e -> e != null && e != le && e.getClass().getName().toLowerCase().contains("ragdoll")).isEmpty();
         if (!hasNearbyRagdoll && le.isPickable() && le.canBeHitByProjectile()) return;
+        if (le.isInvulnerable()) {
+            le.setInvulnerable(false);
+        }
 
         AABB search = le.getBoundingBox().inflate(12.0);
         for (Projectile proj : le.level().getEntitiesOfClass(Projectile.class, search, p -> p != null && p.isAlive() && p.getOwner() != le)) {
@@ -2892,7 +2887,12 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
         Vec3 rayOrigin = null;
         Vec3 rayDir = null;
 
-        if (attacker != null && directProjectile != null) {
+        boolean isIndependentProjectile = (directProjectile != null && directProjectile != attacker);
+        if (attacker != null && !isIndependentProjectile && !(attacker instanceof Player)) {
+            return com.FIYTP.realmedicalmod.hitbox.HitPartDetector.detectHitPart(attacker, player, null);
+        }
+
+        if (attacker != null && isIndependentProjectile) {
             Vec3 projPos = directProjectile.position();
             Vec3 projVel = directProjectile.getDeltaMovement();
             Vec3 eyePos = attacker.getEyePosition();
@@ -3434,149 +3434,6 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
         player.syncData(MedicalDataCapability.MEDICAL_DATA);
     }
 
-    @SubscribeEvent(priority = EventPriority.HIGH)
-    public static void onCoreLivingDamagePre(LivingDamageEvent.Pre event) {
-        if (!legacyHandlersCleanedUp) {
-            ensureLegacyDamageHandlersCleanedUp();
-        }
-        if (!(event.getEntity() instanceof ServerPlayer player)) return;
-        if (player.level().isClientSide() || !player.isAlive() || player.isCreative() || player.isSpectator()) return;
-
-        DamageSource source = event.getSource();
-        String msgId = source.getMsgId() != null ? source.getMsgId() : "";
-        String msgLower = msgId.toLowerCase();
-
-        MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
-        if (data == null) return;
-
-        if ("genericKill".equals(msgId) || "generic_kill".equals(msgId) || "outOfWorld".equals(msgId) || data.getBrainHealth() <= 0) {
-            if (data.getBrainHealth() <= 0) {
-                player.invulnerableTime = 0;
-                event.setNewDamage(Math.max(event.getOriginalDamage(), 10000.0f));
-            }
-            return;
-        }
-
-        long nowTick = player.level().getGameTime();
-        Long settledTick = LAST_CORE_DAMAGE_SETTLED_TICK.get(player.getUUID());
-        if (settledTick != null && settledTick == nowTick) {
-            zeroDamageContainer(event);
-            return;
-        }
-
-        if ("fall".equals(msgId) || source.is(DamageTypeTags.IS_FALL)
-                || "inWall".equals(msgId) || "drown".equals(msgId) || "starve".equals(msgId)
-                || "magic".equals(msgId) || "indirectMagic".equals(msgId) || "wither".equals(msgId)
-                || "inFire".equals(msgId) || "onFire".equals(msgId) || "lava".equals(msgId)
-                || "hotFloor".equals(msgId) || "campfire".equals(msgId) || source.is(DamageTypeTags.IS_FIRE)) {
-            return;
-        }
-
-        float rawDmg = Math.max(event.getOriginalDamage(), event.getNewDamage());
-        if (rawDmg <= 0.05f) return;
-
-        Entity direct = source.getDirectEntity();
-        LivingEntity attacker = (source.getEntity() instanceof LivingEntity le) ? le : null;
-
-        boolean isTaczBulletOrGun = msgLower.contains("tacz") || msgLower.startsWith("tac.") || msgLower.contains("bullet")
-                || (direct != null && direct.getClass().getName().toLowerCase().contains("tacz"))
-                || (attacker != null && !attacker.getMainHandItem().isEmpty()
-                && net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(attacker.getMainHandItem().getItem()).getNamespace().equals("tacz"));
-
-        if (isTaczBulletOrGun) {
-            player.invulnerableTime = 0;
-        }
-
-        if (source.is(DamageTypeTags.IS_EXPLOSION) || msgLower.contains("explosion")) {
-            applyCoreExplosionTrauma(player, data, direct, attacker, rawDmg);
-            markCoreDamageSettledThisTick(player);
-            if (data.getBrainHealth() <= 0) {
-                player.invulnerableTime = 0;
-                event.setNewDamage(Math.max(rawDmg, 10000.0f));
-            } else {
-                zeroDamageContainer(event);
-            }
-            return;
-        }
-
-        applyDirectProjectileOrGunTrauma(player, direct, attacker, source, rawDmg, isTaczBulletOrGun);
-        if (data.getBrainHealth() <= 0) {
-            player.invulnerableTime = 0;
-            event.setNewDamage(Math.max(rawDmg, 10000.0f));
-        } else {
-            zeroDamageContainer(event);
-        }
-    }
-
-    private static void applyCoreExplosionTrauma(ServerPlayer player,
-                                                 MedicalData data,
-                                                 Entity directProjectile,
-                                                 LivingEntity attacker,
-                                                 float rawExplosionDamage) {
-        double headRatio = safeCfgDouble(MedicalConfig.EXPLOSION_HEAD_RATIO, 0.15);
-        double chestRatio = safeCfgDouble(MedicalConfig.EXPLOSION_CHEST_RATIO, 0.35);
-        double armRatio = safeCfgDouble(MedicalConfig.EXPLOSION_ARM_RATIO, 0.13);
-        double legRatio = safeCfgDouble(MedicalConfig.EXPLOSION_LEG_RATIO, 0.12);
-        double expExtRatio = safeCfgDouble(MedicalConfig.EXPLOSION_EXTERNAL_RATIO, 0.30);
-        double expIntRatio = safeCfgDouble(MedicalConfig.EXPLOSION_INTERNAL_RATIO, 0.70);
-        int maxPain = safeCfgInt(MedicalConfig.MAX_PAIN_LEVEL, 10);
-        int maxIntRate = safeCfgInt(MedicalConfig.MAX_INTERNAL_RATE, 300);
-
-        data.setLungContusion(Math.min(100.0f, data.getLungContusion() + rawExplosionDamage * 2.5f));
-
-        for (MedicalData.Limb limb : MedicalData.Limb.values()) {
-            MedicalData.LimbData ld = data.getLimb(limb);
-            if (ld == null || ld.isAmputated()) continue;
-            float weight = switch (limb) {
-                case HEAD -> (float) headRatio;
-                case CHEST -> (float) chestRatio;
-                case LEFT_ARM, RIGHT_ARM -> (float) armRatio;
-                case LEFT_LEG, RIGHT_LEG -> (float) legRatio;
-            };
-            float limbDmg = rawExplosionDamage * weight * 1.55f;
-            if (limbDmg < 1.0f) continue;
-
-            int extAdd = (int) Math.round(limbDmg * 20.0 * expExtRatio);
-            int intAdd = (int) Math.round(limbDmg * 11.0 * expIntRatio);
-            if (extAdd > 8) {
-                ld.setOpenWound(true);
-                ld.setBandaged(false);
-                ld.setBleeding(Math.min(2500, ld.getBleeding() + extAdd));
-            }
-            if (intAdd > 0) {
-                ld.setInternalBleedingRate(Math.min(maxIntRate, ld.getInternalBleedingRate() + intAdd));
-            }
-            ld.setPainLevel(Math.min(maxPain, Math.max(ld.getPainLevel(), Math.round(limbDmg * 0.8f))));
-        }
-
-        MedicalData.LimbData chestLd = data.getLimb(MedicalData.Limb.CHEST);
-        if (chestLd != null && rawExplosionDamage >= 12.0f) {
-            if (checkAndExecuteChestDirectKill(player, data, chestLd, rawExplosionDamage * 0.45f, rawExplosionDamage, rawExplosionDamage >= 22.0f, true)) {
-                return;
-            }
-        }
-        if (chestLd != null && applyAcuteBloodLossAndCumulativeLethality(player, data, MedicalData.Limb.CHEST, chestLd, rawExplosionDamage * 0.55f, rawExplosionDamage, false)) {
-            return;
-        }
-
-        Vec3 blastDir = computeCoreImpactDirection(player, directProjectile, attacker);
-        float blastStrength = Mth.clamp(0.42f + rawExplosionDamage * 0.045f, 0.40f, 1.45f);
-        Vec3 blastVel = new Vec3(blastDir.x * blastStrength, Math.min(0.85, 0.28 + rawExplosionDamage * 0.022), blastDir.z * blastStrength);
-
-        if (rawExplosionDamage >= 5.0f) {
-            MedicalData.LimbData rightArm = data.getLimb(MedicalData.Limb.RIGHT_ARM);
-            checkAndTriggerCoreArmDisarm(player, MedicalData.Limb.RIGHT_ARM, rightArm, rawExplosionDamage * 0.65f, blastDir);
-        }
-        int baseDur = safeCfgInt(MedicalConfig.RAGDOLL_EXPLOSION_DURATION_TICKS, 90);
-        int scaledDur = Mth.clamp(Math.round(baseDur * (0.75f + rawExplosionDamage / 24.0f)), 40, 200);
-        triggerCoreTemporaryKnockdown(player, scaledDur, blastVel);
-        player.syncData(MedicalDataCapability.MEDICAL_DATA);
-    }
-
-    // =========================================================================
-    // 13. 客户端第一人称摔倒/爆炸布娃娃视角无条件锁控、3D 倒地镜头与重生脑损伤清空 (Dist.CLIENT)
-    // =========================================================================
-
     @EventBusSubscriber(modid = RealMedicalMod.MODID, value = Dist.CLIENT)
     public static final class ClientCoreKnockdownHooks {
 
@@ -3586,8 +3443,6 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
         private static int lastLeftLegPain = -1;
         private static int lastRightLegPain = -1;
         private static int lastTotalPain = -1;
-        private static boolean userManuallySetThirdPerson = false;
-        private static boolean prevF5Down = false;
         private static Field cameraDetachedField = null;
         private static Field cameraPositionField = null;
         private static java.lang.reflect.Method cameraSetPositionMethod = null;

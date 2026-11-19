@@ -129,7 +129,7 @@ public final class HudColors {
     }
 
     /**
-     * 按健康比例取色（供 BrainScan3DRenderer / MedicalDetailPanelRenderer 使用）
+     * 按健康比例取色（供 BrainScan3DRenderer / MedicalScreen 使用）
      * @param ratio 0.0 ~ 1.0
      * @return ratio > 0.7 绿，> 0.4 黄，否则红
      */

@@ -68,7 +68,8 @@ public class CrisisSoundManager {
 
         Minecraft mc = Minecraft.getInstance();
         Player player = mc.player;
-        if (player == null || mc.level == null) {
+        if (player == null || mc.level == null || mc.isPaused()
+                || !player.isAlive() || player.isCreative() || player.isSpectator()) {
             resetState();
             return;
         }
@@ -84,8 +85,11 @@ public class CrisisSoundManager {
         // 2. 检测跃迁与致命突发事件（Fatal & Escalation Layer）
         handleEscalationEvents(mc.getSoundManager(), player, data, currentLevel);
 
-        // 3. 背景层：心跳脉搏与低氧环境音（Background Layer）
-        handleBackgroundAudio(mc.getSoundManager(), player, data, currentLevel);
+        // 3. 背景层：心跳脉搏与低氧环境音（当 3A TraumaSoundscapeEngine 开启时跳过重复的心跳与喘息层，保留危机跃迁与监护警报）
+        boolean soundscapeHandlesContinuous = com.FIYTP.realmedicalmod.treatment.ModItems.safeCfgBool(MedicalConfig.TRAUMA_SOUNDSCAPE_ENGINE_ENABLED, true);
+        if (!soundscapeHandlesContinuous) {
+            handleBackgroundAudio(mc.getSoundManager(), player, data, currentLevel);
+        }
 
         // 4. 事件与监护层：警告音与濒危倒计时（Event & Monitor Layer）
         handleWarningAndCountdown(mc.getSoundManager(), player, data, currentLevel);

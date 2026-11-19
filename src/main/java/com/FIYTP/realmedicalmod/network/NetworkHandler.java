@@ -29,12 +29,6 @@ public class NetworkHandler {
                 TreatmentApplyPacket::handleServer
         );
 
-        // C2S: 手环全息投影一键快捷施救请求包
-        registrar.playToServer(
-                WristQuickTreatPacket.TYPE,
-                WristQuickTreatPacket.STREAM_CODEC,
-                WristQuickTreatPacket::handleServer
-        );
     }
 
     public static void sendToPlayer(ServerPlayer player, BrainDamageEffectPacket packet) {
@@ -49,9 +43,4 @@ public class NetworkHandler {
         }
     }
 
-    public static void sendWristQuickTreat(WristQuickTreatPacket packet) {
-        if (packet != null) {
-            PacketDistributor.sendToServer(packet);
-        }
-    }
 }

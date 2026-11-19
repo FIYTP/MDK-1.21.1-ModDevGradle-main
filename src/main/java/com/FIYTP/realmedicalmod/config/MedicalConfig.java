@@ -839,6 +839,19 @@ public class MedicalConfig {
     public static ModConfigSpec.BooleanValue WRISTBAND_ALLOW_FREELOOK_RMB;
     public static ModConfigSpec.DoubleValue WRISTBAND_ARM_SWAY_INTENSITY;
     public static ModConfigSpec.DoubleValue WRISTBAND_PAIN_TREMOR_INTENSITY;
+    public static ModConfigSpec.DoubleValue WRISTBAND_VIEW_DISTANCE_Z;
+    public static ModConfigSpec.DoubleValue WRISTBAND_GUN_INNER_YAW_DEG;
+    public static ModConfigSpec.IntValue WRISTBAND_DIAL_REFRESH_MS;
+    public static ModConfigSpec.DoubleValue WRISTBAND_DIAL_IDLE_BRIGHTNESS;
+    public static ModConfigSpec.BooleanValue WRISTBAND_HAPTIC_BUZZ_ENABLED;
+    public static ModConfigSpec.DoubleValue WRISTBAND_HAPTIC_BUZZ_STRENGTH;
+    public static ModConfigSpec.IntValue WRISTBAND_BROADCAST_LIGHT_BLEED_DELTA;
+    public static ModConfigSpec.IntValue WRISTBAND_BROADCAST_HEAVY_BLEED_DELTA;
+    public static ModConfigSpec.IntValue WRISTBAND_BROADCAST_INT_BLEED_DELTA;
+    public static ModConfigSpec.IntValue WRISTBAND_BROADCAST_UNREAD_LIFETIME_SEC;
+    public static ModConfigSpec.IntValue WRISTBAND_BROADCAST_INF_WARN_PCT;
+    public static ModConfigSpec.IntValue WRISTBAND_BROADCAST_INF_CRIT_PCT;
+
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -3234,6 +3247,42 @@ public class MedicalConfig {
         WRISTBAND_PAIN_TREMOR_INTENSITY = builder
                 .comment("剧痛或戒断状态下抬腕手部有机微颤幅度 (默认 1.0)")
                 .defineInRange("wristbandPainTremorIntensity", 1.0, 0.0, 2.5);
+        WRISTBAND_VIEW_DISTANCE_Z = builder
+                .comment("第一人称按住 H 抬腕看表时的舒适观表距离 Z (越负离脸越远，默认 -0.64)")
+                .defineInRange("wristbandViewDistanceZ", -0.64, -1.10, -0.35);
+        WRISTBAND_GUN_INNER_YAW_DEG = builder
+                .comment("第一人称持枪态采用腕内侧戴表法时手表绕手臂旋转角度 (度，默认 -112.0)")
+                .defineInRange("wristbandGunInnerYawDeg", -112.0, -180.0, 180.0);
+        WRISTBAND_DIAL_REFRESH_MS = builder
+                .comment("256x256 活体 OLED 表盘刷新间隔 (毫秒，默认 33 即 30Hz)")
+                .defineInRange("wristbandDialRefreshMs", 33, 16, 200);
+        WRISTBAND_DIAL_IDLE_BRIGHTNESS = builder
+                .comment("未抬腕待机状态下 OLED 表盘的基础亮度倍率 (默认 0.72)")
+                .defineInRange("wristbandDialIdleBrightness", 0.72, 0.20, 1.0);
+        WRISTBAND_HAPTIC_BUZZ_ENABLED = builder
+                .comment("触发新伤情/趋势播报时是否启用腕表马达短促微震提示 (思路 C，默认 true)")
+                .define("wristbandHapticBuzzEnabled", true);
+        WRISTBAND_HAPTIC_BUZZ_STRENGTH = builder
+                .comment("腕表马达微震提示的幅度倍率 (默认 1.0)")
+                .defineInRange("wristbandHapticBuzzStrength", 1.0, 0.0, 2.5);
+        WRISTBAND_BROADCAST_LIGHT_BLEED_DELTA = builder
+                .comment("触发轻度创口出血播报的单次外出血增量阈值 (mL/min，默认 12)")
+                .defineInRange("wristbandBroadcastLightBleedDelta", 12, 1, 500);
+        WRISTBAND_BROADCAST_HEAVY_BLEED_DELTA = builder
+                .comment("触发危急动脉大出血播报的单次外出血增量阈值 (mL/min，默认 140)")
+                .defineInRange("wristbandBroadcastHeavyBleedDelta", 140, 20, 1000);
+        WRISTBAND_BROADCAST_INT_BLEED_DELTA = builder
+                .comment("触发内出血播报的单次内出血增量阈值 (mL/min，默认 25)")
+                .defineInRange("wristbandBroadcastIntBleedDelta", 25, 5, 500);
+        WRISTBAND_BROADCAST_UNREAD_LIFETIME_SEC = builder
+                .comment("未读播报在手表队列中的最长驻留时间 (秒，默认 90)")
+                .defineInRange("wristbandBroadcastUnreadLifetimeSec", 90, 10, 600);
+        WRISTBAND_BROADCAST_INF_WARN_PCT = builder
+                .comment("局部感染跨越预警播报阈值 (%，默认 20)")
+                .defineInRange("wristbandBroadcastInfWarnPct", 20, 5, 90);
+        WRISTBAND_BROADCAST_INF_CRIT_PCT = builder
+                .comment("局部感染跨越危急播报阈值 (%，默认 50)")
+                .defineInRange("wristbandBroadcastInfCritPct", 50, 15, 95);
 
         builder.pop();
 

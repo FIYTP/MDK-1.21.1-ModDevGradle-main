@@ -602,6 +602,9 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         tag.putBoolean("inCriticalState", inCriticalState);
         tag.putInt("criticalTimer", criticalTimer);
         tag.putFloat("toxinValue", toxinValue);
+        tag.putFloat("burnTBSA", burnTBSA);
+        tag.putFloat("burnEdema", burnEdema);
+        tag.putFloat("inhalationInjury", inhalationInjury);
         tag.putInt("brainDamageTriggerTimer", brainDamageTriggerTimer);
         tag.putInt("brainDamageTriggerCooldown", brainDamageTriggerCooldown);
         tag.putBoolean("forcedTrigger90", forcedTrigger90);
@@ -765,7 +768,11 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
             ld.setBurnLoad(limbTag.contains("burnLoad") ? limbTag.getFloat("burnLoad") : 0.0f);
             ld.setBurnConv(limbTag.contains("burnConv") ? limbTag.getFloat("burnConv") : 0.0f);
             ld.setBurnDegree(limbTag.contains("burnDegree") ? limbTag.getInt("burnDegree") : 0);
-            ld.setBurnArea(limbTag.contains("burnArea") ? limbTag.getFloat("burnArea") : 0.0f);
+            float loadedBurnArea = limbTag.contains("burnArea") ? limbTag.getFloat("burnArea") : 0.0f;
+            if (loadedBurnArea > 1.0f) {
+                loadedBurnArea = loadedBurnArea / 100.0f;
+            }
+            ld.setBurnArea(loadedBurnArea);
             ld.setBurnAge(limbTag.contains("burnAge") ? limbTag.getInt("burnAge") : 0);
             ld.setBurnHeatTimer(limbTag.contains("burnHeatTimer") ? limbTag.getInt("burnHeatTimer") : 0);
             ld.setBurnHealTimer(limbTag.contains("burnHealTimer") ? limbTag.getInt("burnHealTimer") : 0);
@@ -983,7 +990,7 @@ public class MedicalDataImpl implements MedicalData, INBTSerializable<CompoundTa
         @Override public synchronized int getBurnDegree() { return burnDegree; }
         @Override public synchronized void setBurnDegree(int degree) { this.burnDegree = Math.max(0, Math.min(4, degree)); }
         @Override public synchronized float getBurnArea() { return burnArea; }
-        @Override public synchronized void setBurnArea(float area) { this.burnArea = Math.max(0.0f, Math.min(100.0f, area)); }
+        @Override public synchronized void setBurnArea(float area) { this.burnArea = Math.max(0.0f, Math.min(1.0f, area)); }
         @Override public synchronized int getBurnAge() { return burnAge; }
         @Override public synchronized void setBurnAge(int seconds) { this.burnAge = Math.max(0, seconds); }
         @Override public synchronized int getBurnHeatTimer() { return burnHeatTimer; }

@@ -294,7 +294,8 @@ public final class TreatmentRouter {
         registerEffectHandler(MedicalItemTags.BURN_HEAL, (player, data, limb, ld, stack, potency) -> {
             if (!ld.hasBurn()) return 0;
             float heal = potency.get(MedicalItemTags.BURN_HEAL.location(), 10.0f);
-            ld.setBurnArea(Math.max(0.0f, ld.getBurnArea() - heal));
+            float healRatio = (heal > 1.0f) ? (heal / 100.0f) : heal;
+            ld.setBurnArea(Math.max(0.0f, ld.getBurnArea() - healRatio));
             ld.setBandaged(true);
             return Math.max(1, Math.round(heal));
         });
@@ -1808,34 +1809,6 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
 
     public static boolean applyServerTreatment(ServerPlayer player, InteractionHand hand, MedicalData.Limb limb) {
         return applyServerTreatment(player, hand, limb, 100);
-    }
-
-    public static boolean applyServerTreatmentFromSlot(ServerPlayer player, int slotIndex,
-                                                       MedicalData.Limb limb, int requestedDoseUnits) {
-        if (player == null || limb == null) return false;
-        MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
-        if (data == null || data.getConsciousness() <= 0 || data.isCardiacArrest()) return false;
-        MedicalData.LimbData ld = data.getLimb(limb);
-        if (ld == null) return false;
-
-        if (requestedDoseUnits == -1 && ld.isTourniqueted()) {
-            unbindTourniquetOnLimb(player, ld);
-            player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
-                    SoundEvents.ARMOR_EQUIP_LEATHER.value(), SoundSource.PLAYERS, 0.85f, 1.15f);
-            player.syncData(MedicalDataCapability.MEDICAL_DATA);
-            return true;
-        }
-        if (requestedDoseUnits == -2 && ld.hasSplint()) {
-            unbindSplintOnLimb(player, ld);
-            player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
-                    SoundEvents.ARMOR_EQUIP_LEATHER.value(), SoundSource.PLAYERS, 0.85f, 1.15f);
-            player.syncData(MedicalDataCapability.MEDICAL_DATA);
-            return true;
-        }
-
-        if (slotIndex < 0 || slotIndex >= player.getInventory().getContainerSize()) return false;
-        ItemStack stack = player.getInventory().getItem(slotIndex);
-        return applyServerTreatmentOnStack(player, data, limb, ld, stack, requestedDoseUnits);
     }
 
     public static boolean applyServerTreatment(ServerPlayer player, InteractionHand hand,

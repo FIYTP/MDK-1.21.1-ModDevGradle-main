@@ -55,6 +55,11 @@ public final class WristbandArmRenderLayer extends RenderLayer<AbstractClientPla
                                                              MedicalData data,
                                                              float activeLevel,
                                                              boolean gunInnerWristMode) {
+        if (data != null && MedicalConfig.AMPUTATION_ENABLED.get()
+                && data.getLimb(MedicalData.Limb.LEFT_ARM) != null
+                && data.getLimb(MedicalData.Limb.LEFT_ARM).isAmputated()) {
+            return;
+        }
         boolean isSlim = player.getSkin().model() == PlayerSkin.Model.SLIM;
 
         poseStack.pushPose();
@@ -71,7 +76,8 @@ public final class WristbandArmRenderLayer extends RenderLayer<AbstractClientPla
         //    - 持枪 CQB 态：绕手臂轴线转至腕内侧 (-X/-Z 方向，即 YP(-90°) + 微倾)，让护木左手上的表盘直接正面朝向玩家！
         poseStack.mulPose(Axis.XP.rotationDegrees(180.0f));
         if (gunInnerWristMode) {
-            poseStack.mulPose(Axis.YP.rotationDegrees(-112.0f));
+            float gunYaw = (float) ModItems.safeCfgDouble(MedicalConfig.WRISTBAND_GUN_INNER_YAW_DEG, -112.0);
+            poseStack.mulPose(Axis.YP.rotationDegrees(gunYaw));
         } else {
             poseStack.mulPose(Axis.YP.rotationDegrees(90.0f));
         }

@@ -36,7 +36,10 @@ public final class AmputationRenderHandler {
         boolean leftArm = data.getLimb(MedicalData.Limb.LEFT_ARM).isAmputated();
         boolean rightLeg = data.getLimb(MedicalData.Limb.RIGHT_LEG).isAmputated();
         boolean leftLeg = data.getLimb(MedicalData.Limb.LEFT_LEG).isAmputated();
-        if (!rightArm && !leftArm && !rightLeg && !leftLeg) return;
+        if (!rightArm && !leftArm && !rightLeg && !leftLeg) {
+            AmputationClientState.clear(player);
+            return;
+        }
 
         AmputationClientState.setAmputation(player, rightArm, leftArm, rightLeg, leftLeg);
 

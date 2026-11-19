@@ -16,22 +16,8 @@ public class FractureModule implements UpdateModule {
 
             if (!ld.hasFracture()) continue;
 
-            // 夹板愈合
-            if (ld.hasSplint()) {
-                int timer = ld.getFractureTimer() + 1;
-                ld.setFractureTimer(timer);
-
-                if (timer >= MedicalConfig.SPLINT_HEAL_TIME.get()) {
-                    ld.setFracture(false);
-                    ld.setSplint(false);
-                    ld.setFractureTimer(0);
-                    ld.setOpenFracture(false);
-                    if (ld.getBleeding() <= 0) {
-                        ld.setOpenWound(false);
-                        ld.setInfectionAgeTimer(0);
-                    }
-                }
-            }
+            // 骨折愈合倒计时已统一交由 ModItems 骨科/夹板权威倒计时系统推进，
+            // 此处不再重复反向递增 fractureTimer，避免计时器正负抵消死锁与开放性骨折误自愈。
 
             // 开放性骨折额外感染（仅未愈合时）
             if (ld.isOpenFracture()) {

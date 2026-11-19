@@ -74,7 +74,7 @@ public final class WristBroadcastManager {
     }
 
     private static final int MAX_VISIBLE = 2;
-    private static final long MAX_UNREAD_LIFETIME_MS = 90_000L; // 未读最多驻留 90 秒，防止陈旧信息堆积
+    private static long getMaxUnreadLifetimeMs() { return ModItems.safeCfgInt(MedicalConfig.WRISTBAND_BROADCAST_UNREAD_LIFETIME_SEC, 90) * 1000L; }
     private static final List<BroadcastEntry> ACTIVE_ENTRIES = new ArrayList<>();
     private static final Map<String, Long> COOLDOWN_MAP = new HashMap<>();
 
@@ -119,7 +119,7 @@ public final class WristBroadcastManager {
     public static List<BroadcastEntry> getActiveEntries() {
         long now = System.currentTimeMillis();
         ACTIVE_ENTRIES.removeIf(e ->
-                (now - e.createdMs) > MAX_UNREAD_LIFETIME_MS
+                (now - e.createdMs) > getMaxUnreadLifetimeMs()
                         || (e.dismissStartMs > 0L && (now - e.dismissStartMs) > 280L)
         );
         return ACTIVE_ENTRIES;
@@ -128,7 +128,7 @@ public final class WristBroadcastManager {
     public static boolean hasUnreadBroadcast() {
         long now = System.currentTimeMillis();
         for (BroadcastEntry e : getActiveEntries()) {
-            if (e.dismissStartMs == 0L && (now - e.createdMs) <= MAX_UNREAD_LIFETIME_MS) {
+            if (e.dismissStartMs == 0L && (now - e.createdMs) <= getMaxUnreadLifetimeMs()) {
                 return true;
             }
         }
@@ -258,15 +258,17 @@ public final class WristBroadcastManager {
             int inf = ld.getInfection();
             int burnDeg = ld.getBurnDegree();
 
-            // [恶化] 放低出血门槛 (>=12 mL/min 即可捕获轻伤，>=140 标危急动脉出血)
-            if (bleed - p.bleed >= 140) {
+            int heavyBleedDelta = ModItems.safeCfgInt(MedicalConfig.WRISTBAND_BROADCAST_HEAVY_BLEED_DELTA, 140);
+            int lightBleedDelta = ModItems.safeCfgInt(MedicalConfig.WRISTBAND_BROADCAST_LIGHT_BLEED_DELTA, 12);
+            int intBleedDelta = ModItems.safeCfgInt(MedicalConfig.WRISTBAND_BROADCAST_INT_BLEED_DELTA, 25);
+            if (bleed - p.bleed >= heavyBleedDelta) {
                 pushBroadcast("bleed_heavy_" + limb.name(), 2800L, "HEMORRHAGE",
                         lName + " · 动脉出血", bleed, "ML/M", Severity.CRITICAL, IconKind.BLEED);
-            } else if (bleed - p.bleed >= 12) {
+            } else if (bleed - p.bleed >= lightBleedDelta) {
                 pushBroadcast("bleed_light_" + limb.name(), 3200L, "BLEEDING",
                         lName + " · 创口出血", bleed, "ML/M", Severity.WARNING, IconKind.BLEED);
             }
-            if (intBleed - p.internalBleed >= 25) {
+            if (intBleed - p.internalBleed >= intBleedDelta) {
                 pushBroadcast("int_bleed_" + limb.name(), 3500L, "INT-BLEED",
                         lName + " · 体内出血", intBleed, "ML/M", Severity.CRITICAL, IconKind.BLEED);
             }
@@ -294,15 +296,17 @@ public final class WristBroadcastManager {
             }
             if (burnDeg > p.burnDeg && burnDeg >= 1) {
                 pushBroadcast("burn_" + limb.name(), 4000L, "THERMAL",
-                        lName + " · " + burnDeg + "度烧伤", Math.round(ld.getBurnArea()), "PCT",
+                        lName + " · " + burnDeg + "度烧伤", Math.round(ld.getBurnArea() * 100.0f), "PCT",
                         burnDeg >= 3 ? Severity.CRITICAL : Severity.WARNING, IconKind.BIOHAZARD);
             }
-            int[] infThresholds = {20, 45, 70};
+            int infWarn = ModItems.safeCfgInt(MedicalConfig.WRISTBAND_BROADCAST_INF_WARN_PCT, 20);
+            int infCrit = ModItems.safeCfgInt(MedicalConfig.WRISTBAND_BROADCAST_INF_CRIT_PCT, 50);
+            int[] infThresholds = {infWarn, infCrit, Math.min(95, infCrit + 25)};
             for (int th : infThresholds) {
                 if (inf >= th && p.infection < th) {
                     pushBroadcast("inf_up_" + limb.name() + "_" + th, 7500L, "INFECTION+",
                             lName + " · 感染加剧", inf, "PCT",
-                            th >= 45 ? Severity.CRITICAL : Severity.WARNING, IconKind.BIOHAZARD);
+                            th >= infCrit ? Severity.CRITICAL : Severity.WARNING, IconKind.BIOHAZARD);
                 }
             }
             int tqWarnSec = ModItems.safeCfgInt(MedicalConfig.TOURNIQUET_ISCHEMIA_STAGE1_SEC, 180);

@@ -115,7 +115,6 @@ public class MedicalMainLoop {
             internalBleedingModule.process(data);
             fractureModule.process(data);
             fractureTraumaModule.process(player, data);
-            limbEffectModule.process(player, data);
             hemothoraxModule.process(player, data);
             intracranialHemorrhageModule.process(data);
             naturalClottingModule.process(data);

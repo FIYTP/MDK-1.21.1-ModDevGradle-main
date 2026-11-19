@@ -49,20 +49,8 @@ public class LimbEffectModule implements UpdateModule {
             boolean leftAmp = leftLeg != null && leftLeg.isAmputated();
             boolean rightAmp = rightLeg != null && rightLeg.isAmputated();
 
-            // 3.0 双腿截肢 → 强制卧倒姿态（否则只剩躯干悬浮在站立高度）
-            // Pose.SLEEPING 使命中箱降为 0.2 高，本体贴地平躺；
-            // 每 tick 重申以覆盖 Player#updatePlayerPose 的姿态重算。
-            if (leftAmp && rightAmp) {
-                if (MedicalConfig.AMPUTATION_DOUBLE_LEG_PRONE.get()
-                        && player.getPose() != net.minecraft.world.entity.Pose.SLEEPING
-                        && !player.isPassenger()) {
-                    player.setPose(net.minecraft.world.entity.Pose.SLEEPING);
-                }
-            } else if ((player.getPose() == net.minecraft.world.entity.Pose.SLEEPING)
-                    && (leftAmp || rightAmp)) {
-                // 单腿截肢不卧倒（可单脚跳/爬行），确保不残留卧倒姿态
-                player.setPose(net.minecraft.world.entity.Pose.STANDING);
-            }
+            // 3.0 双腿截肢卧倒姿态统一交由 ModItems.enforceBilateralLegIncapacitationProne()
+            // 在双端每 Tick 通过 setForcedPose(Pose.SWIMMING) 权威锁定，避免每 20 tick 与 Pose.SLEEPING 互抢导致模型闪烁。
 
             if (leftAmp && rightAmp) {
                 AttributeArbiter.suggest(player, Dimension.MOVEMENT_SPEED, "leg_amputated_both",

@@ -16,8 +16,10 @@ public class NaturalClottingModule implements UpdateModule {
             MedicalData.LimbData ld = data.getLimb(limb);
             int rate = ld.getBleeding();
 
-            // 若外出血已停止且无开放性骨折，开放性伤口闭合并重置计时器
-            if (rate <= 0 && !ld.isOpenFracture()) {
+            // 若外出血已停止且无开放性骨折、无烧伤创面、无弹头残留，开放性伤口闭合并重置计时器
+            boolean hasNonBleedOpenSource = ld.isOpenFracture() || ld.hasBurn()
+                    || com.FIYTP.realmedicalmod.treatment.ModItems.getEmbeddedBulletCount(ld) > 0;
+            if (rate <= 0 && !hasNonBleedOpenSource) {
                 if (ld.hasOpenWound()) {
                     ld.setOpenWound(false);
                     ld.setInfectionAgeTimer(0);
@@ -69,7 +71,7 @@ public class NaturalClottingModule implements UpdateModule {
                 ld.setBleeding(0);
                 ld.setNaturalClottingTimer(0);
                 ld.setClottingStartRate(0);
-                if (!ld.isOpenFracture()) {
+                if (!hasNonBleedOpenSource) {
                     ld.setOpenWound(false);
                     ld.setInfectionAgeTimer(0);
                 }

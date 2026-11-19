@@ -1,6 +1,7 @@
 package com.FIYTP.realmedicalmod.client.render;
 
 import com.FIYTP.realmedicalmod.capability.MedicalData;
+import com.FIYTP.realmedicalmod.config.MedicalConfig;
 import com.FIYTP.realmedicalmod.treatment.ModItems;
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -128,7 +129,7 @@ public final class TacticalWatchModelRenderer {
         buildProjectorHousing(solidVc, pose, mat, packedLight, caseBaseZ, caseRadius, caseDepth);
 
         // 2. 阶段 2 活体 256x256 军工 OLED 表盘（满亮度自发光，实时呈现 ECG/BPM、血压、痛觉笑脸、CNS 刻度环与 EEG 脑电）
-        ResourceLocation liveDialTex = WatchDialFaceRenderer.getOrUpdateDialTexture(data, activeLevel);
+        ResourceLocation liveDialTex = WatchDialFaceRenderer.getOrUpdateDialTexture(data, activeLevel, renderLocalBroadcasts);
         VertexConsumer liveDialVc = bufferSource.getBuffer(RenderType.entityCutoutNoCull(liveDialTex));
         buildLiveOledDialQuad(liveDialVc, pose, mat, caseBaseZ, caseRadius, caseDepth, activeLevel);
 
@@ -424,7 +425,8 @@ public final class TacticalWatchModelRenderer {
         int fullLight = LightTexture.FULL_BRIGHT;
 
         // 待机时柔和微亮 (72%)，抬腕看表时全亮度 (100%) 锐利点亮
-        float bright = 0.72f + 0.28f * Mth.clamp(activeLevel, 0.0f, 1.0f);
+        float idleBright = (float) ModItems.safeCfgDouble(MedicalConfig.WRISTBAND_DIAL_IDLE_BRIGHTNESS, 0.72);
+        float bright = Mth.lerp(Mth.clamp(activeLevel, 0.0f, 1.0f), idleBright, 1.0f);
         int c = Mth.clamp(Math.round(255 * bright), 150, 255);
         // 旋转 180° 彻底翻正表盘 UV（顶部 BIO-OS 笔直朝上、左右不镜像）
         emitQuadUV4(vc, pose, mat, fullLight,

@@ -874,8 +874,8 @@ public class BrainScan3DRenderer {
         }
         if (headLd.hasBurn()) {
             drawY = drawFullMetricRow(g, font, x, drawY, contentW,
-                    "烧伤 (" + headLd.getBurnDegree() + "°)", String.format("%.1f%%", headLd.getBurnArea()),
-                    Mth.clamp(headLd.getBurnArea() / 20.0f, 0.0f, 1.0f), 0xFFFF6D00);
+                    "烧伤 (" + headLd.getBurnDegree() + "°)", String.format("%.1f%%", headLd.getBurnArea() * 100.0f),
+                    Mth.clamp((headLd.getBurnArea() * 100.0f) / 20.0f, 0.0f, 1.0f), 0xFFFF6D00);
         }
 
         drawY += 2;
@@ -1110,7 +1110,7 @@ public class BrainScan3DRenderer {
                 + ld.getInfection() * 0.45f
                 + (ld.hasFracture() ? (ld.isOpenFracture() ? 35.0f : 22.0f) : 0.0f)
                 + (ld.hasDislocation() ? 15.0f : 0.0f)
-                + (ld.hasBurn() ? ld.getBurnArea() * 1.2f : 0.0f);
+                + (ld.hasBurn() ? (ld.getBurnArea() * 100.0f) * 1.2f : 0.0f);
         return Mth.clamp(Math.round(100.0f - penalty), 0, 100);
     }
 

@@ -51,6 +51,11 @@ public abstract class PlayerRendererMixin {
         }
 
         MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
+        if (data != null && MedicalConfig.AMPUTATION_ENABLED.get()
+                && data.getLimb(MedicalData.Limb.LEFT_ARM) != null
+                && data.getLimb(MedicalData.Limb.LEFT_ARM).isAmputated()) {
+            return;
+        }
         float activeLevel = WristbandHologramController.getVisualActiveLevel();
 
         boolean gunInnerMode = WristbandHologramController.isHoldingGunOrTwoHanded(player);

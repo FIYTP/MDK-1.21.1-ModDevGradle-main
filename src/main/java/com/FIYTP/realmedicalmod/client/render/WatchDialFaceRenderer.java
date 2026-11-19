@@ -34,6 +34,12 @@ public final class WatchDialFaceRenderer {
     private static long lastUploadMs = 0L;
     private static long lastStepNs = 0L;
 
+    // 远端玩家独立表盘纹理（与本地玩家静态 ECG/EEG/趋势缓冲完全隔离，防止多人联机互相覆写）
+    private static NativeImage remoteDialImage = null;
+    private static DynamicTexture remoteDialTexture = null;
+    private static ResourceLocation remoteDialTextureId = null;
+    private static long lastRemoteUploadMs = 0L;
+
     // 实时 ECG 心电 & EEG 脑电环形示波缓冲区
     private static final int ECG_LEN = 110;
     private static final float[] ecgBuf = new float[ECG_LEN];
@@ -72,17 +78,67 @@ public final class WatchDialFaceRenderer {
     private WatchDialFaceRenderer() {}
 
     /**
-     * 获取或按 30Hz 节流刷新 256x256 活体 OLED 表盘纹理
+     * 获取或按 30Hz 节流刷新 256x256 活体 OLED 表盘纹理（默认本地玩家）
      */
     public static ResourceLocation getOrUpdateDialTexture(MedicalData data, float activeLevel) {
+        return getOrUpdateDialTexture(data, activeLevel, true);
+    }
+
+    /**
+     * 多人隔离版：本地玩家使用实时 30Hz 动态示波纹理；远端玩家使用独立低频纹理，绝不污染本地 ECG/EEG 缓冲。
+     */
+    public static ResourceLocation getOrUpdateDialTexture(MedicalData data, float activeLevel, boolean isLocalPlayer) {
+        long nowMs = System.currentTimeMillis();
+        if (!isLocalPlayer) {
+            if (remoteDialTextureId == null) {
+                remoteDialImage = new NativeImage(SIZE, SIZE, true);
+                remoteDialTexture = new DynamicTexture(remoteDialImage);
+                remoteDialTextureId = Minecraft.getInstance().getTextureManager().register("realmedicalmod_watch_oled_remote", remoteDialTexture);
+            }
+            if (nowMs - lastRemoteUploadMs >= 200L) {
+                lastRemoteUploadMs = nowMs;
+                NativeImage savedImg = dialImage;
+                int savedEcgHead = ecgHead;
+                float savedEcgAcc = ecgAcc;
+                float savedEcgPhase = ecgPhase;
+                int savedEegHead = eegHead;
+                float savedEegAcc = eegAcc;
+                float savedEegTime = eegTime;
+                float savedPrevBrain = prevBrainHealth;
+                float savedBrainTrend = brainTrendSmooth;
+                float savedPrevActive = prevActiveLevel;
+                float savedBootScan = bootScanProgress;
+                long savedStepNs = lastStepNs;
+                try {
+                    dialImage = remoteDialImage;
+                    renderDialPixels(data, 0.0f, nowMs);
+                    remoteDialTexture.upload();
+                } finally {
+                    dialImage = savedImg;
+                    ecgHead = savedEcgHead;
+                    ecgAcc = savedEcgAcc;
+                    ecgPhase = savedEcgPhase;
+                    eegHead = savedEegHead;
+                    eegAcc = savedEegAcc;
+                    eegTime = savedEegTime;
+                    prevBrainHealth = savedPrevBrain;
+                    brainTrendSmooth = savedBrainTrend;
+                    prevActiveLevel = savedPrevActive;
+                    bootScanProgress = savedBootScan;
+                    lastStepNs = savedStepNs;
+                }
+            }
+            return remoteDialTextureId;
+        }
+
         if (dialTextureId == null) {
             dialImage = new NativeImage(SIZE, SIZE, true);
             dialTexture = new DynamicTexture(dialImage);
             dialTextureId = Minecraft.getInstance().getTextureManager().register("realmedicalmod_watch_oled_live", dialTexture);
         }
 
-        long nowMs = System.currentTimeMillis();
-        if (nowMs - lastUploadMs >= UPDATE_INTERVAL_MS) {
+        int refreshMs = ModItems.safeCfgInt(MedicalConfig.WRISTBAND_DIAL_REFRESH_MS, UPDATE_INTERVAL_MS);
+        if (nowMs - lastUploadMs >= refreshMs) {
             lastUploadMs = nowMs;
             renderDialPixels(data, activeLevel, nowMs);
             dialTexture.upload();

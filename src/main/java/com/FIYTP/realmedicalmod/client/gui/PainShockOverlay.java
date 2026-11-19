@@ -202,10 +202,12 @@ public class PainShockOverlay {
             hasVerts = true;
         }
 
-        if (hasVerts) {
-            MeshData mesh = buf.build();
-            if (mesh != null) {
+        MeshData mesh = buf.build();
+        if (mesh != null) {
+            if (hasVerts) {
                 BufferUploader.drawWithShader(mesh);
+            } else {
+                mesh.close();
             }
         }
     }
@@ -261,10 +263,12 @@ public class PainShockOverlay {
             }
         }
 
-        if (hasVerts) {
-            MeshData mesh = buf.build();
-            if (mesh != null) {
+        MeshData mesh = buf.build();
+        if (mesh != null) {
+            if (hasVerts) {
                 BufferUploader.drawWithShader(mesh);
+            } else {
+                mesh.close();
             }
         }
     }
