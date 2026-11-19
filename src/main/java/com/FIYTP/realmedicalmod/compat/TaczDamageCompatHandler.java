@@ -325,11 +325,13 @@ public final class TaczDamageCompatHandler {
         // 此时将 NewDamage 与 DamageContainer.originalDamage 同步清零，既保留原版 hurt() 的受击红闪/音效，又彻底杜绝旧 HitPartHandler 重复叠加胸部伤害！
         if (ctx.gameTime == nowTick && ctx.apiHitsThisTick > 0) {
             ModItems.markCoreDamageSettledThisTick(player);
-            ModItems.zeroDamageContainer(event);
             MedicalData checkData = player.getData(MedicalDataCapability.MEDICAL_DATA);
-            if (checkData != null && checkData.getBrainHealth() <= 0 && player.isAlive()) {
-                player.hurt(player.damageSources().genericKill(), Float.MAX_VALUE);
+            if (checkData != null && checkData.getBrainHealth() <= 0) {
+                player.invulnerableTime = 0;
+                event.setNewDamage(Math.max(event.getOriginalDamage(), 10000.0f));
+                return;
             }
+            ModItems.zeroDamageContainer(event);
             return;
         }
 
@@ -370,7 +372,13 @@ public final class TaczDamageCompatHandler {
         boolean headHit = isRayHitHeadFallback(player, directEntity);
         ModItems.markCoreDamageSettledThisTick(player);
         applyBallisticTraumaToPlayer(player, directEntity, attacker, meta, rawDmg, headHit, ctx);
-        ModItems.zeroDamageContainer(event);
+        MedicalData afterData = player.getData(MedicalDataCapability.MEDICAL_DATA);
+        if (afterData != null && afterData.getBrainHealth() <= 0) {
+            player.invulnerableTime = 0;
+            event.setNewDamage(Math.max(rawDmg, 10000.0f));
+        } else {
+            ModItems.zeroDamageContainer(event);
+        }
     }
 
     // =========================================================================
@@ -597,8 +605,20 @@ public final class TaczDamageCompatHandler {
             handleHeadBallisticTrauma(player, data, ld, penetratingDmg, bluntAbsorbedDmg, totalRawDamage, profile, ctx);
         } else if (hitLimb == MedicalData.Limb.CHEST) {
             handleChestBallisticTrauma(player, data, ld, penetratingDmg, bluntAbsorbedDmg, profile, isMultiPelletSubsequent, ctx);
+            ModItems.checkAndExecuteChestDirectKill(
+                    player, data, ld, penetratingDmg, totalRawDamage,
+                    profile == BallisticProfile.HEAVY_SNIPER_AMR, true
+            );
         } else {
             handleLimbBallisticTrauma(player, data, hitLimb, ld, penetratingDmg, profile, isMultiPelletSubsequent, ctx);
+        }
+
+        // 结算瞬时急性喷溅失血与连续中弹累计休克致死
+        if (data.getBrainHealth() > 0) {
+            ModItems.applyAcuteBloodLossAndCumulativeLethality(
+                    player, data, hitLimb, ld,
+                    penetratingDmg + bluntAbsorbedDmg * 0.45f, totalRawDamage, false
+            );
         }
 
         // 8) 触发创伤性内源肾上腺素激增应激 (Adrenaline Rush)、Sable 物理布娃娃/摔倒与手部重伤脱手

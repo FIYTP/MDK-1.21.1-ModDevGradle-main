@@ -144,19 +144,19 @@ final class SableRagdollCompatHandler {
             Player player = mc.player;
             if (player == null || mc.level == null || mc.options == null || player.isSpectator()) return;
 
-            MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
-            boolean inTraumaKnockdown = ModItems.isPlayerTemporarilyKnockedDown(player)
-                    || player.getForcedPose() == Pose.SWIMMING
-                    || (data != null && (data.getConsciousness() <= 0 || data.isCardiacArrest()));
+            if (mc.options.getCameraType().isFirstPerson() && event.getCamera() != null) {
+                ModItems.ClientCoreKnockdownHooks.forceCameraFirstPersonUndetached(event.getCamera(), player, (float) event.getPartialTick());
+            }
+        }
 
-            if (inTraumaKnockdown) {
-                if (!mc.options.getCameraType().isFirstPerson()) {
-                    mc.options.setCameraType(CameraType.FIRST_PERSON);
-                }
-                Camera cam = event.getCamera();
-                if (cam != null) {
-                    ModItems.ClientCoreKnockdownHooks.forceCameraFirstPersonUndetached(cam, player, (float) event.getPartialTick());
-                }
+        @SubscribeEvent(priority = EventPriority.LOWEST)
+        public static void onComputeFovAfterCameraSetup(ViewportEvent.ComputeFov event) {
+            Minecraft mc = Minecraft.getInstance();
+            Player player = mc.player;
+            if (player == null || mc.level == null || mc.options == null || player.isSpectator()) return;
+
+            if (mc.options.getCameraType().isFirstPerson() && event.getCamera() != null) {
+                ModItems.ClientCoreKnockdownHooks.forceCameraFirstPersonUndetached(event.getCamera(), player, (float) event.getPartialTick());
             }
         }
 

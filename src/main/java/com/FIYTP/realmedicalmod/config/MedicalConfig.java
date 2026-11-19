@@ -828,6 +828,18 @@ public class MedicalConfig {
 
 
 
+    // ==================== 战术医疗手环与三层全息投影 (Wristband Hologram) 配置 ====================
+    public static ModConfigSpec.BooleanValue WRISTBAND_ENABLED;
+    public static ModConfigSpec.DoubleValue WRISTBAND_RAISE_DURATION_MS;
+    public static ModConfigSpec.DoubleValue WRISTBAND_LOWER_DURATION_MS;
+    public static ModConfigSpec.DoubleValue WRISTBAND_DRAWER_SLIDE_MS;
+    public static ModConfigSpec.DoubleValue WRISTBAND_PANEL_SCALE;
+    public static ModConfigSpec.DoubleValue WRISTBAND_HOLOGRAM_ALPHA;
+    public static ModConfigSpec.DoubleValue WRISTBAND_CURSOR_SENSITIVITY;
+    public static ModConfigSpec.BooleanValue WRISTBAND_ALLOW_FREELOOK_RMB;
+    public static ModConfigSpec.DoubleValue WRISTBAND_ARM_SWAY_INTENSITY;
+    public static ModConfigSpec.DoubleValue WRISTBAND_PAIN_TREMOR_INTENSITY;
+
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
 
@@ -3191,6 +3203,37 @@ public class MedicalConfig {
         TRAUMA_SOUND_CRITICAL_DRONE_VOLUME = builder
                 .comment("濒死倒计时/室颤/大出血时的暗黑低频紧张压迫氛围音音量 (默认 0.85)")
                 .defineInRange("traumaSoundCriticalDroneVolume", 0.85, 0.0, 2.0);
+
+        WRISTBAND_ENABLED = builder
+                .comment("是否启用 H 键第一人称抬腕手环三层渐进式全息投影 (false 则回退旧版全屏 MedicalScreen，默认 true)")
+                .define("wristbandEnabled", true);
+        WRISTBAND_RAISE_DURATION_MS = builder
+                .comment("按下 H 键后抬起左腕并展开手环全息投影的动画时长 (毫秒，默认 360.0)")
+                .defineInRange("wristbandRaiseDurationMs", 360.0, 100.0, 1500.0);
+        WRISTBAND_LOWER_DURATION_MS = builder
+                .comment("关闭手环全息投影并自然放下手臂的动画时长 (毫秒，默认 250.0)")
+                .defineInRange("wristbandLowerDurationMs", 250.0, 80.0, 1200.0);
+        WRISTBAND_DRAWER_SLIDE_MS = builder
+                .comment("悬停/点击受损部位时右侧深度外科诊断抽屉滑出时长 (毫秒，默认 210.0)")
+                .defineInRange("wristbandDrawerSlideMs", 210.0, 60.0, 800.0);
+        WRISTBAND_PANEL_SCALE = builder
+                .comment("手环全息投影整体缩放倍率 (默认 1.0)")
+                .defineInRange("wristbandPanelScale", 1.0, 0.65, 1.6);
+        WRISTBAND_HOLOGRAM_ALPHA = builder
+                .comment("全息光幕与框架的基础不透明度 (默认 0.90)")
+                .defineInRange("wristbandHologramAlpha", 0.90, 0.35, 1.0);
+        WRISTBAND_CURSOR_SENSITIVITY = builder
+                .comment("手环全息投影激活时虚拟光标的鼠标灵敏度 (默认 0.48)")
+                .defineInRange("wristbandCursorSensitivity", 0.48, 0.10, 2.0);
+        WRISTBAND_ALLOW_FREELOOK_RMB = builder
+                .comment("手环抬起时按住鼠标右键是否临时解锁自由视角环顾四周并微降手臂 (默认 true)")
+                .define("wristbandAllowFreelookRmb", true);
+        WRISTBAND_ARM_SWAY_INTENSITY = builder
+                .comment("抬腕状态下行走呼吸与视角转动惯性随动幅度 (默认 1.0)")
+                .defineInRange("wristbandArmSwayIntensity", 1.0, 0.0, 2.5);
+        WRISTBAND_PAIN_TREMOR_INTENSITY = builder
+                .comment("剧痛或戒断状态下抬腕手部有机微颤幅度 (默认 1.0)")
+                .defineInRange("wristbandPainTremorIntensity", 1.0, 0.0, 2.5);
 
         builder.pop();
 

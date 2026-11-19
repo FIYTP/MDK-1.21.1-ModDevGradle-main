@@ -45,6 +45,14 @@ import net.neoforged.neoforge.client.event.ViewportEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
+import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
+import net.neoforged.neoforge.event.entity.ProjectileImpactEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.minecraft.world.entity.projectile.AbstractArrow;
+import net.minecraft.world.entity.projectile.Projectile;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.HitResult;
 import net.neoforged.neoforge.event.entity.living.LivingFallEvent;
 import net.neoforged.neoforge.event.level.ExplosionEvent;
 import java.lang.reflect.Field;
@@ -1177,6 +1185,15 @@ public class ModItems {
     public static void onPlayerTickEnforcePronePre(PlayerTickEvent.Pre event) {
         Player player = event.getEntity();
         if (player != null && !player.level().isClientSide() && player.isAlive()) {
+            MedicalData preData = player.getData(MedicalDataCapability.MEDICAL_DATA);
+            if (preData != null && preData.getBrainHealth() <= 0) {
+                player.invulnerableTime = 0;
+                player.hurt(player.damageSources().genericKill(), Float.MAX_VALUE);
+                return;
+            }
+            if (player instanceof ServerPlayer sp) {
+                interceptInFlightProjectilesForRagdollPlayer(sp);
+            }
             UUID uid = player.getUUID();
             Integer rem = SERVER_KNOCKDOWN_TICKS.get(uid);
             if (rem != null && rem > 0) {
@@ -2245,18 +2262,42 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
     }
 
     // =========================================================================
-    // 12. Mod 本体核心：精准 3D 解剖射线部位判定 + 受创暂时摔倒 + 无提示手部物理脱手 + 原版/模组全伤害统一接管
+    // 12. Mod 本体核心：精准 3D 解剖射线部位判定 + 胸口心脏破裂直接致死 + 连砍/连射重伤累计必死
+    //     + 布娃娃/倒地状态远程与枪械 100% 命中补偿 + 死亡重生脑损伤彻底清零 + 零刷屏第一人称视角锁控
     // =========================================================================
 
+    private static final class CombatTraumaWindow {
+        float cumulativeEffectiveDamage = 0.0f;
+        int hitCount = 0;
+        long lastHitGameTime = -200L;
+        long lastTaczHurtTick = -100L;
+        int taczStageCountThisTick = 0;
+    }
+
+    private static final Map<UUID, CombatTraumaWindow> PLAYER_COMBAT_TRAUMA_MAP = new ConcurrentHashMap<>();
+
+    public static float getOptionalConfigFloat(String fieldName, float defaultVal) {
+        try {
+            Field f = MedicalConfig.class.getField(fieldName);
+            Object specVal = f.get(null);
+            if (specVal instanceof net.neoforged.neoforge.common.ModConfigSpec.ConfigValue<?> cv) {
+                Object v = cv.get();
+                if (v instanceof Number n) return n.floatValue();
+            }
+        } catch (Throwable ignored) {
+        }
+        return defaultVal;
+    }
+
     /**
-     * 自动清理旧版遗留或包名拼写错误 (campat) 的重复事件监听器，防止二次结算覆盖部位伤害
+     * 自动清理旧版遗留监听器（绝不反射调用 sable_player_ragdoll 内部带调试消息的方法，彻底杜绝聊天框刷屏！）
      */
     public static synchronized void ensureLegacyDamageHandlersCleanedUp() {
         if (legacyHandlersCleanedUp) return;
         legacyHandlersCleanedUp = true;
 
         ClassLoader cl = ModItems.class.getClassLoader();
-        // 1) 若存在旧版 campat.TaczDamageCompatHandler（拼写错误包名），禁用并注销其监听，统一由最新逻辑处理
+        // 1) 若存在旧版 campat.TaczDamageCompatHandler（拼写错误包名），禁用并注销其监听，由 ModItems 本体与 compat 统一接管
         try {
             Class<?> oldCampatCls = Class.forName("com.FIYTP.realmedicalmod.campat.TaczDamageCompatHandler", false, cl);
             try {
@@ -2269,7 +2310,7 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
         } catch (Throwable ignored) {
         }
 
-        // 2) 注销旧版 HitPartHandler（旧版存在瞄腿/手/头却固定命中 CHEST 的缺陷），统一由本体高精度 3D 骨骼射线接管
+        // 2) 注销旧版 HitPartHandler
         try {
             Class<?> oldHitPartCls = Class.forName("com.FIYTP.realmedicalmod.event.HitPartHandler", false, cl);
             NeoForge.EVENT_BUS.unregister(oldHitPartCls);
@@ -2278,9 +2319,250 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
     }
 
     /**
-     * 将 LivingDamageEvent.Pre 的 newDamage 与底层 DamageContainer.originalDamage 同时归零，
-     * 彻底杜绝任何下游旧版监听器读取 originalDamage 造成二次胸部伤害叠加
+     * 保留空方法桩以兼容旧调用，绝不调用任何会向聊天框输出调试文本的第三方布娃娃方法
      */
+    public static void cancelSableThirdPersonRagdollOnPlayer(Player player) {
+        // No-op: First-person view is enforced purely via vanilla Camera state in ComputeCameraAngles & ComputeFov
+    }
+
+    /**
+     * 【玩家死亡克隆与重生：100% 彻底重置全身医疗数据、脑健康、颅内压与脑损伤触发器】
+     * 彻底解决“死亡重生后脑损伤的效果还在”的问题！
+     */
+    public static void resetPlayerMedicalDataCompletely(ServerPlayer player) {
+        if (player == null) return;
+        UUID uid = player.getUUID();
+        SERVER_KNOCKDOWN_TICKS.remove(uid);
+        PLAYER_COMBAT_TRAUMA_MAP.remove(uid);
+        LAST_DISARM_TICK.remove(uid);
+        LAST_CORE_DAMAGE_SETTLED_TICK.remove(uid);
+
+        if (player.getForcedPose() != null) {
+            player.setForcedPose(null);
+            player.refreshDimensions();
+        }
+
+        MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
+        if (data != null) {
+            MedicalDataImpl fresh = new MedicalDataImpl();
+            data.copyFrom(fresh);
+            setPneumothoraxType(data, 0);
+            setPleuralAirMl(data, 0.0f);
+            setPleuralPressureCmH2O(data, -5.0f);
+            setThreeSidedValveSealed(data, false);
+            setImproperlyDeadSealed(data, false);
+            setDecompressionWindowSec(data, 0);
+            player.syncData(MedicalDataCapability.MEDICAL_DATA);
+        }
+    }
+
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onPlayerCloneResetOnDeath(PlayerEvent.Clone event) {
+        if (event.isWasDeath() && event.getEntity() instanceof ServerPlayer newPlayer) {
+            resetPlayerMedicalDataCompletely(newPlayer);
+        }
+    }
+
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onPlayerRespawnResetMedical(PlayerEvent.PlayerRespawnEvent event) {
+        if (event.getEntity() instanceof ServerPlayer respawnedPlayer && !respawnedPlayer.level().isClientSide()) {
+            resetPlayerMedicalDataCompletely(respawnedPlayer);
+        }
+    }
+
+    /**
+     * 【打破布娃娃状态对远程与枪械的免疫 —— 防线 1】
+     * 若 Sable: Ragdolls 或其它模组在玩家处于布娃娃状态时取消了 ProjectileImpactEvent 或 LivingIncomingDamageEvent，
+     * 在最低优先级强制解除取消 (setCanceled(false))，确保远程箭矢与子弹正常命中并造成伤害！
+     */
+    @SubscribeEvent(priority = EventPriority.LOWEST, receiveCanceled = true)
+    public static void onProjectileImpactUncancelForRagdoll(ProjectileImpactEvent event) {
+        if (event.isCanceled() && event.getRayTraceResult() instanceof net.minecraft.world.phys.EntityHitResult ehr) {
+            if (ehr.getEntity() instanceof Player) {
+                event.setCanceled(false);
+            }
+        }
+    }
+
+    @SubscribeEvent(priority = EventPriority.LOWEST, receiveCanceled = true)
+    public static void onLivingIncomingDamageUncancelForRagdoll(LivingIncomingDamageEvent event) {
+        if (event.isCanceled() && event.getEntity() instanceof Player) {
+            event.setCanceled(false);
+        }
+    }
+
+    /**
+     * 【打破布娃娃状态对远程与枪械的免疫 —— 防线 2（主动 3D 弹道/远程投射物命中补偿引擎）】
+     * 当玩家进入 Sable 布娃娃状态或倒地状态时，Sable 会修改/缩小玩家的原版碰撞箱或使 canHitEntity 返回 false，
+     * 导致原版弓箭、弩箭、三叉戟以及 TaCZ 的 EntityKineticBullet 射线直接穿过布娃娃身体而不触发命中。
+     * 此方法在子弹生成瞬间 (EntityJoinLevelEvent) 与每服务端 Tick (PlayerTickEvent.Pre) 主动检测所有飞经玩家的弹道射线，
+     * 一旦穿过玩家的真实倒地/布娃娃体积 (1.25m × 1.35m × 1.25m)，立即强制触发命中与完整枪伤/远程创伤结算！
+     */
+    public static void interceptInFlightProjectilesForRagdollPlayer(ServerPlayer target) {
+        if (target == null || target.level().isClientSide() || !target.isAlive() || target.isCreative() || target.isSpectator()) {
+            return;
+        }
+        AABB searchArea = target.getBoundingBox().inflate(18.0);
+        java.util.List<Projectile> projectiles = target.level().getEntitiesOfClass(Projectile.class, searchArea,
+                p -> p != null && p.isAlive() && p.getOwner() != target);
+
+        for (Projectile proj : projectiles) {
+            tryForceProjectileHitOnTarget(proj, target, false);
+        }
+    }
+
+    private static void tryForceProjectileHitOnTarget(Projectile proj, ServerPlayer target, boolean isSpawnTickHitscan) {
+        if (proj == null || target == null || !proj.isAlive() || !target.isAlive()) return;
+        if (proj.getOwner() == target || target.isCreative() || target.isSpectator()) return;
+
+        String hitKey = "rmm_hit_" + target.getId();
+        if (proj.getPersistentData().getBoolean(hitKey)) return;
+
+        Vec3 vel = proj.getDeltaMovement();
+        double speed = vel.length();
+        if (speed < 0.05 && !isSpawnTickHitscan) return;
+
+        LivingEntity attacker = (proj.getOwner() instanceof LivingEntity le) ? le : null;
+        String clsName = proj.getClass().getName().toLowerCase();
+        boolean isTaczBullet = clsName.contains("tacz") || clsName.contains("kineticbullet");
+
+        // 构建射线起点与终点：
+        // - 若为刚生成的 TaCZ 高速子弹，沿子弹速度方向（或射手视线方向）向前追踪；
+        // - 若为飞行中的弓箭/子弹，覆盖其上一帧到下一帧的完整飞行线段
+        Vec3 rayStart = proj.position();
+        Vec3 rayDir;
+        double traceDist;
+
+        if (isSpawnTickHitscan && isTaczBullet) {
+            if (attacker != null && rayStart.distanceToSqr(attacker.getEyePosition()) < 2.25) {
+                rayStart = attacker.getEyePosition();
+            }
+            rayDir = (speed > 1.0E-4) ? vel.normalize() : (attacker != null ? attacker.getLookAngle().normalize() : Vec3.ZERO);
+            traceDist = Math.max(48.0, speed * 1.8);
+        } else {
+            if (speed <= 1.0E-4) return;
+            rayDir = vel.normalize();
+            rayStart = proj.position().subtract(rayDir.scale(Math.min(1.5, speed * 0.5)));
+            traceDist = speed * 1.65 + 0.6;
+        }
+
+        if (rayDir.lengthSqr() < 1.0E-5) return;
+        Vec3 rayEnd = rayStart.add(rayDir.scale(traceDist));
+
+        // 检查玩家是否处于布娃娃/倒地/匍匐状态，或者原版碰撞箱无法被该弹射物正常命中
+        boolean inKnockdownOrProne = isPlayerTemporarilyKnockedDown(target)
+                || target.getPose() == Pose.SWIMMING
+                || target.getForcedPose() == Pose.SWIMMING
+                || !target.isPickable()
+                || !target.canBeHitByProjectile()
+                || target.getBbHeight() < 1.35f;
+
+        // 只有在玩家处于倒地/布娃娃状态（或原版碰撞被布娃娃模组屏蔽）时才启用宽体布娃娃补偿盒；
+        // 若原版正常站立且可被命中，则先让原版/TaCZ 正常碰撞处理，仅在同帧未被命中但射线穿过核心体积时兜底
+        double halfW = inKnockdownOrProne ? 0.62 : 0.34;
+        double minY = target.getY() - 0.12;
+        double maxY = target.getY() + (inKnockdownOrProne ? Math.max(1.25, target.getBbHeight() + 0.35) : target.getBbHeight() + 0.08);
+        AABB hitBox = new AABB(
+                target.getX() - halfW, minY, target.getZ() - halfW,
+                target.getX() + halfW, maxY, target.getZ() + halfW
+        );
+
+        java.util.Optional<Vec3> clipOpt = hitBox.clip(rayStart, rayEnd);
+        boolean startsInside = hitBox.contains(rayStart);
+        if (clipOpt.isEmpty() && !startsInside) {
+            return;
+        }
+
+        // 若原版站立且可正常被命中，非布娃娃状态下不抢占未到距离的慢速弓箭
+        Vec3 hitPoint = clipOpt.orElse(rayStart);
+        if (!inKnockdownOrProne && !isTaczBullet && proj.position().distanceToSqr(hitPoint) > (speed * speed * 1.4 + 0.5)) {
+            return;
+        }
+
+        // 验证射线起点到受击点之间没有实心方块阻挡（防止隔墙命中）
+        BlockHitResultCheck: {
+            var blockHit = target.level().clip(new ClipContext(
+                    rayStart, hitPoint, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, proj
+            ));
+            if (blockHit.getType() == HitResult.Type.BLOCK) {
+                double distToBlockSq = rayStart.distanceToSqr(blockHit.getLocation());
+                double distToPlayerSq = rayStart.distanceToSqr(hitPoint);
+                if (distToBlockSq + 0.05 < distToPlayerSq) {
+                    return;
+                }
+            }
+        }
+
+        // 标记该弹射物已命中该玩家
+        proj.getPersistentData().putBoolean(hitKey, true);
+
+        // 若本 Tick 该玩家已被 TaCZ API 事件结算过单发伤害，则不再重复触发
+        Long settled = LAST_CORE_DAMAGE_SETTLED_TICK.get(target.getUUID());
+        if (settled != null && settled == target.level().getGameTime() && !isTaczBullet) {
+            return;
+        }
+
+        float dmg = extractProjectileOrBulletDamage(proj, attacker, isTaczBullet, hitPoint);
+        DamageSource dmgSrc;
+        if (proj instanceof AbstractArrow arrow) {
+            dmgSrc = target.damageSources().arrow(arrow, attacker != null ? attacker : proj);
+        } else if (attacker instanceof Player atkPlayer) {
+            dmgSrc = target.damageSources().playerAttack(atkPlayer);
+        } else if (attacker != null) {
+            dmgSrc = target.damageSources().mobProjectile(proj, attacker);
+        } else {
+            dmgSrc = target.damageSources().thrown(proj, null);
+        }
+
+        target.invulnerableTime = 0;
+        // 直接调用核心伤害与创伤结算，确保哪怕 LivingEntity.hurt 被布娃娃模组拦截也 100% 造成完整枪伤/箭伤与致死判定！
+        applyDirectProjectileOrGunTrauma(target, proj, attacker, dmgSrc, dmg, isTaczBullet);
+        target.hurt(dmgSrc, 1.0f);
+
+        if (!proj.isRemoved()) {
+            proj.discard();
+        }
+    }
+
+    private static float extractProjectileOrBulletDamage(Projectile proj, LivingEntity attacker, boolean isTaczBullet, Vec3 hitPoint) {
+        if (isTaczBullet) {
+            try {
+                for (java.lang.reflect.Method m : proj.getClass().getDeclaredMethods()) {
+                    String mn = m.getName().toLowerCase();
+                    if (mn.contains("getdamage") && m.getParameterCount() == 1 && m.getParameterTypes()[0] == Vec3.class) {
+                        m.setAccessible(true);
+                        Object res = m.invoke(proj, hitPoint);
+                        if (res instanceof Number n && n.floatValue() > 0.1f) {
+                            return n.floatValue();
+                        }
+                    } else if (mn.contains("getdamage") && m.getParameterCount() == 0) {
+                        m.setAccessible(true);
+                        Object res = m.invoke(proj);
+                        if (res instanceof Number n && n.floatValue() > 0.1f) {
+                            return n.floatValue();
+                        }
+                    }
+                }
+                for (Field f : proj.getClass().getDeclaredFields()) {
+                    String fn = f.getName().toLowerCase();
+                    if ((fn.contains("damage") || fn.contains("amount")) && (f.getType() == float.class || f.getType() == double.class)) {
+                        f.setAccessible(true);
+                        float val = ((Number) f.get(proj)).floatValue();
+                        if (val > 0.1f && val < 500.0f) return val;
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            return 9.0f;
+        }
+        if (proj instanceof AbstractArrow arrow) {
+            double base = arrow.getBaseDamage();
+            double spd = Math.max(1.2, proj.getDeltaMovement().length());
+            return Mth.clamp((float) (base * spd), 4.0f, 35.0f);
+        }
+        return 7.0f;
+    }
+
     public static void zeroDamageContainer(LivingDamageEvent.Pre event) {
         if (event == null) return;
         event.setNewDamage(0.0f);
@@ -2306,18 +2588,176 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
     }
 
     /**
+     * 【本体权威：立即致死结算器（用于爆头即死、胸口心脏/主动脉破裂即死、连砍/连射重伤累计休克致死）】
+     */
+    public static void executeInstantTraumaDeath(ServerPlayer player,
+                                                 MedicalData data,
+                                                 MedicalData.Limb fatalLimb,
+                                                 MedicalData.LimbData fatalLd) {
+        if (player == null || data == null) return;
+        int maxPain = safeCfgInt(MedicalConfig.MAX_PAIN_LEVEL, 10);
+
+        if (fatalLd != null) {
+            fatalLd.setOpenWound(true);
+            fatalLd.setPerforation(true);
+            fatalLd.setBandaged(false);
+            fatalLd.setPainLevel(maxPain);
+            fatalLd.setBleeding(Math.max(fatalLd.getBleeding(), 1500));
+        }
+
+        data.setBrainHealthFloat(0.0f);
+        data.setBrainHealth(0);
+        data.setConsciousnessFloat(0.0f);
+        data.setConsciousness(0);
+        data.setCardiacArrest(true);
+        data.setHeartRate(0);
+        data.setInCriticalState(false);
+        data.setCriticalTimer(0);
+
+        player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                SoundEvents.WITHER_BREAK_BLOCK, SoundSource.PLAYERS, 1.05f, 0.72f);
+        player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                SoundEvents.BONE_BLOCK_BREAK, SoundSource.PLAYERS, 1.20f, 0.55f);
+
+        player.syncData(MedicalDataCapability.MEDICAL_DATA);
+        player.invulnerableTime = 0;
+        if (player.isAlive()) {
+            player.hurt(player.damageSources().genericKill(), Float.MAX_VALUE);
+        }
+    }
+
+    /**
+     * 【胸口直接致死判定（心脏 / 左心室 / 升主动脉贯通破裂即死）】
+     */
+    public static boolean checkAndExecuteChestDirectKill(ServerPlayer player,
+                                                         MedicalData data,
+                                                         MedicalData.LimbData chestLd,
+                                                         float effectiveDmg,
+                                                         float totalRawDamage,
+                                                         boolean isHeavyCaliberOrAmr,
+                                                         boolean isGunOrPiercing) {
+        if (player == null || data == null || chestLd == null) return false;
+
+        float minDmg = getOptionalConfigFloat("CHEST_DIRECT_KILL_MIN_DAMAGE", 4.0f);
+        if (effectiveDmg < minDmg && totalRawDamage < minDmg * 1.4f && !isHeavyCaliberOrAmr) {
+            return false;
+        }
+
+        ItemStack chestArmor = player.getItemBySlot(EquipmentSlot.CHEST);
+        int chestDefense = 0;
+        if (!chestArmor.isEmpty() && chestArmor.getItem() instanceof ArmorItem ai) {
+            chestDefense = ai.getDefense();
+        }
+        boolean unarmoredOrLightChest = chestArmor.isEmpty() || chestDefense <= 3;
+
+        float baseChance = getOptionalConfigFloat("CHEST_DIRECT_KILL_BASE_CHANCE", 0.24f);
+        float killChance = baseChance + Math.max(0.0f, effectiveDmg - minDmg) * 0.042f;
+
+        if (unarmoredOrLightChest) {
+            killChance += 0.12f;
+        }
+        if (isHeavyCaliberOrAmr) {
+            killChance += 0.50f;
+        } else if (isGunOrPiercing) {
+            killChance += 0.08f;
+        }
+
+        if (chestLd.hasPerforation() || chestLd.isOpenFracture()) {
+            killChance += 0.30f;
+        } else if (chestLd.hasOpenWound() || chestLd.hasFracture() || chestLd.getBleeding() >= 250) {
+            killChance += 0.22f;
+        }
+        if (data.getBloodVolume() <= 3600) {
+            killChance += 0.18f;
+        }
+
+        killChance = Mth.clamp(killChance, 0.0f, 0.95f);
+        if (player.getRandom().nextFloat() < killChance) {
+            executeInstantTraumaDeath(player, data, MedicalData.Limb.CHEST, chestLd);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 【瞬时急性喷溅失血 + 连续受击重伤累计必死机制】
+     */
+    public static boolean applyAcuteBloodLossAndCumulativeLethality(ServerPlayer player,
+                                                                    MedicalData data,
+                                                                    MedicalData.Limb hitLimb,
+                                                                    MedicalData.LimbData hitLd,
+                                                                    float effectiveDmg,
+                                                                    float totalRawDamage,
+                                                                    boolean isBlunt) {
+        if (player == null || data == null || hitLd == null) return false;
+        if (data.getBrainHealth() <= 0) return true;
+
+        long nowTick = player.level().getGameTime();
+        CombatTraumaWindow win = PLAYER_COMBAT_TRAUMA_MAP.computeIfAbsent(player.getUUID(), k -> new CombatTraumaWindow());
+
+        long elapsedTicks = Math.max(0L, nowTick - win.lastHitGameTime);
+        if (elapsedTicks > 120L) {
+            float decay = (elapsedTicks - 120L) * 0.04f;
+            win.cumulativeEffectiveDamage = Math.max(0.0f, win.cumulativeEffectiveDamage - decay);
+            if (win.cumulativeEffectiveDamage <= 1.0f) {
+                win.hitCount = 0;
+            }
+        }
+        win.lastHitGameTime = nowTick;
+        win.hitCount++;
+
+        boolean alreadyWoundedLimb = hitLd.hasOpenWound() || hitLd.hasPerforation() || hitLd.isAmputated();
+        float woundMultiplier = alreadyWoundedLimb ? 1.45f : 1.0f;
+
+        float acuteMlPerDmg = getOptionalConfigFloat("ACUTE_IMPACT_BLOOD_LOSS_PER_DAMAGE", 48.0f);
+        float bluntScale = isBlunt ? 0.45f : 1.0f;
+        int immediateBloodLossMl = Math.round(effectiveDmg * acuteMlPerDmg * woundMultiplier * bluntScale);
+        if (immediateBloodLossMl > 0) {
+            data.setBloodVolume(Math.max(0, data.getBloodVolume() - immediateBloodLossMl));
+        }
+
+        float traumaIncrement = effectiveDmg * (alreadyWoundedLimb ? 1.30f : 1.0f);
+        win.cumulativeEffectiveDamage += traumaIncrement;
+
+        int openWounds = 0;
+        int fracturesOrAmps = 0;
+        int totalBleedRate = 0;
+        for (MedicalData.Limb l : MedicalData.Limb.values()) {
+            MedicalData.LimbData lData = data.getLimb(l);
+            if (lData != null) {
+                if (lData.hasOpenWound() || lData.hasPerforation()) openWounds++;
+                if (lData.hasFracture() || lData.isAmputated()) fracturesOrAmps++;
+                totalBleedRate += lData.getBleeding() + lData.getInternalBleedingRate();
+            }
+        }
+
+        if (win.hitCount >= 2 || data.getBloodVolume() < 4200 || openWounds >= 2) {
+            float consShock = effectiveDmg * (2.2f + win.hitCount * 0.65f);
+            data.setConsciousnessFloat(Math.max(0.0f, data.getConsciousnessFloat() - consShock));
+
+            float brainShock = effectiveDmg * (1.4f + win.hitCount * 0.85f);
+            if (data.getBloodVolume() < 3200 || data.isInCriticalState()) {
+                brainShock *= 1.85f;
+            }
+            data.setBrainHealthFloat(Math.max(0.0f, data.getBrainHealthFloat() - brainShock));
+        }
+
+        float lethalThreshold = getOptionalConfigFloat("LETHAL_CUMULATIVE_TRAUMA_THRESHOLD", 24.0f);
+        boolean lethalExsanguination = data.getBloodVolume() <= 1850;
+        boolean lethalCumulativeTrauma = win.cumulativeEffectiveDamage >= lethalThreshold;
+        boolean lethalHeavyWoundedCombo = (win.hitCount >= 4 && (data.getBloodVolume() <= 3100 || totalBleedRate >= 1600 || openWounds >= 3 || fracturesOrAmps >= 2));
+
+        if (data.getBrainHealthFloat() <= 0.4f || lethalExsanguination || lethalCumulativeTrauma || lethalHeavyWoundedCombo) {
+            win.cumulativeEffectiveDamage = 0.0f;
+            win.hitCount = 0;
+            executeInstantTraumaDeath(player, data, hitLimb, hitLd);
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * 【本体权威 3D 解剖学射线部位判定引擎】
-     *
-     * 彻底解决“明明瞄的是腿中的却是胸，瞄头和手也有这种问题”：
-     * 1. 直接基于攻击者眼睛/准星射线 (attacker.getEyePosition -> lookAngle / bulletVelocity) 与受击者中轴脊柱平面求交，
-     *    完全消除旧版对外扩包围盒 (inflate) 前壁求交导致向下瞄腿时射线提前 0.48 格命中前壁、高度偏高落入胸腔的几何误差；
-     * 2. 结合服务端权威朝向 (getYRot 与 yBodyRot) 将交点投影至受击者解剖局部坐标系：
-     *    - 头部 (HEAD)：解剖平面相对高度 relY >= 0.72（完整覆盖下颌、面部与颅顶）；
-     *    - 下肢 (LEFT_LEG / RIGHT_LEG)：relY < 0.36 全域，或 0.36 <= relY < 0.46 且位于髋骨/大腿宽度内 (|bodyLateral| < 0.175)；
-     *    - 双臂与双手 (LEFT_ARM / RIGHT_ARM)：
-     *      * 0.36 <= relY < 0.46 且位于髋部外侧下垂手掌区 (|bodyLateral| >= 0.175)；
-     *      * 0.46 <= relY < 0.72 且位于胸骨核心区外侧 (|bodyLateral| >= 0.112)，或持握武器前伸手部区，或侧面射击直接命中的外侧手臂；
-     *    - 胸腔核心 (CHEST)：0.46 <= relY < 0.72 且位于正中胸廓核心区 (|bodyLateral| < 0.112)。
      */
     public static MedicalData.Limb resolvePreciseHitLimb3D(Player player,
                                                            Entity directProjectile,
@@ -2342,7 +2782,6 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
             Vec3 projPos = directProjectile.position();
             Vec3 projVel = directProjectile.getDeltaMovement();
             Vec3 eyePos = attacker.getEyePosition();
-            // 若子弹刚在枪口生成（Tick 0 贴近射手眼睛），直接以射手眼睛为起点、子弹速度向量（或准星视线）为方向
             if (projPos.distanceToSqr(eyePos) < 1.25) {
                 rayOrigin = eyePos;
                 rayDir = (projVel.lengthSqr() > 1.0E-4) ? projVel.normalize() : attacker.getLookAngle().normalize();
@@ -2371,64 +2810,51 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
             return MedicalData.Limb.CHEST;
         }
 
-        // 计算 3D 射线在水平面 (X, Z) 上到达受击玩家垂直中轴线 (px, pz) 的最近参数 tSpine
         double dx0 = px - rayOrigin.x;
         double dz0 = pz - rayOrigin.z;
         double horizLenSq = rayDir.x * rayDir.x + rayDir.z * rayDir.z;
 
         if (horizLenSq <= 1.0E-5) {
-            // 垂直正上方或正下方射击
             return rayDir.y < 0.0 ? MedicalData.Limb.HEAD : MedicalData.Limb.RIGHT_LEG;
         }
 
         double horizLen = Math.sqrt(horizLenSq);
         double tSpine = (dx0 * rayDir.x + dz0 * rayDir.z) / horizLenSq;
-        // 解剖表面采样点：仅在脊柱中轴前方 0.08 格（真实腿部/头部骨骼表面），彻底避免外扩包围盒导致的高度偏移
         double tSurface = tSpine - (0.08 / horizLen);
 
         double hitY = rayOrigin.y + tSurface * rayDir.y;
         double relY = (hitY - py) / bbH;
 
-        // 在脊柱截面 tSpine 处计算射线相对于玩家中轴线的横向偏距向量 (offX, offZ)
         double spineX = rayOrigin.x + tSpine * rayDir.x;
         double spineZ = rayOrigin.z + tSpine * rayDir.z;
         double offX = spineX - px;
         double offZ = spineZ - pz;
 
-        // 服务端玩家原地转头时 yBodyRot 可能滞后，结合 getYRot() 获得最准确的身体朝向
         float headYaw = player.getYRot();
         float bodyYaw = player.yBodyRot;
         float yawDiff = Mth.wrapDegrees(headYaw - bodyYaw);
         float effectiveYaw = (Math.abs(yawDiff) > 32.0f) ? (bodyYaw + yawDiff * 0.75f) : bodyYaw;
         float yawRad = effectiveYaw * ((float) Math.PI / 180.0f);
 
-        // 玩家解剖学右侧单位向量 (-cos(yaw), -sin(yaw)) 与前向单位向量 (-sin(yaw), cos(yaw))
         double bodyRightX = -Mth.cos(yawRad);
         double bodyRightZ = -Mth.sin(yawRad);
         double bodyFwdX = -Mth.sin(yawRad);
         double bodyFwdZ = Mth.cos(yawRad);
 
-        // bodyLateral > 0 为玩家右侧 (RIGHT_ARM / RIGHT_LEG)，< 0 为玩家左侧 (LEFT_ARM / LEFT_LEG)
         double bodyLateral = offX * bodyRightX + offZ * bodyRightZ;
         double bodyForwardOff = offX * bodyFwdX + offZ * bodyFwdZ;
 
         double rayDotRight = (rayDir.x * bodyRightX + rayDir.z * bodyRightZ) / horizLen;
-        double rayDotFwd = (rayDir.x * bodyFwdX + rayDir.z * bodyFwdZ) / horizLen;
 
-        // 1) 头部区域 (relY >= 0.72，覆盖下巴、脸部与头顶)
         if (relY >= 0.72) {
             return MedicalData.Limb.HEAD;
         }
 
-        // 2) 小腿与膝盖区域 (relY < 0.36)：100% 命中腿部
         if (relY < 0.36) {
             boolean isRightLeg = (Math.abs(bodyLateral) > 0.025) ? (bodyLateral >= 0.0) : (-rayDotRight >= 0.0);
             return isRightLeg ? MedicalData.Limb.RIGHT_LEG : MedicalData.Limb.LEFT_LEG;
         }
 
-        // 3) 手掌下垂与大腿上段髋关节交界区 (0.36 <= relY < 0.46)：
-        //    - 外侧 (|bodyLateral| >= 0.17) 为自然下垂的手部/手腕 (LEFT_ARM / RIGHT_ARM)；
-        //    - 内侧 (|bodyLateral| < 0.17) 为大腿根部/髋部 (LEFT_LEG / RIGHT_LEG)，彻底杜绝打大腿根被判成胸部！
         if (relY < 0.46) {
             if (Math.abs(bodyLateral) >= 0.17) {
                 return bodyLateral >= 0.0 ? MedicalData.Limb.RIGHT_ARM : MedicalData.Limb.LEFT_ARM;
@@ -2437,18 +2863,14 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
             return isRightLeg ? MedicalData.Limb.RIGHT_LEG : MedicalData.Limb.LEFT_LEG;
         }
 
-        // 4) 上半身区域 (0.46 <= relY < 0.72)：精准区分左右手臂/手部与中央胸廓
-        // 4A. 正面或背面射击：只要横向偏距超出胸骨正中核心区 (|bodyLateral| >= 0.112)，即命中左右手臂
         if (Math.abs(bodyLateral) >= 0.112) {
             return bodyLateral >= 0.0 ? MedicalData.Limb.RIGHT_ARM : MedicalData.Limb.LEFT_ARM;
         }
 
-        // 4B. 持握枪械/物品时前臂与手部横在胸前偏下 (0.46 <= relY < 0.57 且 |bodyLateral| >= 0.08)
         if (relY < 0.57 && Math.abs(bodyLateral) >= 0.08 && (!player.getMainHandItem().isEmpty() || !player.getOffhandItem().isEmpty())) {
             return bodyLateral >= 0.0 ? MedicalData.Limb.RIGHT_ARM : MedicalData.Limb.LEFT_ARM;
         }
 
-        // 4C. 侧面射击（从玩家正左或正右侧方射击）：外侧上臂直接挡在胸廓外侧
         if (Math.abs(rayDotRight) >= 0.65 && Math.abs(bodyForwardOff) <= 0.14 && relY >= 0.46 && relY <= 0.70) {
             return (-rayDotRight >= 0.0) ? MedicalData.Limb.RIGHT_ARM : MedicalData.Limb.LEFT_ARM;
         }
@@ -2458,7 +2880,6 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
 
     /**
      * 【Mod 本体核心：受创暂时摔倒 + 手部无提示静默物理脱手】
-     * 无论是原版伤害（弓箭、近战重击、三叉戟、爆炸）还是 TaCZ 枪击，统一调用此本体方法！
      */
     public static void applyCoreTraumaKnockdownAndDisarm(ServerPlayer player,
                                                          MedicalData data,
@@ -2475,18 +2896,15 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
 
         Vec3 impactDir = computeCoreImpactDirection(player, directProjectile, attacker);
 
-        // 1) 手部/手臂 (LEFT_ARM / RIGHT_ARM) 受伤 -> 手中物品直接物理抛物线脱手飞出（无任何文字提示！）
         if (hitLimb == MedicalData.Limb.RIGHT_ARM || hitLimb == MedicalData.Limb.LEFT_ARM) {
             checkAndTriggerCoreArmDisarm(player, hitLimb, ld, Math.max(effectiveTrauma, totalRawDamage * 0.75f), impactDir);
         }
 
-        // 2) 意识归零、心脏骤停或脑死亡 -> 直接倒地不起
         if (data.getConsciousness() <= 0 || data.isCardiacArrest() || data.getBrainHealth() <= 0) {
             triggerCoreTemporaryKnockdown(player, 40, impactDir.scale(0.42));
             return;
         }
 
-        // 3) 大口径反器材武器或超阈值重击 -> 全身猛烈击倒（数秒后站起）
         float heavyThresh = (float) safeCfgDouble(MedicalConfig.RAGDOLL_HEAVY_CALIBER_KNOCKDOWN_DAMAGE, 13.5);
         if (isHeavyCaliberOrAmr || totalRawDamage >= heavyThresh || effectiveTrauma >= heavyThresh * 0.85f) {
             int durTicks = safeCfgInt(MedicalConfig.RAGDOLL_HEAVY_CALIBER_DURATION_TICKS, 85);
@@ -2496,7 +2914,6 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
             return;
         }
 
-        // 4) 腿部 (LEFT_LEG / RIGHT_LEG) 受较重伤或发生骨折/脱臼/截肢 -> 立即扑倒摔倒，过一会儿自动站起！
         if (hitLimb == MedicalData.Limb.LEFT_LEG || hitLimb == MedicalData.Limb.RIGHT_LEG) {
             float legThresh = Math.min(3.5f, (float) safeCfgDouble(MedicalConfig.RAGDOLL_LEG_HEAVY_DAMAGE_THRESHOLD, 3.2));
             boolean severeLegState = ld.isAmputated() || ld.hasFracture() || ld.hasDislocation() || ld.getPainLevel() >= 5;
@@ -2514,9 +2931,6 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
         }
     }
 
-    /**
-     * 本体手部受创无提示物理脱手（彻底移除任何文字提示，支持原版武器/盾牌/工具与 TaCZ 枪械）
-     */
     public static void checkAndTriggerCoreArmDisarm(ServerPlayer player,
                                                     MedicalData.Limb armLimb,
                                                     MedicalData.LimbData armLd,
@@ -2549,7 +2963,6 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                 : InteractionHand.OFF_HAND;
 
         ItemStack stackToDrop = player.getItemInHand(targetHand);
-        // 若左臂中弹/受创时副手为空，但主手握持武器/物品，左臂失力同样会导致主手握持物脱手！
         if (stackToDrop.isEmpty() && armLimb == MedicalData.Limb.LEFT_ARM) {
             ItemStack mainStack = player.getMainHandItem();
             if (!mainStack.isEmpty()) {
@@ -2600,12 +3013,8 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
 
         player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                 SoundEvents.ARMOR_EQUIP_IRON.value(), SoundSource.PLAYERS, 0.90f, 0.78f);
-        // 严格遵循需求：脱手不弹出任何文字提示！
     }
 
-    /**
-     * 本体受创暂时摔倒触发器（第一人称扑倒 + 真实速度冲量 + 倒计时结束后自动站起）
-     */
     public static void triggerCoreTemporaryKnockdown(ServerPlayer player,
                                                      int durationTicks,
                                                      Vec3 launchVelocity) {
@@ -2652,16 +3061,30 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
         return revLook.lengthSqr() > 1.0E-4 ? revLook.normalize() : new Vec3(0.0, 0.0, -1.0);
     }
 
-    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    @SubscribeEvent(priority = EventPriority.LOW)
     public static void onEntityJoinCleanupLegacy(EntityJoinLevelEvent event) {
         if (!legacyHandlersCleanedUp) {
             ensureLegacyDamageHandlersCleanedUp();
         }
+        // 当 TaCZ 高速子弹或远程弹射物在服务端生成瞬间，若目标处于布娃娃/倒地状态导致原版射线漏判，立即执行 3D 弹道补偿命中！
+        Entity entity = event.getEntity();
+        if (entity instanceof Projectile proj && !entity.level().isClientSide() && entity.level() instanceof net.minecraft.server.level.ServerLevel sLevel) {
+            for (ServerPlayer sp : sLevel.players()) {
+                if (sp != null && sp.isAlive() && proj.getOwner() != sp) {
+                    boolean inRagdollOrProne = isPlayerTemporarilyKnockedDown(sp)
+                            || sp.getPose() == Pose.SWIMMING
+                            || sp.getForcedPose() == Pose.SWIMMING
+                            || !sp.isPickable()
+                            || !sp.canBeHitByProjectile()
+                            || sp.getBbHeight() < 1.35f;
+                    if (inRagdollOrProne) {
+                        tryForceProjectileHitOnTarget(proj, sp, true);
+                    }
+                }
+            }
+        }
     }
 
-    /**
-     * 本体高空坠落腿部摔倒联动：当坠落高度超过安全高度产生摔伤时，自动触发第一人称扑倒摔倒
-     */
     @SubscribeEvent(priority = EventPriority.LOW)
     public static void onCoreFallKnockdown(LivingFallEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer player) || player.level().isClientSide()) return;
@@ -2677,9 +3100,6 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
         }
     }
 
-    /**
-     * 本体爆炸气浪摔倒与震落脱手联动
-     */
     @SubscribeEvent(priority = EventPriority.LOW)
     public static void onCoreExplosionDetonate(ExplosionEvent.Detonate event) {
         if (event.getLevel().isClientSide()) return;
@@ -2720,62 +3140,21 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
     }
 
     /**
-     * 本体原版与非 TaCZ 伤害（近战、弓箭、弩箭、三叉戟、怪物攻击、原版爆炸）高精度 3D 部位判定与摔倒/脱手结算器
+     * 供主动弹道补偿引擎与 LivingDamageEvent.Pre 共用的核心创伤与致死结算入口
      */
-    @SubscribeEvent(priority = EventPriority.HIGH)
-    public static void onCoreLivingDamagePre(LivingDamageEvent.Pre event) {
-        if (!legacyHandlersCleanedUp) {
-            ensureLegacyDamageHandlersCleanedUp();
-        }
-        if (!(event.getEntity() instanceof ServerPlayer player)) return;
-        if (player.level().isClientSide() || !player.isAlive() || player.isCreative() || player.isSpectator()) return;
-
-        DamageSource source = event.getSource();
-        String msgId = source.getMsgId() != null ? source.getMsgId() : "";
-        String msgLower = msgId.toLowerCase();
-
-        // 1) 放行脑死亡与虚空杀
-        if ("genericKill".equals(msgId) || "outOfWorld".equals(msgId)) return;
-
-        // 2) 若本 Tick 已被 TaCZ 专属弹道处理器结算，或属于 TaCZ 伤害源，交由 TaczDamageCompatHandler 处理并确保清零容器
-        Long settledTick = LAST_CORE_DAMAGE_SETTLED_TICK.get(player.getUUID());
-        if (settledTick != null && settledTick == player.level().getGameTime()) {
-            zeroDamageContainer(event);
-            return;
-        }
-        Entity direct = source.getDirectEntity();
-        if (msgLower.contains("tacz") || msgLower.startsWith("tac.")
-                || (direct != null && direct.getClass().getName().toLowerCase().contains("tacz"))) {
-            return;
-        }
-
-        // 3) 坠落、火焰、窒息、溺水、饥饿、魔法/毒素保留各自专科通道
-        if ("fall".equals(msgId) || source.is(DamageTypeTags.IS_FALL)
-                || "inWall".equals(msgId) || "drown".equals(msgId) || "starve".equals(msgId)
-                || "magic".equals(msgId) || "indirectMagic".equals(msgId) || "wither".equals(msgId)
-                || "inFire".equals(msgId) || "onFire".equals(msgId) || "lava".equals(msgId)
-                || "hotFloor".equals(msgId) || "campfire".equals(msgId) || source.is(DamageTypeTags.IS_FIRE)) {
-            return;
-        }
-
-        float rawDmg = Math.max(event.getOriginalDamage(), event.getNewDamage());
-        if (rawDmg <= 0.1f) return;
-
+    private static void applyDirectProjectileOrGunTrauma(ServerPlayer player,
+                                                         Entity direct,
+                                                         LivingEntity attacker,
+                                                         DamageSource source,
+                                                         float rawDmg,
+                                                         boolean isTaczBulletOrGun) {
+        if (player == null || !player.isAlive() || rawDmg <= 0.05f) return;
         MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
         if (data == null) return;
 
-        LivingEntity attacker = (source.getEntity() instanceof LivingEntity le) ? le : null;
+        long nowTick = player.level().getGameTime();
+        String msgLower = (source != null && source.getMsgId() != null) ? source.getMsgId().toLowerCase() : "";
 
-        // 4) 原版/其它模组爆炸伤害：按部位权重分配破片与冲击伤 + 触发气浪摔倒与脱手
-        if (source.is(DamageTypeTags.IS_EXPLOSION) || msgLower.contains("explosion")) {
-            applyCoreExplosionTrauma(player, data, direct, attacker, rawDmg);
-            markCoreDamageSettledThisTick(player);
-            zeroDamageContainer(event);
-            return;
-        }
-
-        // 5) 原版与模组物理/投射物攻击（弓箭、弩、三叉戟、刀剑、斧头、重锤、生物近战）：
-        //    使用高精度 3D 解剖射线判定命中部位（彻底解决打腿中胸、打手/头偏移）！
         MedicalData.Limb hitLimb = resolvePreciseHitLimb3D(player, direct, attacker, false);
         MedicalData.LimbData ld = data.getLimb(hitLimb);
         if (ld == null) return;
@@ -2787,18 +3166,30 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
             if (ld == null) return;
         }
 
-        // 结合局部护甲换算有效创伤伤害
-        float armor = (float) player.getArmorValue();
+        EquipmentSlot slotForLimb = switch (hitLimb) {
+            case HEAD -> EquipmentSlot.HEAD;
+            case CHEST, LEFT_ARM, RIGHT_ARM -> EquipmentSlot.CHEST;
+            case LEFT_LEG, RIGHT_LEG -> EquipmentSlot.LEGS;
+        };
+        ItemStack armorStack = player.getItemBySlot(slotForLimb);
+        float pieceDefense = (armorStack.getItem() instanceof ArmorItem ai) ? ai.getDefense() : 0.0f;
+        float localizedArmor = (hitLimb == MedicalData.Limb.HEAD)
+                ? (pieceDefense * 3.0f)
+                : (armorStack.isEmpty() ? (float) player.getArmorValue() * 0.25f : Math.max((float) player.getArmorValue() * 0.65f, pieceDefense * 2.6f));
         float toughness = (float) player.getAttributeValue(Attributes.ARMOR_TOUGHNESS);
-        float effectiveDmg = source.is(DamageTypeTags.BYPASSES_ARMOR)
-                ? rawDmg
-                : CombatRules.getDamageAfterAbsorb(player, rawDmg, source, armor * 0.65f, toughness);
-        effectiveDmg = Math.max(rawDmg * 0.35f, effectiveDmg);
 
-        boolean isPiercing = source.is(DamageTypeTags.IS_PROJECTILE) || msgLower.contains("arrow")
+        boolean bypassArmor = (source != null && source.is(DamageTypeTags.BYPASSES_ARMOR)) || msgLower.contains("ignore_armor");
+        float effectiveDmg = bypassArmor
+                ? rawDmg
+                : CombatRules.getDamageAfterAbsorb(player, rawDmg, source != null ? source : player.damageSources().generic(), localizedArmor, toughness);
+        effectiveDmg = Math.max(rawDmg * (isTaczBulletOrGun ? 0.45f : 0.38f), effectiveDmg);
+        float bluntAbsorbedDmg = Math.max(0.0f, rawDmg - effectiveDmg);
+
+        boolean isPiercing = isTaczBulletOrGun || (source != null && source.is(DamageTypeTags.IS_PROJECTILE)) || msgLower.contains("arrow")
                 || msgLower.contains("trident") || msgLower.contains("sting") || msgLower.contains("thorns") || msgLower.contains("cactus");
-        boolean isBlunt = msgLower.contains("anvil") || msgLower.contains("falling_block") || msgLower.contains("mace")
-                || msgLower.contains("fly_into_wall") || (attacker != null && attacker.getMainHandItem().isEmpty());
+        boolean isBlunt = !isTaczBulletOrGun && (msgLower.contains("anvil") || msgLower.contains("falling_block")
+                || msgLower.contains("mace") || msgLower.contains("fly_into_wall")
+                || (attacker != null && attacker.getMainHandItem().isEmpty()));
 
         double extRatio = isPiercing
                 ? safeCfgDouble(MedicalConfig.PIERCING_EXTERNAL_RATIO, 0.80)
@@ -2814,10 +3205,31 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
         int maxIntRate = safeCfgInt(MedicalConfig.MAX_INTERNAL_RATE, 300);
         double ratePerDmg = safeCfgDouble(MedicalConfig.RATE_PER_DAMAGE, 8.0);
 
-        int extBleedAdd = (int) Math.round(effectiveDmg * 18.0 * extRatio);
-        int intBleedAdd = (int) Math.round(effectiveDmg * ratePerDmg * (0.45 + intRatio));
+        boolean isHeavyAmr = isTaczBulletOrGun && rawDmg >= 16.0f;
+        if (isTaczBulletOrGun && effectiveDmg >= 0.45f) {
+            CombatTraumaWindow win = PLAYER_COMBAT_TRAUMA_MAP.computeIfAbsent(player.getUUID(), k -> new CombatTraumaWindow());
+            if (win.lastTaczHurtTick != nowTick) {
+                win.lastTaczHurtTick = nowTick;
+                win.taczStageCountThisTick = 0;
+            }
+            win.taczStageCountThisTick++;
 
-        if (extBleedAdd > 5 && !isBlunt) {
+            if (!bypassArmor || win.taczStageCountThisTick == 1) {
+                boolean isThrough = (effectiveDmg >= 6.2f && bluntAbsorbedDmg < 1.5f) || isHeavyAmr;
+                int maxEmbedded = safeCfgInt(MedicalConfig.TACZ_MAX_EMBEDDED_BULLETS_PER_LIMB, 12);
+                if (isThrough) {
+                    ld.setPerforation(true);
+                    setPerforationPacked(ld, false);
+                } else {
+                    setEmbeddedBulletCount(ld, Math.min(maxEmbedded, getEmbeddedBulletCount(ld) + 1));
+                }
+            }
+        }
+
+        int extBleedAdd = (int) Math.round(effectiveDmg * (isTaczBulletOrGun ? 22.0 : 18.5) * extRatio);
+        int intBleedAdd = (int) Math.round(effectiveDmg * ratePerDmg * (0.50 + intRatio));
+
+        if (extBleedAdd > 4 && !isBlunt) {
             ld.setOpenWound(true);
             ld.setBandaged(false);
             int nextBleed = Math.min(2500, ld.getBleeding() + extBleedAdd);
@@ -2826,19 +3238,22 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                 ld.setClottingStartRate(nextBleed);
             }
         }
-        if (intBleedAdd > 0 && effectiveDmg >= safeCfgInt(MedicalConfig.TRIGGER_DAMAGE_THRESHOLD, 4)) {
+        if (intBleedAdd > 0 && (isTaczBulletOrGun || effectiveDmg >= safeCfgInt(MedicalConfig.TRIGGER_DAMAGE_THRESHOLD, 4))) {
             ld.setInternalBleedingRate(Math.min(maxIntRate, ld.getInternalBleedingRate() + intBleedAdd));
         }
 
-        int painAdd = Math.max(1, Math.round(effectiveDmg * 0.65f));
+        int painAdd = Math.max(1, Math.round(effectiveDmg * 0.72f));
         ld.setPainLevel(Math.min(maxPain, Math.max(ld.getPainLevel(), ld.getPainLevel() + Math.max(1, painAdd / 2))));
 
-        // 原版伤害骨折判定
-        int minFracDmg = safeCfgInt(MedicalConfig.MIN_DAMAGE_FOR_FRACTURE, 8);
+        float minFracDmg = isTaczBulletOrGun
+                ? (float) safeCfgDouble(MedicalConfig.TACZ_GUNSHOT_FRACTURE_MIN_DAMAGE, 9.5)
+                : (float) safeCfgInt(MedicalConfig.MIN_DAMAGE_FOR_FRACTURE, 8);
         if (effectiveDmg >= minFracDmg || rawDmg >= minFracDmg) {
-            float fracChance = (rawDmg >= safeCfgInt(MedicalConfig.HIGH_DAMAGE_THRESHOLD, 12))
-                    ? (float) safeCfgDouble(MedicalConfig.HIGH_DAMAGE_FRACTURE_CHANCE, 0.40)
-                    : (float) safeCfgDouble(MedicalConfig.BASE_FRACTURE_CHANCE, 0.20);
+            float fracChance = isTaczBulletOrGun
+                    ? Mth.clamp(0.12f * (float) safeCfgDouble(MedicalConfig.TACZ_GUNSHOT_FRACTURE_CHANCE_MULTIPLIER, 0.26), 0.02f, 0.25f)
+                    : ((rawDmg >= safeCfgInt(MedicalConfig.HIGH_DAMAGE_THRESHOLD, 12))
+                            ? (float) safeCfgDouble(MedicalConfig.HIGH_DAMAGE_FRACTURE_CHANCE, 0.40)
+                            : (float) safeCfgDouble(MedicalConfig.BASE_FRACTURE_CHANCE, 0.20));
             if (isBlunt) fracChance *= 1.35f;
             if (player.getRandom().nextFloat() < fracChance) {
                 ld.setFracture(true);
@@ -2856,31 +3271,121 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
             }
         }
 
-        // 头部重击脑损伤与颅内出血
-        if (hitLimb == MedicalData.Limb.HEAD && effectiveDmg >= safeCfgDouble(MedicalConfig.HEAD_BRAIN_DAMAGE_THRESHOLD, 6.0)) {
-            float brainLoss = (effectiveDmg - 4.0f) * 3.2f;
-            data.setBrainHealthFloat(Math.max(0.0f, data.getBrainHealthFloat() - brainLoss));
-            data.setConsciousnessFloat(Math.max(0.0f, data.getConsciousnessFloat() - effectiveDmg * 3.5f));
-            if (rawDmg >= 10.0f) {
-                int icMax = safeCfgInt(MedicalConfig.IC_MAX_RATE, 30);
-                int icAdd = Math.max(3, (int) Math.round(effectiveDmg * safeCfgDouble(MedicalConfig.IC_RATE_PER_DAMAGE, 1.2)));
-                data.setIntracranialBleedRate(Math.min(icMax, data.getIntracranialBleedRate() + icAdd));
+        if (hitLimb == MedicalData.Limb.HEAD) {
+            boolean unarmoredHead = armorStack.isEmpty() || pieceDefense <= 2;
+            if ((isTaczBulletOrGun && (unarmoredHead || effectiveDmg >= 6.5f || isHeavyAmr))
+                    || (!isTaczBulletOrGun && unarmoredHead && effectiveDmg >= 9.0f)) {
+                executeInstantTraumaDeath(player, data, MedicalData.Limb.HEAD, ld);
+                return;
             }
-        } else if (hitLimb == MedicalData.Limb.CHEST && effectiveDmg >= 5.0f) {
-            data.setLungContusion(Math.min(100.0f, data.getLungContusion() + effectiveDmg * 1.4f));
+            float brainLoss = isTaczBulletOrGun ? Math.max(45.0f, effectiveDmg * 6.5f) : Math.max(22.0f, effectiveDmg * 4.2f);
+            data.setBrainHealthFloat(Math.max(0.0f, data.getBrainHealthFloat() - brainLoss));
+            data.setConsciousnessFloat(Math.max(0.0f, data.getConsciousnessFloat() - effectiveDmg * 5.0f));
+            int icMax = safeCfgInt(MedicalConfig.IC_MAX_RATE, 30);
+            int icAdd = Math.max(4, (int) Math.round(effectiveDmg * safeCfgDouble(MedicalConfig.IC_RATE_PER_DAMAGE, 1.2)));
+            data.setIntracranialBleedRate(Math.min(icMax, data.getIntracranialBleedRate() + icAdd));
+            if (data.getBrainHealthFloat() <= 0.4f) {
+                executeInstantTraumaDeath(player, data, MedicalData.Limb.HEAD, ld);
+                return;
+            }
+        } else if (hitLimb == MedicalData.Limb.CHEST) {
+            data.setLungContusion(Math.min(100.0f, data.getLungContusion() + effectiveDmg * 1.6f));
+            int maxChestBlood = safeCfgInt(MedicalConfig.MAX_CHEST_ACCUMULATION, 2000);
+            data.setChestBloodAccumulation(Math.min((float) maxChestBlood, data.getChestBloodAccumulation() + effectiveDmg * 12.0f));
+
+            float minPneumo = (float) safeCfgDouble(MedicalConfig.TACZ_PNEUMOTHORAX_MIN_PENETRATING_DAMAGE, 9.5);
+            if (isPiercing && effectiveDmg >= minPneumo
+                    && player.getRandom().nextFloat() < safeCfgDouble(MedicalConfig.TACZ_PNEUMOTHORAX_BASE_CHANCE, 0.15)) {
+                if (getPneumothoraxType(data) < 2) setPneumothoraxType(data, 2);
+                setPleuralAirMl(data, Math.min(1450.0f, Math.max(295.0f, getPleuralAirMl(data) + effectiveDmg * 24.0f)));
+            }
+
+            if (checkAndExecuteChestDirectKill(player, data, ld, effectiveDmg, rawDmg, isHeavyAmr, isPiercing)) {
+                return;
+            }
+        }
+
+        if (applyAcuteBloodLossAndCumulativeLethality(player, data, hitLimb, ld, effectiveDmg, rawDmg, isBlunt)) {
+            return;
         }
 
         triggerTraumaAdrenalineRush(player, data, rawDmg);
-
-        // ★ 调用本体受创摔倒与手部无提示脱手系统 ★
-        applyCoreTraumaKnockdownAndDisarm(player, data, hitLimb, ld, direct, attacker, false, effectiveDmg, rawDmg);
-
+        applyCoreTraumaKnockdownAndDisarm(player, data, hitLimb, ld, direct, attacker, isHeavyAmr, effectiveDmg, rawDmg);
         markCoreDamageSettledThisTick(player);
         player.syncData(MedicalDataCapability.MEDICAL_DATA);
-        zeroDamageContainer(event);
+    }
 
-        if (data.getBrainHealth() <= 0 && player.isAlive()) {
-            player.hurt(player.damageSources().genericKill(), Float.MAX_VALUE);
+    @SubscribeEvent(priority = EventPriority.HIGH)
+    public static void onCoreLivingDamagePre(LivingDamageEvent.Pre event) {
+        if (!legacyHandlersCleanedUp) {
+            ensureLegacyDamageHandlersCleanedUp();
+        }
+        if (!(event.getEntity() instanceof ServerPlayer player)) return;
+        if (player.level().isClientSide() || !player.isAlive() || player.isCreative() || player.isSpectator()) return;
+
+        DamageSource source = event.getSource();
+        String msgId = source.getMsgId() != null ? source.getMsgId() : "";
+        String msgLower = msgId.toLowerCase();
+
+        MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
+        if (data == null) return;
+
+        if ("genericKill".equals(msgId) || "generic_kill".equals(msgId) || "outOfWorld".equals(msgId) || data.getBrainHealth() <= 0) {
+            if (data.getBrainHealth() <= 0) {
+                player.invulnerableTime = 0;
+                event.setNewDamage(Math.max(event.getOriginalDamage(), 10000.0f));
+            }
+            return;
+        }
+
+        long nowTick = player.level().getGameTime();
+        Long settledTick = LAST_CORE_DAMAGE_SETTLED_TICK.get(player.getUUID());
+        if (settledTick != null && settledTick == nowTick) {
+            zeroDamageContainer(event);
+            return;
+        }
+
+        if ("fall".equals(msgId) || source.is(DamageTypeTags.IS_FALL)
+                || "inWall".equals(msgId) || "drown".equals(msgId) || "starve".equals(msgId)
+                || "magic".equals(msgId) || "indirectMagic".equals(msgId) || "wither".equals(msgId)
+                || "inFire".equals(msgId) || "onFire".equals(msgId) || "lava".equals(msgId)
+                || "hotFloor".equals(msgId) || "campfire".equals(msgId) || source.is(DamageTypeTags.IS_FIRE)) {
+            return;
+        }
+
+        float rawDmg = Math.max(event.getOriginalDamage(), event.getNewDamage());
+        if (rawDmg <= 0.05f) return;
+
+        Entity direct = source.getDirectEntity();
+        LivingEntity attacker = (source.getEntity() instanceof LivingEntity le) ? le : null;
+
+        boolean isTaczBulletOrGun = msgLower.contains("tacz") || msgLower.startsWith("tac.") || msgLower.contains("bullet")
+                || (direct != null && direct.getClass().getName().toLowerCase().contains("tacz"))
+                || (attacker != null && !attacker.getMainHandItem().isEmpty()
+                && net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(attacker.getMainHandItem().getItem()).getNamespace().equals("tacz"));
+
+        if (isTaczBulletOrGun) {
+            player.invulnerableTime = 0;
+        }
+
+        if (source.is(DamageTypeTags.IS_EXPLOSION) || msgLower.contains("explosion")) {
+            applyCoreExplosionTrauma(player, data, direct, attacker, rawDmg);
+            markCoreDamageSettledThisTick(player);
+            if (data.getBrainHealth() <= 0) {
+                player.invulnerableTime = 0;
+                event.setNewDamage(Math.max(rawDmg, 10000.0f));
+            } else {
+                zeroDamageContainer(event);
+            }
+            return;
+        }
+
+        applyDirectProjectileOrGunTrauma(player, direct, attacker, source, rawDmg, isTaczBulletOrGun);
+        if (data.getBrainHealth() <= 0) {
+            player.invulnerableTime = 0;
+            event.setNewDamage(Math.max(rawDmg, 10000.0f));
+        } else {
+            zeroDamageContainer(event);
         }
     }
 
@@ -2925,11 +3430,21 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
             ld.setPainLevel(Math.min(maxPain, Math.max(ld.getPainLevel(), Math.round(limbDmg * 0.8f))));
         }
 
+        MedicalData.LimbData chestLd = data.getLimb(MedicalData.Limb.CHEST);
+        if (chestLd != null && rawExplosionDamage >= 12.0f) {
+            if (checkAndExecuteChestDirectKill(player, data, chestLd, rawExplosionDamage * 0.45f, rawExplosionDamage, rawExplosionDamage >= 22.0f, true)) {
+                return;
+            }
+        }
+        if (chestLd != null && applyAcuteBloodLossAndCumulativeLethality(player, data, MedicalData.Limb.CHEST, chestLd, rawExplosionDamage * 0.55f, rawExplosionDamage, false)) {
+            return;
+        }
+
         Vec3 blastDir = computeCoreImpactDirection(player, directProjectile, attacker);
         float blastStrength = Mth.clamp(0.42f + rawExplosionDamage * 0.045f, 0.40f, 1.45f);
         Vec3 blastVel = new Vec3(blastDir.x * blastStrength, Math.min(0.85, 0.28 + rawExplosionDamage * 0.022), blastDir.z * blastStrength);
 
-        if (rawExplosionDamage >= 6.0f) {
+        if (rawExplosionDamage >= 5.0f) {
             MedicalData.LimbData rightArm = data.getLimb(MedicalData.Limb.RIGHT_ARM);
             checkAndTriggerCoreArmDisarm(player, MedicalData.Limb.RIGHT_ARM, rightArm, rawExplosionDamage * 0.65f, blastDir);
         }
@@ -2940,7 +3455,7 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
     }
 
     // =========================================================================
-    // 13. 客户端第一人称摔倒/布娃娃视角强制锁控与 3D 倒地镜头物理缓冲 (Dist.CLIENT)
+    // 13. 客户端第一人称摔倒/爆炸布娃娃视角无条件锁控、3D 倒地镜头与重生脑损伤清空 (Dist.CLIENT)
     // =========================================================================
 
     @EventBusSubscriber(modid = RealMedicalMod.MODID, value = Dist.CLIENT)
@@ -2951,19 +3466,56 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
         private static long lastFrameNs = 0L;
         private static int lastLeftLegPain = -1;
         private static int lastRightLegPain = -1;
+        private static int lastTotalPain = -1;
+        private static boolean userManuallySetThirdPerson = false;
+        private static boolean prevF5Down = false;
         private static Field cameraDetachedField = null;
         private static Field cameraPositionField = null;
+        private static java.lang.reflect.Method cameraSetPositionMethod = null;
         private static boolean cameraFieldChecked = false;
 
         private ClientCoreKnockdownHooks() {
         }
 
-        @SubscribeEvent
-        public static void onClientTickPre(ClientTickEvent.Pre event) {
-            enforceFirstPersonIfRagdollOrKnockdown();
+        private static void clearClientBrainDamageIfRespawnedOrHealthy(Player player, MedicalData data) {
+            if (player == null) return;
+            boolean shouldClear = !player.isAlive()
+                    || player.deathTime > 0
+                    || player.tickCount < 30
+                    || (data != null && data.getBrainHealth() >= 95 && data.getIntracranialLevel() == 0);
+            if (!shouldClear) return;
+
+            try {
+                Class<?> critCls = Class.forName("com.FIYTP.realmedicalmod.client.CriticalOverlay", false, ClientCoreKnockdownHooks.class.getClassLoader());
+                java.lang.reflect.Method m = critCls.getMethod("resetAllClientBrainDamageEffects");
+                m.invoke(null);
+            } catch (Throwable ignored) {
+                try {
+                    Class<?> bdCls = Class.forName("com.FIYTP.realmedicalmod.client.BrainDamageClientState", false, ClientCoreKnockdownHooks.class.getClassLoader());
+                    for (Field f : bdCls.getDeclaredFields()) {
+                        if (java.lang.reflect.Modifier.isStatic(f.getModifiers()) && !java.lang.reflect.Modifier.isFinal(f.getModifiers())) {
+                            f.setAccessible(true);
+                            if (f.getType() == boolean.class) f.setBoolean(null, false);
+                            else if (f.getType() == int.class) f.setInt(null, 0);
+                            else if (f.getType() == long.class) f.setLong(null, 0L);
+                            else if (f.getType() == float.class) f.setFloat(null, 0.0f);
+                        }
+                    }
+                } catch (Throwable ignored2) {
+                }
+            }
         }
 
-        @SubscribeEvent
+        @SubscribeEvent(priority = EventPriority.LOWEST)
+        public static void onClientTickPre(ClientTickEvent.Pre event) {
+            if (!legacyHandlersCleanedUp) {
+                ensureLegacyDamageHandlersCleanedUp();
+            }
+            net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+            trackF5AndEnforceFirstPerson(mc);
+        }
+
+        @SubscribeEvent(priority = EventPriority.LOWEST)
         public static void onClientTickPost(ClientTickEvent.Post event) {
             net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
             Player player = mc.player;
@@ -2974,37 +3526,48 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
             }
 
             MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
+            clearClientBrainDamageIfRespawnedOrHealthy(player, data);
+
             if (data != null) {
                 MedicalData.LimbData lLeg = data.getLimb(MedicalData.Limb.LEFT_LEG);
                 MedicalData.LimbData rLeg = data.getLimb(MedicalData.Limb.RIGHT_LEG);
                 int lp = lLeg != null ? lLeg.getPainLevel() : 0;
                 int rp = rLeg != null ? rLeg.getPainLevel() : 0;
+                int tp = data.getTotalPainLevel();
                 if (lastLeftLegPain >= 0 && lastRightLegPain >= 0) {
-                    if ((lp - lastLeftLegPain >= 2) || (rp - lastRightLegPain >= 2)) {
+                    if ((lp - lastLeftLegPain >= 2) || (rp - lastRightLegPain >= 2)
+                            || (tp - lastTotalPain >= 6 && player.getDeltaMovement().lengthSqr() > 0.08)) {
                         int baseDur = safeCfgInt(MedicalConfig.RAGDOLL_LEG_KNOCKDOWN_DURATION_TICKS, 65);
                         clientKnockdownMirrorTicks = Math.max(clientKnockdownMirrorTicks, baseDur);
                     }
                 }
                 lastLeftLegPain = lp;
                 lastRightLegPain = rp;
+                lastTotalPain = tp;
             }
 
-            enforceFirstPersonIfRagdollOrKnockdown();
+            trackF5AndEnforceFirstPerson(mc);
         }
 
-        private static void enforceFirstPersonIfRagdollOrKnockdown() {
-            net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
-            Player player = mc.player;
-            if (player == null || mc.options == null) return;
+        private static void trackF5AndEnforceFirstPerson(net.minecraft.client.Minecraft mc) {
+            if (mc == null || mc.options == null || mc.player == null) return;
 
+            boolean f5Down = mc.options.keyTogglePerspective != null && mc.options.keyTogglePerspective.isDown();
+            if (f5Down && !prevF5Down) {
+                userManuallySetThirdPerson = !mc.options.getCameraType().isFirstPerson();
+            }
+            prevF5Down = f5Down;
+
+            Player player = mc.player;
             MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
-            boolean isKnockedDownOrUnconscious = clientKnockdownMirrorTicks > 0
+            boolean inKnockdownOrProne = clientKnockdownMirrorTicks > 0
+                    || player.getPose() == Pose.SWIMMING
                     || player.getForcedPose() == Pose.SWIMMING
                     || (data != null && (data.getConsciousness() <= 0 || data.isCardiacArrest()));
 
-            // 当处于受创摔倒、布娃娃或昏迷状态时，强制锁定为第一人称视角 (CameraType.FIRST_PERSON)，绝不跳到第三人称！
-            if (isKnockedDownOrUnconscious && !mc.options.getCameraType().isFirstPerson()) {
+            if ((inKnockdownOrProne || !userManuallySetThirdPerson) && !mc.options.getCameraType().isFirstPerson()) {
                 mc.options.setCameraType(net.minecraft.client.CameraType.FIRST_PERSON);
+                userManuallySetThirdPerson = false;
             }
         }
 
@@ -3018,25 +3581,18 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
             float dt = (lastFrameNs == 0L) ? 0.016f : Mth.clamp((nowNs - lastFrameNs) / 1_000_000_000.0f, 0.0005f, 0.08f);
             lastFrameNs = nowNs;
 
+            trackF5AndEnforceFirstPerson(mc);
+
+            if (mc.options.getCameraType().isFirstPerson() && event.getCamera() != null) {
+                forceCameraFirstPersonUndetached(event.getCamera(), player, (float) event.getPartialTick());
+            }
+
             MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
             boolean unconscious = data != null && (data.getConsciousness() <= 0 || data.isCardiacArrest());
             boolean permanentProne = isPermanentlyProneByInjury(player, data);
             boolean tempKnockdown = (clientKnockdownMirrorTicks > 0)
-                    || (player.getForcedPose() == Pose.SWIMMING && !permanentProne);
+                    || (player.getPose() == Pose.SWIMMING && !permanentProne && !player.isInWater() && !player.isSwimming());
 
-            // 1) 若任何布娃娃 Mod (如 Sable: Ragdolls) 强行修改了 CameraType 或将 Camera.detached 设为 true 切入第三人称，
-            //    在此处最终渲染阶段强制还原为第一人称眼睛视角！
-            if (unconscious || tempKnockdown || permanentProne) {
-                if (!mc.options.getCameraType().isFirstPerson()) {
-                    mc.options.setCameraType(net.minecraft.client.CameraType.FIRST_PERSON);
-                }
-                net.minecraft.client.Camera cam = event.getCamera();
-                if (cam != null) {
-                    forceCameraFirstPersonUndetached(cam, player, (float) event.getPartialTick());
-                }
-            }
-
-            // 2) 第一人称受创摔倒/昏迷的平滑 3D 侧倾与扑倒镜头物理动画
             float targetRoll = 0.0f;
             float targetPitch = 0.0f;
             if (unconscious) {
@@ -3057,6 +3613,19 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
             }
         }
 
+        @SubscribeEvent(priority = EventPriority.LOWEST)
+        public static void onComputeFovAfterCameraSetup(ViewportEvent.ComputeFov event) {
+            net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+            Player player = mc.player;
+            if (player == null || mc.level == null || mc.options == null || player.isSpectator()) return;
+
+            trackF5AndEnforceFirstPerson(mc);
+
+            if (mc.options.getCameraType().isFirstPerson() && event.getCamera() != null) {
+                forceCameraFirstPersonUndetached(event.getCamera(), player, (float) event.getPartialTick());
+            }
+        }
+
         public static void forceCameraFirstPersonUndetached(net.minecraft.client.Camera cam, Player player, float partialTick) {
             if (cam == null || player == null) return;
             if (!cameraFieldChecked) {
@@ -3073,17 +3642,29 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                         cameraPositionField = f;
                     }
                 }
+                for (java.lang.reflect.Method m : net.minecraft.client.Camera.class.getDeclaredMethods()) {
+                    Class<?>[] pts = m.getParameterTypes();
+                    if (pts.length == 1 && pts[0] == Vec3.class) {
+                        m.setAccessible(true);
+                        cameraSetPositionMethod = m;
+                        break;
+                    }
+                }
             }
             try {
                 Vec3 eyePos = player.getEyePosition(partialTick);
                 boolean wasDetached = cam.isDetached();
-                boolean pushedToThirdPerson = cam.getPosition().distanceToSqr(eyePos) > 0.30;
+                boolean pushedToThirdPerson = cam.getPosition().distanceToSqr(eyePos) > 0.22;
 
                 if (wasDetached && cameraDetachedField != null) {
                     cameraDetachedField.setBoolean(cam, false);
                 }
-                if ((wasDetached || pushedToThirdPerson) && cameraPositionField != null) {
-                    cameraPositionField.set(cam, eyePos);
+                if (wasDetached || pushedToThirdPerson) {
+                    if (cameraSetPositionMethod != null) {
+                        cameraSetPositionMethod.invoke(cam, eyePos);
+                    } else if (cameraPositionField != null) {
+                        cameraPositionField.set(cam, eyePos);
+                    }
                 }
             } catch (Throwable ignored) {
             }

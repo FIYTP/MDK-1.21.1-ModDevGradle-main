@@ -35,6 +35,7 @@ public abstract class MouseHandlerMixin {
             return;
         }
 
+
         // 2. 脑损伤视角反向效果
         if (BrainDamageClientState.isViewInverted()) {
             this.accumulatedDX = -this.accumulatedDX;

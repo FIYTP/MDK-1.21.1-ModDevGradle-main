@@ -1810,6 +1810,34 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
         return applyServerTreatment(player, hand, limb, 100);
     }
 
+    public static boolean applyServerTreatmentFromSlot(ServerPlayer player, int slotIndex,
+                                                       MedicalData.Limb limb, int requestedDoseUnits) {
+        if (player == null || limb == null) return false;
+        MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
+        if (data == null || data.getConsciousness() <= 0 || data.isCardiacArrest()) return false;
+        MedicalData.LimbData ld = data.getLimb(limb);
+        if (ld == null) return false;
+
+        if (requestedDoseUnits == -1 && ld.isTourniqueted()) {
+            unbindTourniquetOnLimb(player, ld);
+            player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                    SoundEvents.ARMOR_EQUIP_LEATHER.value(), SoundSource.PLAYERS, 0.85f, 1.15f);
+            player.syncData(MedicalDataCapability.MEDICAL_DATA);
+            return true;
+        }
+        if (requestedDoseUnits == -2 && ld.hasSplint()) {
+            unbindSplintOnLimb(player, ld);
+            player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                    SoundEvents.ARMOR_EQUIP_LEATHER.value(), SoundSource.PLAYERS, 0.85f, 1.15f);
+            player.syncData(MedicalDataCapability.MEDICAL_DATA);
+            return true;
+        }
+
+        if (slotIndex < 0 || slotIndex >= player.getInventory().getContainerSize()) return false;
+        ItemStack stack = player.getInventory().getItem(slotIndex);
+        return applyServerTreatmentOnStack(player, data, limb, ld, stack, requestedDoseUnits);
+    }
+
     public static boolean applyServerTreatment(ServerPlayer player, InteractionHand hand,
                                                MedicalData.Limb limb, int requestedDoseUnits) {
         if (player == null || hand == null || limb == null) return false;
@@ -1836,6 +1864,12 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
         }
 
         ItemStack stack = player.getItemInHand(hand);
+        return applyServerTreatmentOnStack(player, data, limb, ld, stack, requestedDoseUnits);
+    }
+
+    private static boolean applyServerTreatmentOnStack(ServerPlayer player, MedicalData data,
+                                                       MedicalData.Limb limb, MedicalData.LimbData ld,
+                                                       ItemStack stack, int requestedDoseUnits) {
         if (!isMedicalItem(stack)) return false;
 
         MedicalPotency potency = stack.getOrDefault(MedicalComponents.MEDICAL_POTENCY.get(), MedicalPotency.EMPTY);

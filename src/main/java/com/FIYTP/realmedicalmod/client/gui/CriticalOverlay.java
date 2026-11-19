@@ -1129,14 +1129,53 @@ public class CriticalOverlay {
         smoothBrainColorShift = Math.max(smoothBrainColorShift, Mth.clamp(intensity, 0.25f, 1.0f));
     }
 
+    public static void resetAllClientBrainDamageEffects() {
+        brainFlashbackTimer = 0.0f;
+        brainFlashbackPeakIntensity = 0.0f;
+        brainFreezeShakeTimer = 0.0f;
+        brainFreezePeakIntensity = 0.0f;
+        brainColorShiftTimer = 0.0f;
+        smoothBrainColorShift = 0.0f;
+        brainEpisodeCooldownSec = 0.0f;
+        wasBrainControlInverted = false;
+        lastBrainHealth = 100;
+        try {
+            for (java.lang.reflect.Field f : BrainDamageClientState.class.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(f.getModifiers()) && !java.lang.reflect.Modifier.isFinal(f.getModifiers())) {
+                    f.setAccessible(true);
+                    if (f.getType() == boolean.class) f.setBoolean(null, false);
+                    else if (f.getType() == int.class) f.setInt(null, 0);
+                    else if (f.getType() == long.class) f.setLong(null, 0L);
+                    else if (f.getType() == float.class) f.setFloat(null, 0.0f);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     private static void updateAndRenderBrainDamageVfx3A(GuiGraphics g, int w, int h,
                                                         MedicalData data, float dt, long nowMs) {
         if (!MedicalConfig.BRAIN_VFX_UPGRADE_ENABLED.get()) return;
 
+        Minecraft mc = Minecraft.getInstance();
+        Player player = mc.player;
         int brainHealth = data.getBrainHealth();
         int icLevel = (data.getIntracranialOnsetTimer() >= MedicalConfig.ONSET_DELAY.get())
                 ? data.getIntracranialLevel()
                 : 0;
+
+        // ★ 关键修复：当玩家死亡、正在重生 (tickCount < 30) 或脑健康已恢复健康 (>= 95 且无颅内出血) 时，
+        //   立即清空所有脑损伤视觉残留与视角/按键反转状态，彻底杜绝死亡重生后脑损伤效果还在的 Bug！
+        if (player == null || !player.isAlive() || player.deathTime > 0
+                || player.tickCount < 30 || (brainHealth >= 95 && icLevel == 0)) {
+            if (brainFlashbackTimer > 0.0f || brainFreezeShakeTimer > 0.0f || brainColorShiftTimer > 0.0f
+                    || smoothBrainColorShift > 0.001f || BrainDamageClientState.isViewInverted() || BrainDamageClientState.isInputInverted()) {
+                resetAllClientBrainDamageEffects();
+            }
+            lastBrainHealth = brainHealth;
+            return;
+        }
+
         boolean controlInverted = BrainDamageClientState.isViewInverted() || BrainDamageClientState.isInputInverted();
 
         if (lastBrainHealth < 0) {
