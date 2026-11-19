@@ -76,6 +76,13 @@ public final class TacticalWatchModelRenderer {
     public static void renderWatchOnWrist(PoseStack poseStack, MultiBufferSource bufferSource,
                                           int packedLight, MedicalData data,
                                           float armHalfWidth, float armHalfDepth, float activeLevel) {
+        renderWatchOnWrist(poseStack, bufferSource, packedLight, data, armHalfWidth, armHalfDepth, activeLevel, true);
+    }
+
+    public static void renderWatchOnWrist(PoseStack poseStack, MultiBufferSource bufferSource,
+                                          int packedLight, MedicalData data,
+                                          float armHalfWidth, float armHalfDepth, float activeLevel,
+                                          boolean renderLocalBroadcasts) {
         ResourceLocation texId = ensureAtlasTexture();
         long nowMs = System.currentTimeMillis();
 
@@ -88,8 +95,9 @@ public final class TacticalWatchModelRenderer {
         PoseStack.Pose pose = poseStack.last();
         Matrix4f mat = pose.pose();
 
-        float strapRx = armHalfWidth + 0.011f;
-        float strapRz = armHalfDepth + 0.011f;
+        // 适配 Minecraft 方形手臂 + 外层袖套 (leftSleeve +0.0156f)，外扩 +0.022f 安全间隙彻底零穿模！
+        float strapRx = armHalfWidth + 0.022f;
+        float strapRz = armHalfDepth + 0.022f;
         float strapThick = 0.015f;
         float strapHalfH = 0.056f;
 
@@ -119,44 +127,92 @@ public final class TacticalWatchModelRenderer {
         // 构件 7：12 点钟方向 (+Y 顶部边缘) 微型全息光学投影双透镜基座与遮光罩 (18 面)
         buildProjectorHousing(solidVc, pose, mat, packedLight, caseBaseZ, caseRadius, caseDepth);
 
-        // 2. 自发光光学层（满亮度 FULL_BRIGHT，不受矿洞黑暗遮暗，呈现 OLED 表镜、光纤与蓝宝石反光质感）
+        // 2. 阶段 2 活体 256x256 军工 OLED 表盘（满亮度自发光，实时呈现 ECG/BPM、血压、痛觉笑脸、CNS 刻度环与 EEG 脑电）
+        ResourceLocation liveDialTex = WatchDialFaceRenderer.getOrUpdateDialTexture(data, activeLevel);
+        VertexConsumer liveDialVc = bufferSource.getBuffer(RenderType.entityCutoutNoCull(liveDialTex));
+        buildLiveOledDialQuad(liveDialVc, pose, mat, caseBaseZ, caseRadius, caseDepth, activeLevel);
+
+        // 3. 自发光光学层（蓝宝石斜向反光表镜玻璃 + 侧缘心率光纤灯带 + 12 点钟双光学透镜核心）
         VertexConsumer emissiveVc = bufferSource.getBuffer(RenderType.entityTranslucent(texId));
-
-        // 构件 8：深凹 OLED 表镜发光基板（阶段 1 展示精密蜂窝微光、24 刻度盘与实时心率脉动核心；阶段 2 叠刻七段数码管与痛觉笑脸）
-        buildRecessedOledScreenAndSapphireGlass(emissiveVc, pose, mat, caseBaseZ, caseRadius, caseDepth,
-                ledRgb, ledPulse, activeLevel, nowMs);
-
-        // 构件 9：侧缘心率光纤灯带 + 12 点钟光学发射双透镜发光核心 + 底部 PPG 光学心率传感器绿光
+        buildSapphireGlassCover(emissiveVc, pose, mat, caseBaseZ, caseRadius, caseDepth, nowMs);
         buildEmissiveOpticsAndHeartFiber(emissiveVc, pose, mat, caseBaseZ, caseRadius, caseDepth,
                 ledRgb, ledPulse, activeLevel);
+
+        // 4. 阶段 3：严格锚定在左手手表局部 3D 空间的悬浮战术播报光幕（零 2D 贴屏，左手飞哪播报就在哪）
+        if (renderLocalBroadcasts) {
+            WristBroadcast3DRenderer.renderAttachedBroadcasts(
+                    poseStack, bufferSource, texId, caseBaseZ, caseRadius, caseDepth
+            );
+        }
     }
 
     // ==================== 3D 高精度几何构建器 ====================
 
+    /**
+     * 计算精确包裹 Minecraft 方形手臂的圆角矩形 (Rounded Box) 截面点与法线，
+     * 彻底杜绝圆形表带在 45° 棱角处被手臂直角戳穿穿模的问题！
+     */
+    private static void sampleRoundedBoxPoint(float angle, float rx, float rz, float cornerR, float[] outXYN) {
+        float c = Mth.cos(angle);
+        float s = Mth.sin(angle);
+        float ac = Math.abs(c);
+        float as = Math.abs(s);
+        float innerX = Math.max(0.01f, rx - cornerR);
+        float innerZ = Math.max(0.01f, rz - cornerR);
+        // 用平滑超椭圆 (p=8) 贴合圆角矩形：四边笔直外贴，四角柔和圆弧外包
+        float exp = 0.25f; // 2 / 8
+        float px = Math.signum(c) * (float) Math.pow(ac, exp) * rx;
+        float pz = Math.signum(s) * (float) Math.pow(as, exp) * rz;
+        // 保证 45° 棱角处不小于手臂对角包络 (innerX + cornerR * 0.707)
+        float minCornerX = innerX + cornerR * 0.72f;
+        float minCornerZ = innerZ + cornerR * 0.72f;
+        if (Math.abs(px) > innerX && Math.abs(pz) > innerZ) {
+            float sx = Math.abs(px) / Math.max(0.001f, minCornerX);
+            float sz = Math.abs(pz) / Math.max(0.001f, minCornerZ);
+            if (sx < 1.0f && sz < 1.0f) {
+                px = Math.signum(px) * minCornerX;
+                pz = Math.signum(pz) * minCornerZ;
+            }
+        }
+        float len = Math.max(0.0001f, Mth.sqrt(c * c + s * s));
+        outXYN[0] = px;
+        outXYN[1] = pz;
+        outXYN[2] = c / len;
+        outXYN[3] = s / len;
+    }
+
     private static void buildArticulatedKevlarStrap(VertexConsumer vc, PoseStack.Pose pose, Matrix4f mat,
                                                     int light, float rx, float rz, float thick, float halfH) {
-        final int segs = 16;
+        final int segs = 24;
+        float cornerR = 0.022f;
+        float[] p0 = new float[4];
+        float[] p1 = new float[4];
+        float[] o0 = new float[4];
+        float[] o1 = new float[4];
+        float[] t0 = new float[4];
+        float[] t1 = new float[4];
+
         for (int i = 0; i < segs; i++) {
             float a0 = (float) (i * 2.0 * Math.PI / segs);
             float a1 = (float) ((i + 1) * 2.0 * Math.PI / segs);
-            float c0 = Mth.cos(a0), s0 = Mth.sin(a0);
-            float c1 = Mth.cos(a1), s1 = Mth.sin(a1);
+            float s0 = Mth.sin(a0), s1 = Mth.sin(a1);
 
-            // 在腕背 (+Z，即 sin > 0.78) 表壳下方略微收薄避免与表壳打架
-            float localThick = (s0 > 0.75f && s1 > 0.75f) ? thick * 0.55f : thick;
-            // 每段表带之间保留极其细微的关节分段感 (96% 弧长 + 凹槽过渡)
-            float ix0 = c0 * rx, iz0 = s0 * rz;
-            float ix1 = c1 * rx, iz1 = s1 * rz;
-            float ox0 = c0 * (rx + localThick), oz0 = s0 * (rz + localThick);
-            float ox1 = c1 * (rx + localThick), oz1 = s1 * (rz + localThick);
-
-            // 局部微凸脊肋高度（模拟分段凯夫拉护甲节）
+            float localThick = (s0 > 0.75f && s1 > 0.75f) ? thick * 0.65f : thick;
             float ridge = ((i & 1) == 0) ? 0.0022f : 0.0f;
-            float rox0 = c0 * (rx + localThick + ridge), roz0 = s0 * (rz + localThick + ridge);
-            float rox1 = c1 * (rx + localThick + ridge), roz1 = s1 * (rz + localThick + ridge);
 
-            float nx = Mth.cos((a0 + a1) * 0.5f);
-            float nz = Mth.sin((a0 + a1) * 0.5f);
+            sampleRoundedBoxPoint(a0, rx, rz, cornerR, p0);
+            sampleRoundedBoxPoint(a1, rx, rz, cornerR, p1);
+            sampleRoundedBoxPoint(a0, rx + localThick + ridge, rz + localThick + ridge, cornerR + 0.006f, o0);
+            sampleRoundedBoxPoint(a1, rx + localThick + ridge, rz + localThick + ridge, cornerR + 0.006f, o1);
+            sampleRoundedBoxPoint(a0, rx + localThick + ridge + 0.0020f, rz + localThick + ridge + 0.0020f, cornerR + 0.007f, t0);
+            sampleRoundedBoxPoint(a1, rx + localThick + ridge + 0.0020f, rz + localThick + ridge + 0.0020f, cornerR + 0.007f, t1);
+
+            float ix0 = p0[0], iz0 = p0[1];
+            float ix1 = p1[0], iz1 = p1[1];
+            float rox0 = o0[0], roz0 = o0[1];
+            float rox1 = o1[0], roz1 = o1[1];
+            float nx = (p0[2] + p1[2]) * 0.5f;
+            float nz = (p0[3] + p1[3]) * 0.5f;
 
             // UV 落在区域 A [0.02..0.48, 0.02..0.48] 凯夫拉碳纤维编织区
             float u0 = 0.02f + (i % 4) * 0.11f;
@@ -182,10 +238,8 @@ public final class TacticalWatchModelRenderer {
                     0.02f, 0.42f, 0.46f, 0.48f, nx * 0.25f, -0.96f, nz * 0.25f, 210, 215, 222, 255);
 
             // 侧面双线压边加强脊
-            float trimR = rx + localThick + ridge + 0.0020f;
-            float trimZ = rz + localThick + ridge + 0.0020f;
-            float tx0 = c0 * trimR, tz0 = s0 * trimZ;
-            float tx1 = c1 * trimR, tz1 = s1 * trimZ;
+            float tx0 = t0[0], tz0 = t0[1];
+            float tx1 = t1[0], tz1 = t1[1];
             emitQuad(vc, pose, mat, light,
                     tx0, halfH * 0.72f, tz0, tx1, halfH * 0.72f, tz1, tx1, halfH * 0.88f, tz1, tx0, halfH * 0.88f, tz0,
                     0.52f, 0.04f, 0.62f, 0.14f, nx, 0.1f, nz, 220, 225, 232, 255);
@@ -363,45 +417,36 @@ public final class TacticalWatchModelRenderer {
                 0.52f, 0.78f, 0.74f, 0.94f, 180, 190, 202, 255);
     }
 
-    private static void buildRecessedOledScreenAndSapphireGlass(VertexConsumer vc, PoseStack.Pose pose, Matrix4f mat,
-                                                                float zBase, float radius, float depth,
-                                                                int[] ledRgb, float ledPulse, float activeLevel, long nowMs) {
-        float zScreen = zBase + depth - 0.0105f;
-        float rScreen = radius * 0.765f;
+    private static void buildLiveOledDialQuad(VertexConsumer vc, PoseStack.Pose pose, Matrix4f mat,
+                                              float zBase, float radius, float depth, float activeLevel) {
+        float zScreen = zBase + depth - 0.0102f;
+        float rScreen = radius * 0.775f;
         int fullLight = LightTexture.FULL_BRIGHT;
 
-        // 1) 深凹 OLED 高清刻度与蜂窝底盘 (使用区域 C [0.02..0.48, 0.52..0.98])
-        float brightness = 0.65f + 0.35f * activeLevel;
-        int cr = Mth.clamp(Math.round(255 * brightness), 120, 255);
-        int cg = Mth.clamp(Math.round(255 * brightness), 120, 255);
-        int cb = Mth.clamp(Math.round(255 * brightness), 120, 255);
-        emitQuad(vc, pose, mat, fullLight,
-                -rScreen, -rScreen, zScreen,
-                rScreen, -rScreen, zScreen,
-                rScreen, rScreen, zScreen,
-                -rScreen, rScreen, zScreen,
-                0.015f, 0.985f, 0.485f, 0.515f, 0.0f, 0.0f, 1.0f, cr, cg, cb, 255);
+        // 待机时柔和微亮 (72%)，抬腕看表时全亮度 (100%) 锐利点亮
+        float bright = 0.72f + 0.28f * Mth.clamp(activeLevel, 0.0f, 1.0f);
+        int c = Mth.clamp(Math.round(255 * bright), 150, 255);
+        // 旋转 180° 彻底翻正表盘 UV（顶部 BIO-OS 笔直朝上、左右不镜像）
+        emitQuadUV4(vc, pose, mat, fullLight,
+                -rScreen, -rScreen, zScreen, 1.0f, 1.0f,
+                rScreen, -rScreen, zScreen, 1.0f, 0.0f,
+                rScreen, rScreen, zScreen, 0.0f, 0.0f,
+                -rScreen, rScreen, zScreen, 0.0f, 1.0f,
+                0.0f, 0.0f, 1.0f, c, c, c, 255);
+    }
 
-        // 2) 阶段 1 待机微光：表镜中央实时脉动生物核心环（为阶段 2 七段数码管与痛觉笑脸预留舞台）
-        float coreR = rScreen * (0.20f + 0.05f * ledPulse);
-        int coreA = Mth.clamp(Math.round((130 + 115 * ledPulse) * (0.55f + 0.45f * activeLevel)), 60, 250);
-        emitQuad(vc, pose, mat, fullLight,
-                -coreR, -coreR, zScreen + 0.0012f,
-                coreR, -coreR, zScreen + 0.0012f,
-                coreR, coreR, zScreen + 0.0012f,
-                -coreR, coreR, zScreen + 0.0012f,
-                0.78f, 0.78f, 0.96f, 0.96f, 0.0f, 0.0f, 1.0f, ledRgb[0], ledRgb[1], ledRgb[2], coreA);
-
-        // 3) 顶层蓝宝石微反光表镜玻璃 (zTop - 0.002f，呈现真实的玻璃景深分层！)
+    private static void buildSapphireGlassCover(VertexConsumer vc, PoseStack.Pose pose, Matrix4f mat,
+                                                float zBase, float radius, float depth, long nowMs) {
+        // 顶层蓝宝石弧面玻璃微反光层 (位于表镜上方 +0.008f，呈现真实表镜物理景深！)
         float zGlass = zBase + depth - 0.0022f;
         float rGlass = radius * 0.85f;
         float glintShift = 0.04f * Mth.sin(nowMs * 0.0018f);
-        emitQuad(vc, pose, mat, fullLight,
+        emitQuad(vc, pose, mat, LightTexture.FULL_BRIGHT,
                 -rGlass, -rGlass, zGlass,
                 rGlass, -rGlass, zGlass,
                 rGlass, rGlass, zGlass,
                 -rGlass, rGlass, zGlass,
-                0.02f + glintShift, 0.98f, 0.48f + glintShift, 0.52f, 0.0f, 0.0f, 1.0f, 195, 235, 255, 42);
+                0.02f + glintShift, 0.98f, 0.48f + glintShift, 0.52f, 0.0f, 0.0f, 1.0f, 195, 235, 255, 34);
     }
 
     private static void buildEmissiveOpticsAndHeartFiber(VertexConsumer vc, PoseStack.Pose pose, Matrix4f mat,
@@ -536,6 +581,23 @@ public final class TacticalWatchModelRenderer {
         emitQuad(vc, pose, mat, light, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, u0, v0, u1, v1, 0, -1, 0, r, g, b, a);
         emitQuad(vc, pose, mat, light, x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, u0, v0, u1, v1, 1, 0, 0, r, g, b, a);
         emitQuad(vc, pose, mat, light, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, u0, v0, u1, v1, -1, 0, 0, r, g, b, a);
+    }
+
+    private static void emitQuadUV4(VertexConsumer vc, PoseStack.Pose pose, Matrix4f mat, int light,
+                                    float x0, float y0, float z0, float u0, float v0,
+                                    float x1, float y1, float z1, float u1, float v1,
+                                    float x2, float y2, float z2, float u2, float v2,
+                                    float x3, float y3, float z3, float u3, float v3,
+                                    float nx, float ny, float nz,
+                                    int r, int g, int b, int a) {
+        r = Mth.clamp(r, 0, 255);
+        g = Mth.clamp(g, 0, 255);
+        b = Mth.clamp(b, 0, 255);
+        a = Mth.clamp(a, 0, 255);
+        vc.addVertex(mat, x0, y0, z0).setColor(r, g, b, a).setUv(u0, v0).setOverlay(OverlayTexture.NO_OVERLAY).setLight(light).setNormal(pose, nx, ny, nz);
+        vc.addVertex(mat, x1, y1, z1).setColor(r, g, b, a).setUv(u1, v1).setOverlay(OverlayTexture.NO_OVERLAY).setLight(light).setNormal(pose, nx, ny, nz);
+        vc.addVertex(mat, x2, y2, z2).setColor(r, g, b, a).setUv(u2, v2).setOverlay(OverlayTexture.NO_OVERLAY).setLight(light).setNormal(pose, nx, ny, nz);
+        vc.addVertex(mat, x3, y3, z3).setColor(r, g, b, a).setUv(u3, v3).setOverlay(OverlayTexture.NO_OVERLAY).setLight(light).setNormal(pose, nx, ny, nz);
     }
 
     private static void emitQuad(VertexConsumer vc, PoseStack.Pose pose, Matrix4f mat, int light,

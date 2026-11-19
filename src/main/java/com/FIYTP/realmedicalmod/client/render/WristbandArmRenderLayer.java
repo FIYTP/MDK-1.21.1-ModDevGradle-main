@@ -40,6 +40,21 @@ public final class WristbandArmRenderLayer extends RenderLayer<AbstractClientPla
                                                              AbstractClientPlayer player,
                                                              MedicalData data,
                                                              float activeLevel) {
+        applyExactLeftWristTransformAndRender(poseStack, bufferSource, packedLight, playerModel, player, data, activeLevel, false);
+    }
+
+    /**
+     * @param gunInnerWristMode 为 true 时（第一人称持枪态），采用特种兵 CQB 腕内侧戴法，
+     *                          将表壳与活体表盘直接转向朝向射手双眼的护木内侧角度！
+     */
+    public static void applyExactLeftWristTransformAndRender(PoseStack poseStack,
+                                                             MultiBufferSource bufferSource,
+                                                             int packedLight,
+                                                             PlayerModel<AbstractClientPlayer> playerModel,
+                                                             AbstractClientPlayer player,
+                                                             MedicalData data,
+                                                             float activeLevel,
+                                                             boolean gunInnerWristMode) {
         boolean isSlim = player.getSkin().model() == PlayerSkin.Model.SLIM;
 
         poseStack.pushPose();
@@ -52,15 +67,21 @@ public final class WristbandArmRenderLayer extends RenderLayer<AbstractClientPla
         poseStack.translate(armCenterX, wristY, 0.0f);
 
         // 3. 旋转对齐手表局部坐标系：
-        //    绕 X 转 180° -> 手表 +Y 指向肘部 (-Y)；
-        //    绕 Y 转 90°  -> 手表 +Z (表镜面) 指向左手腕背外侧 (+X)
+        //    - 常规/抬腕态：YP(90°)，表盘朝向腕背外侧 (+X)，抬腕横臂时正面迎向双眼
+        //    - 持枪 CQB 态：绕手臂轴线转至腕内侧 (-X/-Z 方向，即 YP(-90°) + 微倾)，让护木左手上的表盘直接正面朝向玩家！
         poseStack.mulPose(Axis.XP.rotationDegrees(180.0f));
-        poseStack.mulPose(Axis.YP.rotationDegrees(90.0f));
+        if (gunInnerWristMode) {
+            poseStack.mulPose(Axis.YP.rotationDegrees(-112.0f));
+        } else {
+            poseStack.mulPose(Axis.YP.rotationDegrees(90.0f));
+        }
 
-        // 注意：绕 Y 转 90° 后，手表局部 X 对应手臂 Z 厚度 (0.125f)，手表局部 Z 对应手臂 X 宽度 (0.125f / 0.09375f)
+        // 严格匹配当前旋转角下的手臂 X/Z 截面半宽
         float strapHalfX = 0.126f;
         float strapHalfZ = isSlim ? 0.095f : 0.126f;
 
+        Minecraft mcLocal = Minecraft.getInstance();
+        boolean isLocalPlayer = mcLocal.player != null && mcLocal.player.getUUID().equals(player.getUUID());
         TacticalWatchModelRenderer.renderWatchOnWrist(
                 poseStack,
                 bufferSource,
@@ -68,7 +89,8 @@ public final class WristbandArmRenderLayer extends RenderLayer<AbstractClientPla
                 data,
                 strapHalfX,
                 strapHalfZ,
-                activeLevel
+                activeLevel,
+                isLocalPlayer
         );
 
         poseStack.popPose();

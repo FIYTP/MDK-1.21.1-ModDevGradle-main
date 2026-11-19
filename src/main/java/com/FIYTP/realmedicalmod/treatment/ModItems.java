@@ -1192,6 +1192,10 @@ public class ModItems {
                 return;
             }
             if (player instanceof ServerPlayer sp) {
+                // 破除布娃娃模组私自给非创造/非旁观玩家套上的无敌标记 (setInvulnerable)
+                if (!sp.isCreative() && !sp.isSpectator() && sp.isInvulnerable()) {
+                    sp.setInvulnerable(false);
+                }
                 interceptInFlightProjectilesForRagdollPlayer(sp);
             }
             UUID uid = player.getUUID();
@@ -2378,7 +2382,7 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
     @SubscribeEvent(priority = EventPriority.LOWEST, receiveCanceled = true)
     public static void onProjectileImpactUncancelForRagdoll(ProjectileImpactEvent event) {
         if (event.isCanceled() && event.getRayTraceResult() instanceof net.minecraft.world.phys.EntityHitResult ehr) {
-            if (ehr.getEntity() instanceof Player) {
+            if (ehr.getEntity() instanceof LivingEntity le && !(le instanceof Player p && (p.isCreative() || p.isSpectator()))) {
                 event.setCanceled(false);
             }
         }
@@ -2386,8 +2390,114 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
 
     @SubscribeEvent(priority = EventPriority.LOWEST, receiveCanceled = true)
     public static void onLivingIncomingDamageUncancelForRagdoll(LivingIncomingDamageEvent event) {
-        if (event.isCanceled() && event.getEntity() instanceof Player) {
-            event.setCanceled(false);
+        LivingEntity le = event.getEntity();
+        if (le != null && !le.level().isClientSide() && !(le instanceof Player p && (p.isCreative() || p.isSpectator()))) {
+            if (le.isInvulnerable()) {
+                le.setInvulnerable(false);
+            }
+            if (event.isCanceled()) {
+                event.setCanceled(false);
+            }
+        }
+    }
+
+    /**
+     * 【打破其他生物 (僵尸/怪物/村民等所有 LivingEntity) 布娃娃状态无敌】
+     * 当第三方布娃娃模组使非玩家生物进入布娃娃时，自动清除其无敌标记并在弹射物/子弹飞经时强制结算命中！
+     */
+    @SubscribeEvent
+    public static void onLivingTickBreakMobRagdollInvuln(net.neoforged.neoforge.event.tick.EntityTickEvent.Pre event) {
+        if (!(event.getEntity() instanceof LivingEntity le) || le instanceof Player) return;
+        if (le.level().isClientSide() || !le.isAlive()) return;
+        if (le.isInvulnerable()) {
+            le.setInvulnerable(false);
+        }
+        // 每 2 tick 扫描周围高速飞行的投射物/TaCZ子弹，防止非玩家生物在布娃娃姿态下躲过射线检测
+        if ((le.tickCount & 1) != 0) return;
+        boolean hasNearbyRagdoll = !le.level().getEntitiesOfClass(Entity.class, le.getBoundingBox().inflate(2.5),
+                e -> e != null && e != le && e.getClass().getName().toLowerCase().contains("ragdoll")).isEmpty();
+        if (!hasNearbyRagdoll && le.isPickable() && le.canBeHitByProjectile()) return;
+
+        AABB search = le.getBoundingBox().inflate(12.0);
+        for (Projectile proj : le.level().getEntitiesOfClass(Projectile.class, search, p -> p != null && p.isAlive() && p.getOwner() != le)) {
+            String key = "rmm_mobhit_" + le.getId();
+            if (proj.getPersistentData().getBoolean(key)) continue;
+            Vec3 vel = proj.getDeltaMovement();
+            if (vel.lengthSqr() < 0.01) continue;
+            Vec3 start = proj.position().subtract(vel.scale(0.5));
+            Vec3 end = proj.position().add(vel.scale(1.6));
+            AABB box = le.getBoundingBox().inflate(0.45);
+            if (box.contains(start) || box.clip(start, end).isPresent()) {
+                proj.getPersistentData().putBoolean(key, true);
+                LivingEntity owner = (proj.getOwner() instanceof LivingEntity ole) ? ole : null;
+                boolean isTacz = proj.getClass().getName().toLowerCase().contains("tacz") || proj.getClass().getName().toLowerCase().contains("kineticbullet");
+                float dmg = extractProjectileOrBulletDamage(proj, owner, isTacz, le.position());
+                DamageSource src = (proj instanceof AbstractArrow arr)
+                        ? le.damageSources().arrow(arr, owner != null ? owner : proj)
+                        : (owner instanceof Player ap ? le.damageSources().playerAttack(ap) : le.damageSources().thrown(proj, owner));
+                le.setInvulnerable(false);
+                le.invulnerableTime = 0;
+                le.hurt(src, dmg);
+                if (!proj.isRemoved()) proj.discard();
+            }
+        }
+    }
+
+    /**
+     * 【打破布娃娃无敌 —— 防线 3（近战挥砍布娃娃实体伤害穿透转发）】
+     * 当玩家使用剑/空手砍中 Sable 生成的独立布娃娃实体时，自动定位对应倒地/布娃娃玩家并直接结算完整近战伤害与创伤！
+     */
+    @SubscribeEvent(priority = EventPriority.HIGH)
+    public static void onAttackRagdollEntityTransfer(net.neoforged.neoforge.event.entity.player.AttackEntityEvent event) {
+        Player attacker = event.getEntity();
+        Entity target = event.getTarget();
+        if (attacker == null || target == null || attacker.level().isClientSide()) return;
+        if (target instanceof Player) return;
+
+        String cls = target.getClass().getName().toLowerCase();
+        if (!cls.contains("ragdoll") && !cls.contains("corpse")) return;
+
+        if (attacker.level() instanceof net.minecraft.server.level.ServerLevel sLevel) {
+            float atkDmg = (float) attacker.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.ATTACK_DAMAGE);
+            if (atkDmg < 1.0f) atkDmg = 2.0f;
+
+            // 1) 优先匹配布娃娃对应的玩家
+            ServerPlayer ownerPlayer = null;
+            double bestDistSq = 12.25;
+            for (ServerPlayer sp : sLevel.players()) {
+                if (sp == null || !sp.isAlive() || sp == attacker || sp.isCreative() || sp.isSpectator()) continue;
+                double dSq = sp.distanceToSqr(target);
+                if (dSq < bestDistSq) {
+                    bestDistSq = dSq;
+                    ownerPlayer = sp;
+                }
+            }
+            if (ownerPlayer != null) {
+                ownerPlayer.setInvulnerable(false);
+                ownerPlayer.invulnerableTime = 0;
+                DamageSource src = ownerPlayer.damageSources().playerAttack(attacker);
+                applyDirectProjectileOrGunTrauma(ownerPlayer, attacker, attacker, src, atkDmg, false);
+                ownerPlayer.hurt(src, 1.0f);
+                return;
+            }
+
+            // 2) 若非玩家布娃娃，查找附近 3.5 格内对应的其他生物 (僵尸/怪物/村民等) 并传导完整伤害！
+            LivingEntity ownerMob = null;
+            double bestMobDistSq = 12.25;
+            for (LivingEntity le : sLevel.getEntitiesOfClass(LivingEntity.class, target.getBoundingBox().inflate(3.5))) {
+                if (le == null || !le.isAlive() || le == attacker || le == target || le instanceof Player) continue;
+                if (le.getClass().getName().toLowerCase().contains("ragdoll")) continue;
+                double dSq = le.distanceToSqr(target);
+                if (dSq < bestMobDistSq) {
+                    bestMobDistSq = dSq;
+                    ownerMob = le;
+                }
+            }
+            if (ownerMob != null) {
+                ownerMob.setInvulnerable(false);
+                ownerMob.invulnerableTime = 0;
+                ownerMob.hurt(ownerMob.damageSources().playerAttack(attacker), atkDmg);
+            }
         }
     }
 
@@ -2450,11 +2560,15 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
         Vec3 rayEnd = rayStart.add(rayDir.scale(traceDist));
 
         // 检查玩家是否处于布娃娃/倒地/匍匐状态，或者原版碰撞箱无法被该弹射物正常命中
-        boolean inKnockdownOrProne = isPlayerTemporarilyKnockedDown(target)
+        boolean hasNearbyRagdoll = !target.level().getEntitiesOfClass(Entity.class, target.getBoundingBox().inflate(3.0),
+                e -> e != null && e != target && e.getClass().getName().toLowerCase().contains("ragdoll")).isEmpty();
+        boolean inKnockdownOrProne = hasNearbyRagdoll
+                || isPlayerTemporarilyKnockedDown(target)
                 || target.getPose() == Pose.SWIMMING
                 || target.getForcedPose() == Pose.SWIMMING
                 || !target.isPickable()
                 || !target.canBeHitByProjectile()
+                || target.isInvulnerable()
                 || target.getBbHeight() < 1.35f;
 
         // 只有在玩家处于倒地/布娃娃状态（或原版碰撞被布娃娃模组屏蔽）时才启用宽体布娃娃补偿盒；
@@ -3071,13 +3185,18 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
         if (entity instanceof Projectile proj && !entity.level().isClientSide() && entity.level() instanceof net.minecraft.server.level.ServerLevel sLevel) {
             for (ServerPlayer sp : sLevel.players()) {
                 if (sp != null && sp.isAlive() && proj.getOwner() != sp) {
-                    boolean inRagdollOrProne = isPlayerTemporarilyKnockedDown(sp)
+                    boolean hasNearbyRagdoll = !sLevel.getEntitiesOfClass(Entity.class, sp.getBoundingBox().inflate(3.0),
+                            e -> e != null && e != sp && e.getClass().getName().toLowerCase().contains("ragdoll")).isEmpty();
+                    boolean inRagdollOrProne = hasNearbyRagdoll
+                            || isPlayerTemporarilyKnockedDown(sp)
                             || sp.getPose() == Pose.SWIMMING
                             || sp.getForcedPose() == Pose.SWIMMING
                             || !sp.isPickable()
                             || !sp.canBeHitByProjectile()
+                            || sp.isInvulnerable()
                             || sp.getBbHeight() < 1.35f;
                     if (inRagdollOrProne) {
+                        if (!sp.isCreative() && !sp.isSpectator()) sp.setInvulnerable(false);
                         tryForceProjectileHitOnTarget(proj, sp, true);
                     }
                 }
@@ -3552,22 +3671,15 @@ player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
         private static void trackF5AndEnforceFirstPerson(net.minecraft.client.Minecraft mc) {
             if (mc == null || mc.options == null || mc.player == null) return;
 
-            boolean f5Down = mc.options.keyTogglePerspective != null && mc.options.keyTogglePerspective.isDown();
-            if (f5Down && !prevF5Down) {
-                userManuallySetThirdPerson = !mc.options.getCameraType().isFirstPerson();
-            }
-            prevF5Down = f5Down;
-
             Player player = mc.player;
             MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
+            // 仅在真正处于受创倒地/布娃娃/昏迷时强制第一人称；正常状态下 100% 放行 F5 自由切换视角！
             boolean inKnockdownOrProne = clientKnockdownMirrorTicks > 0
-                    || player.getPose() == Pose.SWIMMING
                     || player.getForcedPose() == Pose.SWIMMING
                     || (data != null && (data.getConsciousness() <= 0 || data.isCardiacArrest()));
 
-            if ((inKnockdownOrProne || !userManuallySetThirdPerson) && !mc.options.getCameraType().isFirstPerson()) {
+            if (inKnockdownOrProne && !mc.options.getCameraType().isFirstPerson()) {
                 mc.options.setCameraType(net.minecraft.client.CameraType.FIRST_PERSON);
-                userManuallySetThirdPerson = false;
             }
         }
 

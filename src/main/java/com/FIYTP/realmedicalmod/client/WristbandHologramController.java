@@ -2,7 +2,6 @@ package com.FIYTP.realmedicalmod.client;
 
 import com.FIYTP.realmedicalmod.capability.MedicalData;
 import com.FIYTP.realmedicalmod.capability.MedicalDataCapability;
-import com.FIYTP.realmedicalmod.client.render.TacticalWatchModelRenderer;
 import com.FIYTP.realmedicalmod.client.render.WristbandArmRenderLayer;
 import com.FIYTP.realmedicalmod.config.MedicalConfig;
 import com.FIYTP.realmedicalmod.treatment.ModItems;
@@ -67,9 +66,11 @@ public final class WristbandHologramController {
     private static float settleVelocity = 0.0f;
     private static boolean settledPlayed = false;
 
-    // 持枪适配：左手/枪身微抖与微倾
+    // 持枪适配与思路 C 腕表马达两下短促微震 (Buzz-Buzz)
     private static float gunTactileTremorSec = 0.0f;
     private static float gunInspectBlend = 0.0f;
+    private static float hapticBuzzElapsedSec = 99.0f;
+    private static float hapticBuzzStrength = 0.0f;
 
     // 落地沉重缓冲
     private static boolean wasOnGround = true;
@@ -100,12 +101,32 @@ public final class WristbandHologramController {
         return Mth.clamp(raiseAmount, 0.0f, 1.0f);
     }
 
+    private static boolean leftHandWatchRenderedByMixin = false;
+
+    public static void markLeftHandWatchRendered() {
+        leftHandWatchRenderedByMixin = true;
+    }
+
+    public static float getVisualActiveLevel() {
+        return Mth.clamp(Math.max(raiseAmount, gunInspectBlend), 0.0f, 1.0f);
+    }
+
     public static AnimMode getMode() {
         return mode;
     }
 
     public static boolean isInspecting() {
         return mode == AnimMode.HOLD_INSPECT && raiseAmount > 0.25f;
+    }
+
+    /**
+     * 思路 C：触发腕表马达两下短促触觉微震 (Buzz-Buzz)，绝不自动抢占左手！
+     * 提示玩家有新伤情/趋势播报驻留在表盘未读队列中，随时长按 H 抬腕即可查看。
+     */
+    public static void triggerHapticBuzz(float strength) {
+        hapticBuzzElapsedSec = 0.0f;
+        hapticBuzzStrength = Mth.clamp(strength, 0.25f, 1.0f);
+        gunTactileTremorSec = Math.max(gunTactileTremorSec, 0.36f);
     }
 
     public static void triggerBroadcastGlance(float holdDurationSec) {
@@ -119,8 +140,11 @@ public final class WristbandHologramController {
         MedicalData data = player.getData(MedicalDataCapability.MEDICAL_DATA);
         if (data != null && (data.getConsciousness() <= 0 || data.isCardiacArrest())) return;
 
-        if (isHoldingGunOrTwoHanded(player) || !player.getOffhandItem().isEmpty()) {
-            gunTactileTremorSec = Math.max(gunTactileTremorSec, 0.65f);
+        if (!player.getOffhandItem().isEmpty()) {
+            return;
+        }
+        if (isHoldingGunOrTwoHanded(player)) {
+            gunTactileTremorSec = Math.max(gunTactileTremorSec, 0.55f);
             return;
         }
 
@@ -232,19 +256,7 @@ public final class WristbandHologramController {
         }
         wasOnGround = onGround;
 
-        // 阶段 1 受伤自动微抬实测触发器
-        int curBleed = 0;
-        if (data != null) {
-            for (MedicalData.LimbData ld : data.getAllLimbs().values()) {
-                curBleed += ld.getBleeding() + ld.getInternalBleedingRate();
-            }
-        }
-        float curHp = player.getHealth();
-        if (lastObservedHealth >= 0.0f && (curHp < lastObservedHealth - 0.1f || curBleed > lastObservedBleedTotal + 20)) {
-            triggerBroadcastGlance(2.4f);
-        }
-        lastObservedHealth = curHp;
-        lastObservedBleedTotal = curBleed;
+        // 阶段 3 起由 WristBroadcastManager 统一监测双向生理趋势拐点并按需触发可打断微抬瞥一眼
 
         // 长按 H 键检测（已彻底移除难听的合成音效）
         boolean holdKeyDown = KeyHandler.OPEN_MEDICAL_KEY.isDown();
@@ -254,9 +266,11 @@ public final class WristbandHologramController {
                 inspectElapsedSec = 0.0f;
                 settledPlayed = false;
                 if (holdingGun) {
-                    gunTactileTremorSec = 0.60f;
+                    gunTactileTremorSec = 0.45f;
                 }
             }
+            // 持枪时绝不额外画出第三只手！手表已通过 PlayerRendererMixin 直接佩戴在 TaCZ 第一人称左手上，
+            // 持枪按 H 仅触发克制的枪身/左手微倾与战术微抖；非持枪时才接管左手抬腕检视。
             if (!holdingGun) {
                 mode = AnimMode.HOLD_INSPECT;
                 glanceRemainSec = 0.0f;
@@ -264,6 +278,7 @@ public final class WristbandHologramController {
         } else if (wasHoldKeyDown && mode == AnimMode.HOLD_INSPECT) {
             mode = AnimMode.IDLE;
             raiseVelocity -= 0.45f;
+            WristBroadcastManager.onPlayerLoweredWatch();
         }
         wasHoldKeyDown = holdKeyDown;
     }
@@ -273,7 +288,8 @@ public final class WristbandHologramController {
         Minecraft mc = Minecraft.getInstance();
         Player player = mc.player;
         if (player == null || mc.options.getCameraType() != CameraType.FIRST_PERSON) return;
-        if (gunInspectBlend <= 0.002f && gunTactileTremorSec <= 0.001f) return;
+        boolean buzzing = hapticBuzzElapsedSec < 0.34f;
+        if (gunInspectBlend <= 0.002f && gunTactileTremorSec <= 0.001f && !buzzing) return;
 
         float rollAdd = 0.0f;
         float pitchAdd = 0.0f;
@@ -281,11 +297,19 @@ public final class WristbandHologramController {
             pitchAdd += gunInspectBlend * 1.8f;
             rollAdd -= gunInspectBlend * 1.6f;
         }
-        if (gunTactileTremorSec > 0.001f) {
+        // 思路 C：极克制的腕表马达两下短促微震 (0.00~0.11s 轻震 -> 0.11~0.19s 停顿 -> 0.19~0.30s 轻震)
+        if (buzzing) {
+            boolean inPulse = (hapticBuzzElapsedSec < 0.11f) || (hapticBuzzElapsedSec >= 0.19f && hapticBuzzElapsedSec < 0.30f);
+            if (inPulse) {
+                float t = System.currentTimeMillis() * 0.085f;
+                rollAdd += Mth.sin(t) * 0.38f * hapticBuzzStrength;
+                pitchAdd += Mth.cos(t * 1.25f) * 0.22f * hapticBuzzStrength;
+            }
+        } else if (gunTactileTremorSec > 0.001f) {
             float env = Mth.clamp(gunTactileTremorSec / 0.65f, 0.0f, 1.0f);
             float t = System.currentTimeMillis() * 0.044f;
-            rollAdd += Mth.sin(t) * 0.95f * env;
-            pitchAdd += Mth.cos(t * 1.3f) * 0.55f * env;
+            rollAdd += Mth.sin(t) * 0.65f * env;
+            pitchAdd += Mth.cos(t * 1.3f) * 0.35f * env;
         }
         event.setPitch(event.getPitch() + pitchAdd);
         event.setRoll(event.getRoll() + rollAdd);
@@ -303,6 +327,9 @@ public final class WristbandHologramController {
         if (gunTactileTremorSec > 0.0f) {
             gunTactileTremorSec = Math.max(0.0f, gunTactileTremorSec - dt);
         }
+        if (hapticBuzzElapsedSec < 10.0f) {
+            hapticBuzzElapsedSec += dt;
+        }
 
         boolean holdingGun = isHoldingGunOrTwoHanded(player);
         float targetGunBlend = (holdingGun && wasHoldKeyDown) ? 1.0f : 0.0f;
@@ -318,7 +345,7 @@ public final class WristbandHologramController {
 
         float target = holdingGun ? 0.0f : switch (mode) {
             case HOLD_INSPECT -> 1.0f;
-            case GLANCE_BROADCAST -> 0.78f;
+            case GLANCE_BROADCAST -> 0.76f;
             case IDLE -> 0.0f;
         };
 
@@ -456,18 +483,22 @@ public final class WristbandHologramController {
 
         // 以“左手腕手表中心 (0, 0, 0)”为锚点，从屏幕左下方自然弧线抬升至黄金观表中央偏左下！
         float arcX = -Mth.sin(Mth.clamp(t, 0.0f, 1.0f) * Mth.PI) * 0.06f;
-        float wristX = Mth.lerp(t, -0.58f, -0.14f) + arcX - swayYaw * 0.0042f + moveBobX + jitterX;
-        float wristY = Mth.lerp(t, -0.64f, -0.13f) + swayPitch * 0.0040f + moveBobY + breathY + postureY
-                + settleImpulse + landingDip + flourishY + jitterY;
-        float wristZ = Mth.lerp(t, -0.58f, -0.46f);
+        // 舒适观表距离（不再贴脸）：推远至 -0.64f，略微下移偏左让整只手腕与 3D 手表构图自然舒展
+        float gunShiftX = isHoldingGunOrTwoHanded(player) ? -0.05f : 0.0f;
+        float gunShiftY = isHoldingGunOrTwoHanded(player) ? -0.04f : 0.0f;
+        float gunMicro = (gunTactileTremorSec > 0.001f)
+                ? Mth.sin(System.currentTimeMillis() * 0.055f) * 0.007f * Mth.clamp(gunTactileTremorSec / 0.55f, 0.0f, 1.0f)
+                : 0.0f;
+        float wristX = Mth.lerp(t, -0.64f, -0.20f) + gunShiftX + arcX - swayYaw * 0.0042f + moveBobX + jitterX + gunMicro;
+        float wristY = Mth.lerp(t, -0.72f, -0.19f) + gunShiftY + swayPitch * 0.0040f + moveBobY + breathY + postureY
+                + settleImpulse + landingDip + flourishY + jitterY + gunMicro * 0.7f;
+        float wristZ = Mth.lerp(t, -0.72f, -0.64f);
 
-        // 严格验证的横臂观表旋转：
-        // - RZ(-68°)：肘部向左下、手掌向右上横在胸前
-        // - RX(-12°)：表盘法线 (+Z) 略微上仰正对玩家双眼（点积 > 0.95！）
-        // - RY(+10°)：前臂微内收符合真实人体工学
-        float rotZ = Mth.lerp(t, -25.0f, -68.0f) + swayYaw * 0.35f + breathRoll;
-        float rotX = Mth.lerp(t, -35.0f, -12.0f) - swayPitch * 0.65f + landingDip * 40.0f + flourishPitch;
-        float rotY = Mth.lerp(t, 28.0f, 10.0f) + swayYaw * 0.72f + flourishRoll;
+        // 精确对齐 PlayerRendererMixin 挂在 leftArm 外侧 (+X) 的表盘法线：
+        // - 先 ZP(-68°) 横臂于胸前，再绕手臂自身轴线 YP(-82°) 将外侧 (+X) 表盘正对玩家双眼 (+Z，点积 0.99！)
+        float rotZ = Mth.lerp(t, -22.0f, -68.0f) + swayYaw * 0.35f + breathRoll;
+        float rotX = Mth.lerp(t, -26.0f, -10.0f) - swayPitch * 0.65f + landingDip * 40.0f + flourishPitch;
+        float rotY = Mth.lerp(t, -25.0f, -82.0f) + swayYaw * 0.72f + flourishRoll;
 
         PoseStack poseStack = event.getPoseStack();
         MultiBufferSource bufferSource = event.getMultiBufferSource();
@@ -477,30 +508,26 @@ public final class WristbandHologramController {
 
         poseStack.pushPose();
         poseStack.translate(wristX, wristY, wristZ);
-        poseStack.mulPose(Axis.YP.rotationDegrees(rotY));
         poseStack.mulPose(Axis.XP.rotationDegrees(rotX));
         poseStack.mulPose(Axis.ZP.rotationDegrees(rotZ));
+        poseStack.mulPose(Axis.YP.rotationDegrees(rotY));
 
-        // 1. 渲染玩家真实皮肤左前臂：使用 TreatmentClientHooks 验证过的精确反偏移，把手腕中心对齐到 (0, 0, 0)
-        poseStack.pushPose();
+        // 双保险渲染：先渲染玩家真实皮肤左前臂；若 PlayerRendererMixin 未注册/未触发，立即直接兜底渲染 3D 手表（绝不缺失、绝不重画）
         float armCenterOffsetX = isSlim ? -0.34375f : -0.375f;
         poseStack.translate(armCenterOffsetX, -0.46875f, 0.0f);
+        leftHandWatchRenderedByMixin = false;
         playerRenderer.renderLeftHand(poseStack, bufferSource, packedLight, player);
-        poseStack.popPose();
-
-        // 2. 在同一个手腕原点 (0, 0, 0) 上直接渲染 320+ 面高精度 3D 手表！
-        //    表带环绕 Y 轴严丝合缝包裹手腕，表盘 +Z 100% 正对玩家双眼！
-        float armHalfW = isSlim ? 0.095f : 0.126f;
-        float armHalfD = 0.126f;
-        TacticalWatchModelRenderer.renderWatchOnWrist(
-                poseStack,
-                bufferSource,
-                packedLight,
-                data,
-                armHalfW,
-                armHalfD,
-                Mth.clamp(t, 0.0f, 1.0f)
-        );
+        if (!leftHandWatchRenderedByMixin) {
+            WristbandArmRenderLayer.applyExactLeftWristTransformAndRender(
+                    poseStack,
+                    bufferSource,
+                    packedLight,
+                    playerRenderer.getModel(),
+                    player,
+                    data,
+                    Mth.clamp(t, 0.0f, 1.0f)
+            );
+        }
 
         poseStack.popPose();
     }

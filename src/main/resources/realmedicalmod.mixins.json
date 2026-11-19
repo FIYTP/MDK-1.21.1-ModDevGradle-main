@@ -9,7 +9,8 @@
     "FontMixin",
     "HumanoidArmorLayerMixin",
     "KeyboardInputMixin",
-    "MouseHandlerMixin"
+    "MouseHandlerMixin",
+    "PlayerRendererMixin"
   ],
   "injectors": {
     "defaultRequire": 0
